@@ -53,8 +53,11 @@ def run_cp_worker(
     device = torch.device(f"cuda:{rank}")
 
     # wram up comm
-    dist.all_gather(torch.zeros(1, device=device), torch.zeros(1, device=device))
-    dist.all_gather(torch.zeros(1, device=device), torch.zeros(1, device=device))
+    # gathered_lse = [torch.empty_like(lse) for _ in range(cp_size)]
+    xs = [torch.zeros(1, device=device) for _ in range(cp_size)]
+    dist.all_gather(xs, xs[0])
+    # dist.all_gather(torch.zeros(1, device=device), torch.zeros(1, device=device))
+    # dist.all_gather(torch.zeros(1, device=device), torch.zeros(1, device=device))
 
     # ————————————————
     # 2) workspace + wrapper
