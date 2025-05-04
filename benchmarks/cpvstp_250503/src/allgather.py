@@ -4,9 +4,7 @@ import time
 import argparse
 import numpy as np
 import json
-from torch.distributed import ReduceOp
 from rich import print
-
 from pathlib import Path
 
 myrank = 0
@@ -14,7 +12,6 @@ def print_if_rank_0(msg):
     global myrank
     if myrank == 0:
         print(msg)
-
 
 def setup_distributed():
     """Initialize distributed environment"""
@@ -24,12 +21,15 @@ def setup_distributed():
         myrank = dist.get_rank()
     return dist.get_rank(), dist.get_world_size()
 
-def benchmark_allreduce(tensor_size, num_iterations=10):
-    """Benchmark allreduce operation for a given tensor size"""
+def benchmark_allgather(tensor_size, num_iterations=10):
+    """Benchmark allgather operation for a given tensor size"""
     rank, world_size = setup_distributed()
     
-    # Create tensor
-    tensor = torch.rand(tensor_size, device=f'cuda:{rank}')
+    # Create input tensor
+    input_tensor = torch.rand(tensor_size, device=f'cuda:{rank}')
+    
+    # Create output tensor list
+    output_tensors = [torch.empty_like(input_tensor) for _ in range(world_size)]
     
     # Create CUDA events for timing
     start_event = torch.cuda.Event(enable_timing=True)
@@ -37,15 +37,15 @@ def benchmark_allreduce(tensor_size, num_iterations=10):
     
     # Warmup
     for _ in range(10):
-        dist.all_reduce(tensor, op=ReduceOp.SUM)
+        dist.all_gather(output_tensors, input_tensor)
     
     torch.distributed.barrier()
-
+    
     # Benchmark
     times = []
     for _ in range(num_iterations):
         start_event.record()
-        dist.all_reduce(tensor, op=ReduceOp.SUM)
+        dist.all_gather(output_tensors, input_tensor)
         end_event.record()
         
         # Wait for the events to complete
@@ -62,11 +62,12 @@ def benchmark_allreduce(tensor_size, num_iterations=10):
     std_time = np.std(times)
     min_time = np.min(times)
     max_time = np.max(times)
-    data_size_mb = tensor.element_size() * tensor.nelement() / (1024*1024)
+    data_size_mb = input_tensor.element_size() * input_tensor.nelement() / (1024*1024)
     
     result = {
         "tensor_size": tensor_size,
         "data_size_mb": round(data_size_mb, 2),
+        "total_data_size_mb": round(data_size_mb * world_size, 2),  # Total data gathered across all ranks
         "world_size": world_size,
         "iterations": num_iterations,
         "mean_time_ms": round(mean_time, 3),
@@ -77,7 +78,7 @@ def benchmark_allreduce(tensor_size, num_iterations=10):
     return result
 
 def main():
-    parser = argparse.ArgumentParser(description='Benchmark allreduce operations')
+    parser = argparse.ArgumentParser(description='Benchmark allgather operations')
     parser.add_argument('--sizes', type=int, nargs='+', 
                         default=[2 ** k for k in range(1, 34 + 1)],
                         help='List of tensor sizes to benchmark')
@@ -91,10 +92,12 @@ def main():
     
     # do a warmup
     for _ in range(3):
-        dist.all_reduce(torch.rand(1024, device=f'cuda:{rank}'), op=ReduceOp.SUM)
+        input_tensor = torch.rand(1024, device=f'cuda:{rank}')
+        output_tensors = [torch.empty_like(input_tensor) for _ in range(world_size)]
+        dist.all_gather(output_tensors, input_tensor)
     torch.distributed.barrier()
 
-    output_file = Path(__file__).parent.parent / 'results' / f'allreduce.w{world_size}.jsonl'
+    output_file = Path(__file__).parent.parent / 'results' / f'allgather.w{world_size}.jsonl'
     
     if rank == 0:
         print_if_rank_0({
@@ -108,7 +111,7 @@ def main():
         iterations = args.iterations
         if size > 2 ** 28:
             iterations = 5
-        result = benchmark_allreduce(size, iterations)
+        result = benchmark_allgather(size, iterations)
         if rank == 0:
             print_if_rank_0(json.dumps(result))
             with open(output_file, 'a') as f:
@@ -116,7 +119,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 """
-torchrun --nproc_per_node=2 allreduce.py 
-torchrun --nproc_per_node=4 allreduce.py 
+torchrun --nproc_per_node=2 allgather.py 
+torchrun --nproc_per_node=4 allgather.py 
 """
