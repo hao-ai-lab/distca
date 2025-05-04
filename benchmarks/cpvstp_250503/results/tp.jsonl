@@ -85,3 +85,4 @@
 {"rank": 0, "batch_size": 1, "qo_len": 131072, "kv_len": 131072, "num_qo_heads": 64, "num_kv_heads": 8, "head_dim": 128, "tp_size": 1, "computed_time": 2430.64697265625}
 {"rank": 0, "batch_size": 1, "qo_len": 262144, "kv_len": 262144, "num_qo_heads": 64, "num_kv_heads": 8, "head_dim": 128, "tp_size": 1, "computed_time": 9864.6123046875}
 {"rank": 0, "batch_size": 1, "qo_len": 524288, "kv_len": 524288, "num_qo_heads": 64, "num_kv_heads": 8, "head_dim": 128, "tp_size": 1, "computed_time": 40809.2421875}
+{"rank": 0, "batch_size": 1, "qo_len": 1048576, "kv_len": 1048576, "num_qo_heads": 64, "num_kv_heads": 8, "head_dim": 128, "tp_size": 1, "computed_time": 167328.65625}
