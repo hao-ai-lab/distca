@@ -79,7 +79,7 @@ def safe_run_flash_attention(rank, batch_size, qo_len, kv_len, num_qo_heads, num
 # Example batch run
 if __name__ == "__main__":
     mp.set_start_method("spawn")  # Safe for CUDA
-    cp_degrees = [1, 2, 4, 8]
+    cp_degrees = [4, 1, 2, 8]
     qo_lens = [8, 16, 32, 64, 128, 256]
     batch_sizes = [1, 2, 4, 8]
     result = []
@@ -127,7 +127,7 @@ if __name__ == "__main__":
                         if "error" in res:
                             rprint(f"[red]Error in cp_degree={cp_degree}, rank={rank}, batch_size={batch_size}, qo_len={qo_len}: {res['error']}[/red]")
                             continue
-                        
+
                         rprint(f"[green]cp_degree={cp_degree}, rank={rank}, batch_size={batch_size}, qo_len={qo_len}: {res['median_compute_time']:.2f} ms[/green]")
                     
                         # Add cp_degree to result
