@@ -47,21 +47,26 @@ def visualize_mask_heatmap(mask):
 
 def run_flash_attention(rank, batch_size, qo_len, kv_len, num_qo_heads, num_kv_heads, head_dim, device, queue):
     try:
-        q = torch.randn(qo_len * batch_size, num_qo_heads, head_dim).half().to(device)
-        k = torch.randn(kv_len, num_kv_heads, head_dim).half().to(device)
-        v = torch.randn(kv_len, num_kv_heads, head_dim).half().to(device)
+        q = torch.randn(qo_len * batch_size, num_qo_heads, head_dim, device=device, dtype=torch.float16)
+        print(f"q.shape: {q.shape}, q size: {q.numel() * q.element_size() / 1024 ** 3} GB")
+        k = torch.randn(kv_len, num_kv_heads, head_dim, device=device, dtype=torch.float16)
+        print(f"k.shape: {k.shape}, k size: {k.numel() * k.element_size() / 1024 ** 3} GB")
+        v = torch.randn(kv_len, num_kv_heads, head_dim, device=device, dtype=torch.float16)
+        print(f"v.shape: {v.shape}, v size: {v.numel() * v.element_size() / 1024 ** 3} GB")
         mask = get_mask(qo_len, kv_len, rank, batch_size).to(device)
-
+        print(f"mask.shape: {mask.shape}, mask size: {mask.numel() * mask.element_size() / 1024 ** 3} GB")
         compute_times = []
 
         for _ in range(10):
             start_event = torch.cuda.Event(enable_timing=True)
             end_event = torch.cuda.Event(enable_timing=True)
             start_event.record()
-            _ = flashinfer.single_prefill_with_kv_cache(q, k, v, custom_mask=mask)
+            o_custom = flashinfer.single_prefill_with_kv_cache(q, k, v, custom_mask=mask)
             end_event.record()
             torch.cuda.synchronize()
+            print(f"o_custom.shape: {o_custom.shape}, o_custom size: {o_custom.numel() * o_custom.element_size() / 1024 ** 3} GB")
             compute_times.append(start_event.elapsed_time(end_event))
+            torch.cuda.empty_cache()
 
         median_time = np.median(compute_times)
         result = dict(
@@ -89,7 +94,7 @@ def safe_run_flash_attention(rank, batch_size, qo_len, kv_len, num_qo_heads, num
         args=(rank, batch_size, qo_len, kv_len, num_qo_heads, num_kv_heads, head_dim, device, queue)
     )
     p.start()
-    p.join(timeout=300) # seconds
+    p.join(timeout=60) # seconds
 
     if p.is_alive():
         p.terminate()
@@ -100,7 +105,7 @@ def safe_run_flash_attention(rank, batch_size, qo_len, kv_len, num_qo_heads, num
 # Example batch run
 if __name__ == "__main__":
     mp.set_start_method("spawn")  # Safe for CUDA
-    cp_degrees = [4, 1, 2, 8]
+    cp_degrees = [4, 8, 2, 1]
     qo_lens = [8, 16, 32, 64, 128, 256]
     batch_sizes = [1, 2, 4, 8]
     result = []
@@ -129,6 +134,7 @@ if __name__ == "__main__":
                     item['num_qo_heads'], item['num_kv_heads'], item['head_dim']
                 )
                 completed_runs.add(key)
+    print(f"Completed runs: {completed_runs}")
 
     total_tasks = len(batch_sizes) * len(qo_lens) * sum([
         cp_degree for cp_degree in cp_degrees
@@ -147,22 +153,27 @@ if __name__ == "__main__":
             for cp_degree in cp_degrees:
                 for batch_size in batch_sizes:
                     for qo_len in qo_lens:
-                        for rank in range(cp_degree):
+                        # # for rank in range(cp_degree):
+                        for rank in range(1):
                             # Skip if already computed
                             num_qo_heads = config['num_qo_heads']
                             num_kv_heads = config['num_kv_heads']
                             head_dim = config['head_dim']
+
+                            adjusted_qo_len = K * (qo_len // cp_degree)
+                            kv_len = K * qo_len
+
                             key = (
-                                cp_degree, rank, batch_size, qo_len,
+                                cp_degree, rank, batch_size, adjusted_qo_len,
                                 num_qo_heads, num_kv_heads, head_dim,
                             )
                             if key in completed_runs:
                                 progress.console.print(f"[yellow]Skipping completed run: cp_degree={cp_degree}, rank={rank}, batch_size={batch_size}, qo_len={qo_len}[/yellow]")
                                 progress.advance(task)
                                 continue
+                            print(f"key: {key} not in completed_runs")
 
-                            adjusted_qo_len = K * (qo_len // cp_degree)
-                            kv_len = K * qo_len
+                            
                             res = safe_run_flash_attention(
                                 rank, batch_size, adjusted_qo_len, kv_len, 
                                 num_qo_heads, num_kv_heads, head_dim,
@@ -181,4 +192,5 @@ if __name__ == "__main__":
                             with open(result_path, "a") as f:
                                 json.dump(res, f)
                                 f.write("\n")
+
                         
