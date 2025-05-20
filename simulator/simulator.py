@@ -1,4 +1,5 @@
 import argparse
+import json
 from typing import List, Tuple
 
 import numpy as np
@@ -283,37 +284,56 @@ class Simulator:
 def test(data_path, tokenizer, batch_size,
          tp_degree, cp_degree, dp_degree,
          num_tokens_per_data,
-         hqo=32, hkv=8, d=128, d1=4096, d2=None,
+         hqo=32, hkv=8, d=128, d1=4096, d2=None, gpu="A100-SXM-80GB", dtype="half",
          batch_samples=100):
-    doc_dataset = load_dataset(data_path, streaming=True)
+    
+    if data_path == "./data/fake.json":
+        with open(data_path, "r") as f:
+            doc_dataset = json.load(f)
+    else:
+        _doc_dataset = load_dataset(data_path)["train"]
+        doc_dataset = [
+            len(tokenizer.encode(doc["text"]))
+            for doc in _doc_dataset
+        ]
     assert batch_size % dp_degree == 0
 
-    sim = Simulator(hqo=hqo, hkv=hkv, d=d, d1=d1, d2=d2)
+    sim = Simulator(hqo=hqo, hkv=hkv, d=d, d1=d1, d2=d2, gpu=gpu, dtype=dtype)
 
-    def get_data():
+    def get_data(num_tokens_per_data, doc_dataset):
         data_budget = num_tokens_per_data
-        doc_lens = []
-        for data in doc_dataset:
-            token_count = len(tokenizer(data["text"]).input_ids)
-            while data_budget < token_count:
-                doc_lens.append(data_budget)
-                yield doc_lens
-                doc_lens = []
-                data_budget = num_tokens_per_data
-                token_count -= data_budget
+        doc_lens    = []
 
-            if data_budget >= token_count:
+        for token_count in doc_dataset:
+            # carve out as many full chunks as needed
+            while token_count > data_budget:
+                # consume whatever remains of this batch
+                consumed = data_budget
+                doc_lens.append(consumed)
+                yield doc_lens
+
+                # now subtract _that_ consumed amount, reset for the next batch
+                token_count -= consumed
+                data_budget = num_tokens_per_data
+                doc_lens    = []
+
+            # at this point token_count <= data_budget
+            if token_count > 0:
                 doc_lens.append(token_count)
                 data_budget -= token_count
+
+        # finally, if there are any leftover pieces, yield them too
+        if doc_lens:
+            yield doc_lens
 
     # collect time from all samples
     ours = []
     baseline = []
     wlb = []
     for sample in range(batch_samples):
-        datas = [
-            get_data() for _ in range(batch_size)
-        ]
+        datas = get_data(num_tokens_per_data, doc_dataset)
+        datas = list(datas)
+        
         # based on dp_degree, split the batch
         dp_batches = [
             np.concatenate(datas[i:i + batch_size // dp_degree])

@@ -169,3 +169,15 @@ attn_time = [
 ]
 attn_time
 # %%
+import matplotlib.pyplot as plt
+
+# Plotting the histogram of attn_time
+plt.figure(figsize=(10, 6))
+plt.hist(attn_time, bins=50, color='skyblue', edgecolor='black')
+plt.title('Histogram of Attention Time')
+plt.xlabel('Attention Time (us)')
+plt.ylabel('Frequency')
+plt.grid(axis='y', alpha=0.75)
+plt.show()
+
+# %%
