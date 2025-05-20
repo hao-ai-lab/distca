@@ -48,7 +48,7 @@ class Simulator:
         if num_tokens.ndim != 1:
             raise ValueError("num_tokens must be a 1-dimensional array.")
         if np.any(num_tokens <= 0):
-            raise ValueError("All values in num_tokens must be positive.")
+            raise ValueError("All values in num_tokens must be positive., got: ", num_tokens)
         if tp_degree <= 0 or cp_degree <= 0:
             raise ValueError("tp_degree and cp_degree must be positive.")
         if (tp_degree & (tp_degree - 1)) != 0 or (cp_degree & (cp_degree - 1)) != 0:
@@ -207,7 +207,8 @@ class Simulator:
         parallel_plan.append((0, 0))
         resource.append(0)
         resource = np.array(resource)
-        latency = np.concatenate((latency, np.full((1, batch.shape[0]), np.inf)), axis=0)
+        # latency = np.concatenate((latency, np.full((1, batch.shape[0]), np.inf)), 
+        latency = np.concatenate((latency, np.full((1, batch.shape[0]), 1e10)), axis=0)
 
         # 2. ILP
         num_sols = len(parallel_plan)
@@ -218,6 +219,7 @@ class Simulator:
         # Decision variables
         x = [[pulp.LpVariable(f"x_{i}_{j}", cat="Binary") for j in range(num_sols)] for i in range(num_worker_max)]
         y = [[pulp.LpVariable(f"y_{k}_{i}", cat="Binary") for i in range(num_worker_max)] for k in range(num_data)]
+        # z = [[pulp.LpVariable(f"z_{i}_{i}", cat="Binary") for i in range(num_worker_max)] for k in range(num_data)]
 
         # Latency for each worker
         lat_worker = [pulp.LpVariable(f"lat_{i}") for i in range(num_worker_max)]
@@ -237,14 +239,32 @@ class Simulator:
         # Compute latency per worker
         for i in range(num_worker_max):
             # latency of worker i = sum_k sum_j (x[i][j] * y[k][i] * latency[j][k])
-            lat_expr = pulp.lpSum(
-                #     raise TypeError("Non-constant expressions cannot be multiplied")
-                x[i][j] * y[k][i] * latency[j][k]
-                for j in range(num_sols)
-                for k in range(num_data)
-            )
-            prob += lat_worker[i] == lat_expr
-            prob += lat_worker[i] <= lat_max
+
+            lat_expr = None
+            for j in range(num_sols):
+                for k in range(num_data):
+                    z = pulp.LpVariable(f"z_{i}_{j}_{k}", cat="Binary")
+                    prob += z <= x[i][j]
+                    prob += z <= y[k][i]
+                    prob += z >= x[i][j] + y[k][i] - 1
+
+                    if lat_expr is None:
+                        lat_expr = z * latency[j][k]
+                    else:
+                        lat_expr += z * latency[j][k]
+            
+            prob += (lat_worker[i] == lat_expr)
+            prob += (lat_worker[i] <= lat_max)
+                    
+
+            # lat_expr = pulp.lpSum(
+            #     #     raise TypeError("Non-constant expressions cannot be multiplied")
+            #     x[i][j] * y[k][i] * latency[j][k]
+            #     for j in range(num_sols)
+            #     for k in range(num_data)
+            # )
+            # prob += lat_worker[i] == lat_expr
+            # prob += lat_worker[i] <= lat_max
 
         # Resource constraint
         prob += pulp.lpSum(x[i][j] * resource[j] for i in range(num_worker_max) for j in range(num_sols)) <= num_total_devices
@@ -338,6 +358,7 @@ def test(
     for sample in range(batch_samples):
         datas = get_data(num_tokens_per_data, doc_dataset)
         datas = list(datas)
+        # check if all data are positive
 
         # based on dp_degree, split the batch
         dp_batches = [
@@ -345,6 +366,8 @@ def test(
             for i in range(0, batch_size, batch_size // dp_degree)
         ]
         batch = np.concatenate(datas)
+        batch = batch[batch > 0]
+
         # 1. ours
         ours_time = sim.get_dp_attn_balanced_time(dp_batches, tp_degree, cp_degree, num_worker_max)
         # 2. baseline
@@ -385,3 +408,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+
+"""
