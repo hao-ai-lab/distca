@@ -178,6 +178,7 @@ class Simulator:
                 results.append(batch[assigned_data])
         return results, pulp.value(lat_max)
 
+    # TODO: Rewrite it using pyomo and couenne. 
     def _balance_attn(self, batch: np.ndarray, num_total_devices: int, num_worker_max: int) -> List[Tuple[np.ndarray, int, int]]:
         """Ours: balance attn by using different tp_degree and cp_degree for each worker."""
         # NOTE: ideal case can be solved by an ILP:
@@ -237,6 +238,7 @@ class Simulator:
         for i in range(num_worker_max):
             # latency of worker i = sum_k sum_j (x[i][j] * y[k][i] * latency[j][k])
             lat_expr = pulp.lpSum(
+                #     raise TypeError("Non-constant expressions cannot be multiplied")
                 x[i][j] * y[k][i] * latency[j][k]
                 for j in range(num_sols)
                 for k in range(num_data)
@@ -264,7 +266,7 @@ class Simulator:
 
         return results
 
-    def get_dp_attn_balanced_time(self, dp_batches: List[np.ndarray], tp_degree: int, cp_degree: int) -> float:
+    def get_dp_attn_balanced_time(self, dp_batches: List[np.ndarray], tp_degree: int, cp_degree: int, num_worker_max: int) -> float:
         mlp_time = [
             self.get_batch_mlp_time(batch, tp_degree, cp_degree) for batch in dp_batches
         ]
@@ -272,7 +274,7 @@ class Simulator:
         num_total_devices = tp_degree * cp_degree * len(dp_batches)
 
         total_batch = np.concatenate(dp_batches)
-        attn_configs = self._balance_attn(total_batch, num_total_devices)
+        attn_configs = self._balance_attn(total_batch, num_total_devices, num_worker_max)
 
         attn_time = [
             self.get_batch_attn_time(*attn_config) for attn_config in attn_configs
@@ -281,11 +283,14 @@ class Simulator:
         # NOTE: add communication time?
         return attn_time + mlp_time
 
-def test(data_path, tokenizer, batch_size,
-         tp_degree, cp_degree, dp_degree,
-         num_tokens_per_data,
-         hqo=32, hkv=8, d=128, d1=4096, d2=None, gpu="A100-SXM-80GB", dtype="half",
-         batch_samples=100):
+def test(
+    data_path, tokenizer, batch_size,
+    tp_degree, cp_degree, dp_degree,
+    num_tokens_per_data,
+    hqo=32, hkv=8, d=128, d1=4096, d2=None, gpu="A100-SXM-80GB", dtype="half",
+    batch_samples=100, 
+    num_worker_max=8
+):
     
     if data_path == "./data/fake.json":
         with open(data_path, "r") as f:
@@ -333,7 +338,7 @@ def test(data_path, tokenizer, batch_size,
     for sample in range(batch_samples):
         datas = get_data(num_tokens_per_data, doc_dataset)
         datas = list(datas)
-        
+
         # based on dp_degree, split the batch
         dp_batches = [
             np.concatenate(datas[i:i + batch_size // dp_degree])
@@ -341,7 +346,7 @@ def test(data_path, tokenizer, batch_size,
         ]
         batch = np.concatenate(datas)
         # 1. ours
-        ours_time = sim.get_dp_attn_balanced_time(dp_batches, tp_degree, cp_degree)
+        ours_time = sim.get_dp_attn_balanced_time(dp_batches, tp_degree, cp_degree, num_worker_max)
         # 2. baseline
         baseline_time = sim.get_dp_batch_time(dp_batches, tp_degree, cp_degree)
         # 3. wlb balance
@@ -359,14 +364,16 @@ def main():
     parser.add_argument("--tp_degree", type=int, default=1)
     parser.add_argument("--cp_degree", type=int, default=1)
     parser.add_argument("--dp_degree", type=int, default=1)
-    parser.add_argument("--num_tokens_per_data", type=int, default=512)
-    parser.add_argument("--hqo", type=int, default=32)
-    parser.add_argument("--hkv", type=int, default=8)
-    parser.add_argument("--d", type=int, default=128)
-    parser.add_argument("--d1", type=int, default=4096)
-    parser.add_argument("--d2", type=int, default=None)
-    parser.add_argument("--batch_samples", type=int, default=100)
+    parser.add_argument("--num_tokens_per_data", type=int, default=16 * 1024)
+    parser.add_argument("--hqo", type=int, default=32, help="Number of query/output heads")
+    parser.add_argument("--hkv", type=int, default=8, help="Number of key/value heads")
+    parser.add_argument("--d", type=int, default=128, help="Head dimension")
+    parser.add_argument("--d1", type=int, default=4096, help="Hidden dimension")
+    parser.add_argument("--d2", type=int, default=None, help="MLP intermediate dimension")
+    parser.add_argument("--batch_samples", type=int, default=1, help="Simulator: number of batches to sample for this test.")
+    parser.add_argument("--num_worker_max", type=int, default=8, help="Number of GPUs for the attention server.")
     args = parser.parse_args()
+    print(args)
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     # Run the test
