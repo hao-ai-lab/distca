@@ -88,16 +88,16 @@ class Simulator:
         hqo = self.hqo / tp_degree
         hkv = self.hkv / tp_degree
 
+        def M(m, k, n):
+            return compute.gemm_time(
+                gpu=self.gpu,
+                m=m, k=k, n=n,
+                dtype=self.dtype,
+            )
         # Scale tokens by cp_degree
         if do_sum:
             T = np.sum(num_tokens)
 
-            def M(m, k, n):
-                return compute.gemm_time(
-                    gpu=self.gpu,
-                    m=m, k=k, n=n,
-                    dtype=self.dtype,
-                )
 
             # Compute total MLP time
             mlp_time = (
