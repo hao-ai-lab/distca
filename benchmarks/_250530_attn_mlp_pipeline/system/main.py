@@ -8,3 +8,13 @@ vllm_image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install("vllm-flash-attn")
 )
+
+
+def attn_worker(self_ranks, world_size, tp, cp):
+    pass
+
+
+def mlp_worker(self_ranks, world_size, tp, cp):
+    pass
+
+

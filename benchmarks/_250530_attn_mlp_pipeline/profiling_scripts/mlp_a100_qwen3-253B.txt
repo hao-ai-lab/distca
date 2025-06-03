@@ -13,7 +13,7 @@ model.layers.0.mlp.gate                          0.075 ms     0.52 M
 model.layers.0.*expert*                         21.295 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 1024
 total layer 0 time: 23.614 ms
 full forward time: 60.825 ms
@@ -35,7 +35,7 @@ model.layers.0.mlp.gate                          0.080 ms     0.52 M
 model.layers.0.*expert*                         22.591 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 2048
 total layer 0 time: 26.846 ms
 full forward time: 70.522 ms
@@ -57,7 +57,7 @@ model.layers.0.mlp.gate                          0.092 ms     0.52 M
 model.layers.0.*expert*                         24.943 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 4096
 total layer 0 time: 32.390 ms
 full forward time: 85.180 ms
@@ -79,7 +79,7 @@ model.layers.0.mlp.gate                          0.125 ms     0.52 M
 model.layers.0.*expert*                         30.835 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 8192
 total layer 0 time: 47.684 ms
 full forward time: 122.633 ms
@@ -101,7 +101,7 @@ model.layers.0.mlp.gate                          0.176 ms     0.52 M
 model.layers.0.*expert*                         43.215 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 16384
 total layer 0 time: 86.905 ms
 full forward time: 208.010 ms
@@ -123,7 +123,7 @@ model.layers.0.mlp.gate                          0.336 ms     0.52 M
 model.layers.0.*expert*                         67.285 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 32768
 total layer 0 time: 195.744 ms
 full forward time: 411.227 ms
@@ -145,7 +145,7 @@ model.layers.0.mlp.gate                          0.412 ms     0.52 M
 model.layers.0.*expert*                         90.660 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 49152
 total layer 0 time: 349.971 ms
 full forward time: 660.024 ms
@@ -167,7 +167,7 @@ model.layers.0.mlp.gate                          0.508 ms     0.52 M
 model.layers.0.*expert*                        114.411 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 65536
 total layer 0 time: 547.884 ms
 full forward time: 951.984 ms
@@ -189,7 +189,7 @@ model.layers.0.mlp.gate                          0.748 ms     0.52 M
 model.layers.0.*expert*                        160.859 ms  2415.92 M
 ----------------------------------------------------------------------
 model: Qwen/Qwen3-235B-A22B
-device: cuda:0
+device: H100
 ctx_len: 98304
 total layer 0 time: 1082.563 ms
 full forward time: 1676.458 ms

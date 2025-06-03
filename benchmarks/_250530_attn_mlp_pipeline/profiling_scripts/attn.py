@@ -147,7 +147,7 @@ def mlp_gemm(
     return duration
 
 
-@app.function(gpu="B200:1")
+@app.function(gpu="H100:1")
 def mlp_benchmark():
     import time
     import torch
@@ -172,7 +172,7 @@ def mlp_benchmark():
         is_leaf = len(list(module.children())) == 0
         is_attn = "attn" in module.__class__.__name__.lower() or \
                 "attention" in module.__class__.__name__.lower()
-        return is_leaf 
+        return True
 
     for name, m in model.named_modules():
         if not want_hook(name, m):
@@ -228,22 +228,20 @@ def mlp_benchmark():
             total_layer0_time += dur
 
         print(f"{'model.layers.0.*expert*':45}  {expert_time:7.3f} ms  {expert_params/1e6:7.2f} M")
-        print("-"*70)
-        print(f"model: {model_id}")
-        device_name = torch.cuda.get_device_name(model.device)
-        print(f"device: {device_name}")
-        print(f"ctx_len: {ctx_len}")
-        print(f"total layer 0 time: {total_layer0_time:.3f} ms")
-        print(f"full forward time: {total:.3f} ms")
         
         return total_layer0_time, total
 
 
     K = 1024
+    device_name = torch.cuda.get_device_name(model.device)
     ctx_lengths = [K * i for i in [1, 2, 4, 8, 16, 32, 48, 64, 96]]
     for ctx_len in ctx_lengths:
         print(f"\nMLP testing context length: {ctx_len}")
         layer0_time, total_time = run_model_profile(ctx_len)
+        print("-"*70)
+        print(f"model: {model_id}")
+        print(f"device: {device_name}")
+        print(f"ctx_len: {ctx_len}")
         print(f"layer 0 time: {layer0_time:.3f} ms")
         print(f"total time: {total_time:.3f} ms")
         torch.cuda.empty_cache()
@@ -253,27 +251,109 @@ def mlp_benchmark():
 
 
 # @app.local_entrypoint()
-# def main():
-#     model_config = dict(
-#         num_qo_heads = 64,
-#         num_kv_heads = 4,
-#         head_dim = 128,
-#     )
-#     batch = " [i * K for i in [16] + [2] * 8 ] "
-#     print(f"Batch: {batch}")
-#     print("-" * 10)
-#     for tp in [1, 2, 4, 8]:
-#         for cp in [1, 2, 4, 8]:
-#             avg_duration = attn_flash_attn.remote(
-#                 batch = eval(batch),
-#                 cp = cp,
-#                 tp = tp,
-#                 **model_config,
-#             )
-#             print(f"TP: {tp}, CP: {cp}, Result: {avg_duration:.2f} ms")
-#     print("-" * 10)
+def main_1_attn_benchmark():
+    model_config = dict(
+        num_qo_heads = 64,
+        num_kv_heads = 4,
+        head_dim = 128,
+    )
+    batches = [
+        " [i * K for i in [16] ] ", # 16 K
+        " [i * K for i in [8]  + [1] * 8 ] ", # 16 K
+        " [i * K for i in [16] + [2] * 8 ] ", # 32 K
+        " [i * K for i in [32] ] ", # 32 K
+        " [i * K for i in [32] + [2] * 8 ] ", # 48 K
+        " [i * K for i in [32] + [4] * 8 ] ", # 64 K
+        " [i * K for i in [64] ] ", # 64 K
+
+        # " [i * K for i in [64] + [4] * 8 ] ", # 96 K
+    ]
+    print("-" * 10)
+    for batch in batches:
+        print(f"Batch: {batch}")
+        for tp in [1, 2, 4, 8]:
+            for cp in [1, 2, 4, 8]:
+                avg_duration = attn_flash_attn.remote(
+                    batch = eval(batch),
+                    cp = cp,
+                    tp = tp,
+                    **model_config,
+                )
+                print(f"TP: {tp}, CP: {cp}, Result: {avg_duration:.2f} ms")
+        print("-" * 10)
+
+# @app.local_entrypoint()
+def main_2_mlp_benchmark():
+    mlp_benchmark.remote()
+    pass
+
+
+
+def slice_workload(workload: list[int], max_seq_len: int):
+
+    def get_data(num_tokens_per_data, doc_dataset):
+        data_budget = num_tokens_per_data
+        doc_lens    = []
+
+        for token_count in doc_dataset:
+            # carve out as many full chunks as needed
+            while token_count > data_budget:
+                # consume whatever remains of this batch
+                consumed = data_budget
+                doc_lens.append(consumed)
+                yield doc_lens
+
+                # now subtract _that_ consumed amount, reset for the next batch
+                token_count -= consumed
+                data_budget = num_tokens_per_data
+                doc_lens    = []
+
+            # at this point token_count <= data_budget
+            if token_count > 0:
+                doc_lens.append(token_count)
+                data_budget -= token_count
+
+        # finally, if there are any leftover pieces, yield them too
+        if doc_lens:
+            yield doc_lens
+
+
+    batches = list(get_data(max_seq_len, workload))
+    return batches
+
 
 @app.local_entrypoint()
-def main():
-    mlp_benchmark.remote()
+def main_3_attn_dist():
+    import json
+    with open("fake.json", "r") as f:
+        workload = json.load(f)
+
+    model_config = dict(
+        num_qo_heads = 64,
+        num_kv_heads = 4,
+        head_dim = 128,
+    )
+    
+    max_seq_len = 64 * K
+    batches = slice_workload(workload, max_seq_len)
+    
+    for batch in batches:
+        avg_duration = attn_flash_attn.remote(
+            batch = batch,
+            cp = 1,
+            tp = 1,
+            **model_config,
+        )
+        print(f"Batch: {batch}, TP: {1}, CP: {1}, Result: {avg_duration:.2f} ms")
+        pass
+    # for batch in batches:
+    #     for tp in [1, 2, 4, 8]:
+    #         for cp in [1, 2, 4, 8]:
+    #             avg_duration = attn_flash_attn.remote(
+    #                 batch = batch,
+    #                 cp = cp,
+    #                 tp = tp,
+    #                 **model_config,
+    #             )
+    #             print(f"Batch: {batch}, TP: {tp}, CP: {cp}, Result: {avg_duration:.2f} ms")
     pass
