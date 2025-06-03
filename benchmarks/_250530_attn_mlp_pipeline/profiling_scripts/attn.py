@@ -154,38 +154,33 @@ def mlp_benchmark():
     from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
 
     model_id = "Qwen/Qwen3-235B-A22B"
-    cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=True)  # 94 layers originally  [oai_citation:0‡Hugging Face](https://huggingface.co/Qwen/Qwen3-235B-A22B/blob/main/config.json?utm_source=chatgpt.com)
-    cfg.num_hidden_layers = 1          # ← the only change strictly required
-    torch.set_default_device("cuda")                # PyTorch 2.1+
-    torch.manual_seed(42)              # reproducible randomness
-
+    cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+    cfg.num_hidden_layers = 1
+    torch.set_default_device("cuda")
+    torch.manual_seed(42)
 
     with torch.no_grad():
-        model = AutoModelForCausalLM.from_config(cfg, trust_remote_code=True)
+        # ValueError: Specified `attn_implementation="flash_attention_3"` is not supported. 
+        # The only possible arguments are `attn_implementation="eager"` (manual attention implementation), `"attn_implementation=flash_attention_2"` (implementation using flash attention 2), `"attn_implementation=sdpa"` (implementation using torch.nn.functional.scaled_dot_product_attention), `"attn_implementation=flex_attention"` (implementation using torch's flex_attention).
+        model = AutoModelForCausalLM.from_config(cfg, trust_remote_code=True, attn_implementation="sdpa").eval()
 
     tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
     profile = {}  # name → dict(start, end, params)
 
-    def want_hook(name, module):
-        # leaf = no children; skip attention classes (FlashAttention2, QwenAttention, …)
-        is_leaf = len(list(module.children())) == 0
-        is_attn = "attn" in module.__class__.__name__.lower() or \
-                "attention" in module.__class__.__name__.lower()
-        return True
-
     for name, m in model.named_modules():
-        if not want_hook(name, m):
-            continue
-
+        is_leaf = len(list(m.children())) == 0
+        
         # forward-pre & forward hooks share the closure variable 'name'
         def pre_hook(mod, inp, name=name):
-            profile[name] = {"start": time.perf_counter(),
-                            "params": sum(p.numel() for p in mod.parameters())}
+            event = torch.cuda.Event(enable_timing=True)
+            profile[name] = {"start": event, "params": sum(p.numel() for p in mod.parameters()), "is_leaf": is_leaf}
+            event.record()
 
         def post_hook(mod, inp, out, name=name):
-            torch.cuda.synchronize()
-            profile[name]["end"] = time.perf_counter()
+            event = torch.cuda.Event(enable_timing=True)
+            profile[name]["end"] = event
+            event.record()
 
         m.register_forward_pre_hook(pre_hook, prepend=True)
         m.register_forward_hook(post_hook)
@@ -199,15 +194,21 @@ def mlp_benchmark():
             model(**inp)                        # warm-up (CUDA kernels/JIT)
             torch.cuda.synchronize()
 
-            start = time.perf_counter()
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            
+            start_event.record()
             model(**inp)
+            end_event.record()
             torch.cuda.synchronize()
-            total = time.perf_counter() - start
-            total *= 1e3
+
+            duration = start_event.elapsed_time(end_event)
+            total = duration
 
         rows = []
         for name, rec in profile.items():
-            dur_ms = (rec["end"] - rec["start"]) * 1e3
+            dur_ms = rec["start"].elapsed_time(rec["end"])
+            rec['duration'] = dur_ms
             rows.append((dur_ms, name, rec["params"]))
 
         print(f"{'module':45}  latency  params")
@@ -217,17 +218,18 @@ def mlp_benchmark():
         expert_time = 0
         expert_params = 0
         for dur, name, nparam in rows:
-            if "layers.0" not in name:
+            if not "expert" in name:
+                print(f"{name:45}  {dur:7.3f} ms  {nparam/1e6:7.2f} M")
+
+            if "layers.0." not in name:
                 continue
-                
-            if "experts" in name:
+            if "expert" in name:
                 expert_time += dur
                 expert_params += nparam
-            else:
-                print(f"{name:45}  {dur:7.3f} ms  {nparam/1e6:7.2f} M")
+                pass
             total_layer0_time += dur
-
         print(f"{'model.layers.0.*expert*':45}  {expert_time:7.3f} ms  {expert_params/1e6:7.2f} M")
+
         
         return total_layer0_time, total
 
@@ -282,7 +284,8 @@ def main_1_attn_benchmark():
                 print(f"TP: {tp}, CP: {cp}, Result: {avg_duration:.2f} ms")
         print("-" * 10)
 
-# @app.local_entrypoint()
+
+@app.local_entrypoint()
 def main_2_mlp_benchmark():
     mlp_benchmark.remote()
     pass
@@ -322,7 +325,7 @@ def slice_workload(workload: list[int], max_seq_len: int):
     return batches
 
 
-@app.local_entrypoint()
+# @app.local_entrypoint()
 def main_3_attn_dist():
     import json
     with open("fake.json", "r") as f:
