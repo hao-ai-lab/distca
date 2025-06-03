@@ -1,0 +1,198 @@
+MLP testing context length: 1024
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   0.129 ms     0.00 M
+model.layers.0.self_attn.q_proj                  0.199 ms    33.55 M
+model.layers.0.self_attn.q_norm                  0.169 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.062 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.106 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.050 ms     2.10 M
+model.layers.0.self_attn.o_proj                  0.152 ms    33.55 M
+model.layers.0.post_attention_layernorm          0.133 ms     0.00 M
+model.layers.0.mlp.gate                          0.058 ms     0.52 M
+model.layers.0.*expert*                          9.941 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 1024
+total layer 0 time: 11.000 ms
+full forward time: 28.629 ms
+layer 0 time: 11.000 ms
+total time: 28.629 ms
+
+MLP testing context length: 2048
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   0.201 ms     0.00 M
+model.layers.0.self_attn.q_proj                  0.253 ms    33.55 M
+model.layers.0.self_attn.q_norm                  0.297 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.065 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.096 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.058 ms     2.10 M
+model.layers.0.self_attn.o_proj                  0.604 ms    33.55 M
+model.layers.0.post_attention_layernorm          0.181 ms     0.00 M
+model.layers.0.mlp.gate                          0.058 ms     0.52 M
+model.layers.0.*expert*                         10.602 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 2048
+total layer 0 time: 12.415 ms
+full forward time: 31.830 ms
+layer 0 time: 12.415 ms
+total time: 31.830 ms
+
+MLP testing context length: 4096
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   0.288 ms     0.00 M
+model.layers.0.self_attn.q_proj                  0.415 ms    33.55 M
+model.layers.0.self_attn.q_norm                  0.544 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.082 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.107 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.063 ms     2.10 M
+model.layers.0.self_attn.o_proj                  1.771 ms    33.55 M
+model.layers.0.post_attention_layernorm          0.290 ms     0.00 M
+model.layers.0.mlp.gate                          0.063 ms     0.52 M
+model.layers.0.*expert*                         11.633 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 4096
+total layer 0 time: 15.256 ms
+full forward time: 38.650 ms
+layer 0 time: 15.256 ms
+total time: 38.650 ms
+
+MLP testing context length: 8192
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   0.517 ms     0.00 M
+model.layers.0.self_attn.q_proj                  0.793 ms    33.55 M
+model.layers.0.self_attn.q_norm                  1.036 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.097 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.114 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.083 ms     2.10 M
+model.layers.0.self_attn.o_proj                  5.372 ms    33.55 M
+model.layers.0.post_attention_layernorm          0.539 ms     0.00 M
+model.layers.0.mlp.gate                          0.075 ms     0.52 M
+model.layers.0.*expert*                         13.736 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 8192
+total layer 0 time: 22.362 ms
+full forward time: 54.088 ms
+layer 0 time: 22.362 ms
+total time: 54.088 ms
+
+MLP testing context length: 16384
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   0.988 ms     0.00 M
+model.layers.0.self_attn.q_proj                  1.544 ms    33.55 M
+model.layers.0.self_attn.q_norm                  2.055 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.153 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.172 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.141 ms     2.10 M
+model.layers.0.self_attn.o_proj                 17.925 ms    33.55 M
+model.layers.0.post_attention_layernorm          1.060 ms     0.00 M
+model.layers.0.mlp.gate                          0.089 ms     0.52 M
+model.layers.0.*expert*                         18.324 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 16384
+total layer 0 time: 42.451 ms
+full forward time: 91.461 ms
+layer 0 time: 42.451 ms
+total time: 91.461 ms
+
+MLP testing context length: 32768
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   2.050 ms     0.00 M
+model.layers.0.self_attn.q_proj                  3.524 ms    33.55 M
+model.layers.0.self_attn.q_norm                  4.379 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.283 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.329 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.273 ms     2.10 M
+model.layers.0.self_attn.o_proj                 68.022 ms    33.55 M
+model.layers.0.post_attention_layernorm          2.081 ms     0.00 M
+model.layers.0.mlp.gate                          0.153 ms     0.52 M
+model.layers.0.*expert*                         27.984 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 32768
+total layer 0 time: 109.078 ms
+full forward time: 195.885 ms
+layer 0 time: 109.078 ms
+total time: 195.885 ms
+
+MLP testing context length: 49152
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   3.053 ms     0.00 M
+model.layers.0.self_attn.q_proj                  5.242 ms    33.55 M
+model.layers.0.self_attn.q_norm                  6.493 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.369 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.457 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.353 ms     2.10 M
+model.layers.0.self_attn.o_proj                134.265 ms    33.55 M
+model.layers.0.post_attention_layernorm          3.052 ms     0.00 M
+model.layers.0.mlp.gate                          0.192 ms     0.52 M
+model.layers.0.*expert*                         36.678 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 49152
+total layer 0 time: 190.154 ms
+full forward time: 311.319 ms
+layer 0 time: 190.154 ms
+total time: 311.319 ms
+
+MLP testing context length: 65536
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   4.101 ms     0.00 M
+model.layers.0.self_attn.q_proj                  7.192 ms    33.55 M
+model.layers.0.self_attn.q_norm                  8.875 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.527 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.616 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.510 ms     2.10 M
+model.layers.0.self_attn.o_proj                217.776 ms    33.55 M
+model.layers.0.post_attention_layernorm          4.063 ms     0.00 M
+model.layers.0.mlp.gate                          0.237 ms     0.52 M
+model.layers.0.*expert*                         45.903 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 65536
+total layer 0 time: 289.800 ms
+full forward time: 450.778 ms
+layer 0 time: 289.800 ms
+total time: 450.778 ms
+
+MLP testing context length: 98304
+Stopping app - local entrypoint completed.
+module                                         latency  params
+----------------------------------------------------------------------
+model.layers.0.input_layernorm                   6.085 ms     0.00 M
+model.layers.0.self_attn.q_proj                 10.505 ms    33.55 M
+model.layers.0.self_attn.q_norm                 12.694 ms     0.00 M
+model.layers.0.self_attn.k_proj                  0.645 ms     2.10 M
+model.layers.0.self_attn.k_norm                  0.843 ms     0.00 M
+model.layers.0.self_attn.v_proj                  0.631 ms     2.10 M
+model.layers.0.self_attn.o_proj                483.802 ms    33.55 M
+model.layers.0.post_attention_layernorm          6.130 ms     0.00 M
+model.layers.0.mlp.gate                          0.327 ms     0.52 M
+model.layers.0.*expert*                         64.064 ms  2415.92 M
+----------------------------------------------------------------------
+model: Qwen/Qwen3-235B-A22B
+device: A100
+ctx_len: 98304
+total layer 0 time: 585.727 ms
+full forward time: 831.499 ms
+layer 0 time: 585.727 ms
+total time: 831.499 ms
