@@ -26,16 +26,13 @@ def compute_dst_offsets(
     world_size = original_shape[0]
     
     # Flatten the tensor to 2D (world_size, total_tokens_per_rank) for generic processing
-    if glob_dst_id.dim() > 2:
-        glob_dst_id_flat = glob_dst_id.reshape(world_size, -1)
-    else:
-        glob_dst_id_flat = glob_dst_id
+    assert glob_dst_id.dim() == 2, "glob_dst_id must be 2D"
 
-    num_tokens = glob_dst_id_flat.shape[1]
+    num_tokens = glob_dst_id.shape[1]
 
     # 1. Count how many tokens each rank sends to every other rank.
     # `counts[d, s]` will be the number of tokens sent from rank `s` to rank `d`.
-    one_hot_dest = torch.nn.functional.one_hot(glob_dst_id_flat, num_classes=world_size).long()
+    one_hot_dest = torch.nn.functional.one_hot(glob_dst_id, num_classes=world_size).long()
     counts = torch.sum(one_hot_dest, dim=1).transpose(0, 1)
 
     # 2. Calculate the base offset for tokens from each source rank.
@@ -53,7 +50,7 @@ def compute_dst_offsets(
     # We use the destination IDs to gather the correct base offset for each token.
     # `base_offsets_gathered[s, t]` = base_offset at `dest_id[s,t]` for tokens from `s`
     src_rank_indices = torch.arange(world_size, device=glob_dst_id.device).unsqueeze(1)
-    base_offsets_gathered = base_offsets[glob_dst_id_flat, src_rank_indices]
+    base_offsets_gathered = base_offsets[glob_dst_id, src_rank_indices]
     
     glob_dst_offset_flat = base_offsets_gathered + intra_rank_offsets
     

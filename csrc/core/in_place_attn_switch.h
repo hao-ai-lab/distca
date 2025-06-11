@@ -38,11 +38,20 @@ void qkv_dispatch(
     uint32_t cp_degree
 ) {
     // A grid for each token
-    dim3 grid_dim(token);
-    // A block for each hidden dimension element
-    dim3 block_dim(256);
+    int numSMs;
+    CUDACHECK(cudaDeviceGetAttribute(&numSMs, cudaDevAttrMultiProcessorCount, device));
 
-    moe_dispatch_kernel<<<grid_dim, block_dim>>>(
+    constexpr unsigned NUM_WARPS = 10;
+    const unsigned numBlocks = std::min(
+        std::max(
+            ceil_div<unsigned>(token, NUM_WARPS), (unsigned)(token * cp_degree)
+        ),
+        static_cast<unsigned>(numSMs)
+    );
+    dim3 dimGrid(numBlocks, 1, 1);
+    dim3 dimBlock(NUM_WARPS * 32, 1, 1);
+
+    qkv_dispatch_kernel<<<dimGrid, dimBlock>>>(
         query_out,
         key_value_out,
         query_in,

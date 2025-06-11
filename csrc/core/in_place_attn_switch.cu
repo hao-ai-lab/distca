@@ -17,41 +17,58 @@ __global__ void qkv_dispatch_kernel(
     size_t hidden_kv,
     uint32_t cp_degree
 ) {
-    // --- SENDER-SIDE LOGIC ---
+    // --- Calculate thread/warp IDs based on the new launch grid ---
+    const unsigned warp_size = 32;
+    // The local warp and lane index for the current thread
+    const unsigned warp_id_in_block = threadIdx.x / warp_size;
+    const unsigned lane_id = threadIdx.x % warp_size;
     
-    int token_idx = blockIdx.x;
-    if (token_idx < token) {
-        // --- 1. Dispatch the query tensor ---
-        int query_dest_rank = query_dst_id[token_idx];
-        int query_dest_offset = query_dst_offset[token_idx];
-        const T_q* query_src_ptr = query_in + token_idx * hidden_q;
-        T_q* query_dest_ptr = query_out + query_dest_offset * hidden_q;
+    // The number of warps per block is determined by the launch configuration
+    const unsigned warps_per_block = blockDim.x / warp_size;
 
-        if (threadIdx.x == 0) {
+    // The globally unique ID for the current warp across the entire grid
+    const unsigned global_warp_id = blockIdx.x * warps_per_block + warp_id_in_block;
+    // The total number of warps launched in the grid
+    const unsigned total_warps_in_grid = gridDim.x * warps_per_block;
+
+    // --- SENDER-SIDE LOGIC with Warp-Level Grid-Stride Loop ---
+    
+    // Each warp processes one token at a time and strides through the entire dataset.
+    // This allows a grid of any size to process all 'token' items.
+    for (int token_idx = global_warp_id; token_idx < token; token_idx += total_warps_in_grid) {
+        
+        // --- 1. Dispatch the query tensor ---
+        // The first lane of the assigned warp is responsible for dispatching the query.
+        if (lane_id == 0) {
+            int query_dest_rank = query_dst_id[token_idx];
+            int query_dest_offset = query_dst_offset[token_idx];
+            const T_q* query_src_ptr = query_in + token_idx * hidden_q;
+            T_q* query_dest_ptr = query_out + query_dest_offset * hidden_q;
+            
             nvshmem_putmem_nbi(query_dest_ptr, query_src_ptr, hidden_q * sizeof(T_q), query_dest_rank);
         }
 
         // --- 2. Dispatch the key_value tensor ---
-        for (int i = 0; i < cp_degree; ++i) {
+        // The lanes of the warp cooperate to dispatch the `cp_degree` copies.
+        // This loop strides by `warp_size`, so if cp_degree > 32, all lanes stay busy.
+        for (int i = lane_id; i < cp_degree; i += warp_size) {
             int kv_idx = token_idx * cp_degree + i;
+            
             int kv_dest_rank = key_value_dst_id[kv_idx];
             int kv_dest_offset = key_value_dst_offset[kv_idx];
             const T_kv* kv_src_ptr = key_value_in + token_idx * hidden_kv;
             T_kv* kv_dest_ptr = key_value_out + kv_dest_offset * hidden_kv;
 
-            if (threadIdx.x == i) {
-                nvshmem_putmem_nbi(kv_dest_ptr, kv_src_ptr, hidden_kv * sizeof(T_kv), kv_dest_rank);
-            }
+            nvshmem_putmem_nbi(kv_dest_ptr, kv_src_ptr, hidden_kv * sizeof(T_kv), kv_dest_rank);
         }
     }
 
     // --- RECEIVER-SIDE SYNCHRONIZATION ---
 
-    // The cooperative group sync ensures all threads in the grid reach this point
-    // before any thread proceeds to the final, world-wide synchronization.
+    // The cooperative group sync ensures all threads in the grid finish their loops.
     cooperative_groups::this_grid().sync();
 
-    // per grid barrier.
+    // per grid barrier
     if (blockIdx.x == 0 && threadIdx.x == 0) {
         nvshmem_quiet();
     }
