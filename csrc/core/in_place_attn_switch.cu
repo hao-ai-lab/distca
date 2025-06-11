@@ -55,6 +55,9 @@ __global__ void qkv_dispatch_kernel(
             int kv_idx = token_idx * cp_degree + i;
             
             int kv_dest_rank = key_value_dst_id[kv_idx];
+            if (kv_dest_rank == -1) {
+                continue;
+            }
             int kv_dest_offset = key_value_dst_offset[kv_idx];
             const T_kv* kv_src_ptr = key_value_in + token_idx * hidden_kv;
             T_kv* kv_dest_ptr = key_value_out + kv_dest_offset * hidden_kv;

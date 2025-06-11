@@ -24,7 +24,7 @@ def compute_dst_offsets(
 
     original_shape = glob_dst_id.shape
     world_size = original_shape[0]
-    
+
     # Flatten the tensor to 2D (world_size, total_tokens_per_rank) for generic processing
     assert glob_dst_id.dim() == 2, "glob_dst_id must be 2D"
 
@@ -44,16 +44,16 @@ def compute_dst_offsets(
     # This is the offset within the group of tokens coming from the same source to the same destination.
     # It's a running count for each destination within each source rank.
     intra_rank_offsets = torch.cumsum(one_hot_dest, dim=1) - one_hot_dest
-    intra_rank_offsets = torch.sum(intra_rank_offsets, dim=2) # Project back to get the final count
+    intra_rank_offsets = torch.sum(intra_rank_offsets * one_hot_dest, dim=2) # Project back to get the final count
 
     # 4. Combine the base offset and intra-rank offset.
     # We use the destination IDs to gather the correct base offset for each token.
     # `base_offsets_gathered[s, t]` = base_offset at `dest_id[s,t]` for tokens from `s`
     src_rank_indices = torch.arange(world_size, device=glob_dst_id.device).unsqueeze(1)
     base_offsets_gathered = base_offsets[glob_dst_id, src_rank_indices]
-    
+
     glob_dst_offset_flat = base_offsets_gathered + intra_rank_offsets
-    
+
     # Reshape back to the original input shape
     return glob_dst_offset_flat.reshape(original_shape)
 
@@ -82,10 +82,10 @@ def compute_reverse_comm(
     """
     if not fwd_dst_id.is_cuda or not fwd_dst_offset.is_cuda:
         raise TypeError("Input tensors must be CUDA tensors.")
-        
+
     original_shape = fwd_dst_id.shape
     world_size = original_shape[0]
-    
+
     # Flatten to (world_size, total_tokens_per_rank)
     fwd_dst_id_flat = fwd_dst_id.reshape(world_size, -1)
     fwd_dst_offset_flat = fwd_dst_offset.reshape(world_size, -1)
@@ -111,10 +111,10 @@ def compute_reverse_comm(
     # We then write the source (rank, token) into the reverse maps at that index.
     rev_dst_id = torch.zeros(world_size, max_received, dtype=torch.long, device=fwd_dst_id.device)
     rev_dst_offset = torch.zeros(world_size, max_received, dtype=torch.long, device=fwd_dst_id.device)
-    
+
     # Scatter source ranks into the reverse destination id tensor
     rev_dst_id.view(-1).scatter_(0, fwd_d_flat * max_received + fwd_o_flat, src_r_flat)
-    
+
     # Scatter source tokens into the reverse destination offset tensor
     rev_dst_offset.view(-1).scatter_(0, fwd_d_flat * max_received + fwd_o_flat, src_t_flat)
 
