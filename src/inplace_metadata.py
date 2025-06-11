@@ -201,5 +201,6 @@ if __name__ == '__main__':
     rev_dst_id, rev_dst_offset = compute_reverse_comm(dst_id, dst_offset)
     back_tensor = torch.zeros_like(dst_id, dtype=dst_tensor.dtype, device=DEVICE)
     back_tensor = orchestrate(dst_tensor, rev_dst_id, rev_dst_offset, dst_tensor=back_tensor)
-    back_tensor = back_tensor.sum(dim=2) / (back_tensor != 0).sum(dim=2)
-    assert torch.allclose(tensor, back_tensor)
+    back_tensor_dedup = back_tensor.sum(dim=2) / (back_tensor != 0).sum(dim=2)
+    assert torch.allclose(back_tensor_dedup.unsqueeze(2).repeat(1, 1, CP_DEGREE) * (back_tensor != 0), back_tensor)
+    assert torch.allclose(tensor, back_tensor_dedup)
