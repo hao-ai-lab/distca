@@ -48,21 +48,24 @@ __global__ void qkv_dispatch_kernel(
             nvshmem_putmem_nbi(query_dest_ptr, query_src_ptr, hidden_q * sizeof(T_q), query_dest_rank);
         }
 
-        // --- 2. Dispatch the key_value tensor ---
+        // --- 2. Dispatch the key_value tensor, if any ---
+        // attn_out -> mlp only uses the query_tensor's part: each token is sent to only one rank.
         // The lanes of the warp cooperate to dispatch the `cp_degree` copies.
         // This loop strides by `warp_size`, so if cp_degree > 32, all lanes stay busy.
-        for (int i = lane_id; i < cp_degree; i += warp_size) {
-            int kv_idx = token_idx * cp_degree + i;
-            
-            int kv_dest_rank = key_value_dst_id[kv_idx];
-            if (kv_dest_rank == -1) {
-                continue;
-            }
-            int kv_dest_offset = key_value_dst_offset[kv_idx];
-            const T_kv* kv_src_ptr = key_value_in + token_idx * hidden_kv;
-            T_kv* kv_dest_ptr = key_value_out + kv_dest_offset * hidden_kv;
+        if (key_value_in != nullptr) {
+            for (int i = lane_id; i < cp_degree; i += warp_size) {
+                int kv_idx = token_idx * cp_degree + i;
+                
+                int kv_dest_rank = key_value_dst_id[kv_idx];
+                if (kv_dest_rank == -1) {
+                    continue;
+                }
+                int kv_dest_offset = key_value_dst_offset[kv_idx];
+                const T_kv* kv_src_ptr = key_value_in + token_idx * hidden_kv;
+                T_kv* kv_dest_ptr = key_value_out + kv_dest_offset * hidden_kv;
 
-            nvshmem_putmem_nbi(kv_dest_ptr, kv_src_ptr, hidden_kv * sizeof(T_kv), kv_dest_rank);
+                nvshmem_putmem_nbi(kv_dest_ptr, kv_src_ptr, hidden_kv * sizeof(T_kv), kv_dest_rank);
+            }
         }
     }
 
