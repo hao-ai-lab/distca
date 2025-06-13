@@ -2,6 +2,9 @@
 #include <cuda.h>
 #include <nvshmem.h>
 
+#include "core/in_place_attn_switch.h"
+
+namespace {
 template <typename T_q, typename T_kv>
 __global__ void qkv_dispatch_kernel(
     T_q* query_out,
@@ -79,3 +82,75 @@ __global__ void qkv_dispatch_kernel(
         nvshmem_quiet();
     }
 }
+};  // namespace
+
+namespace attn {
+template <typename T_q, typename T_kv>
+void qkv_dispatch(
+    T_q* query_out,
+    T_kv* key_value_out,
+    const T_q* query_in,
+    const T_kv* key_value_in,
+    const int32_t* query_dst_id,
+    const int32_t* query_dst_offset,
+    const int32_t* key_value_dst_id,
+    const int32_t* key_value_dst_offset,
+    size_t token,
+    size_t hidden_q,
+    size_t hidden_kv,
+    uint32_t cp_degree,
+    cudaStream_t stream
+) {
+    // A grid for each token
+    int numSMs;
+    CUDACHECK(cudaDeviceGetAttribute(&numSMs, cudaDevAttrMultiProcessorCount, device));
+
+    constexpr unsigned NUM_WARPS = 10;
+    const unsigned numBlocks = std::min(
+        std::max(
+            ceil_div<unsigned>(token, NUM_WARPS), (unsigned)(token * cp_degree)
+        ),
+        static_cast<unsigned>(numSMs)
+    );
+    dim3 dimGrid(numBlocks, 1, 1);
+    dim3 dimBlock(NUM_WARPS * 32, 1, 1);
+
+    // CudaLaunchCooperativeKernel
+    void* args[] = {
+        &query_out,
+        &key_value_out,
+        &query_in,
+        &key_value_in,
+        &query_dst_id,
+        &query_dst_offset,
+        &key_value_dst_id,
+        &key_value_dst_offset,
+        &token,
+        &hidden_q,
+        &hidden_kv,
+        &cp_degree
+    };
+    CUDACHECK(cudaLaunchKernel(qkv_dispatch_kernel, dimGrid, dimBlock, args, 0, stream));
+}
+
+#define INSTANTIATE_QKV_DISPATCH(T_q, T_kv) \
+    template void qkv_dispatch<T_q, T_kv>( \
+        T_q* query_out, \
+        T_kv* key_value_out, \
+        const T_q* query_in, \
+        const T_kv* key_value_in, \
+        const int32_t* query_dst_id, \
+        const int32_t* query_dst_offset, \
+        const int32_t* key_value_dst_id, \
+        const int32_t* key_value_dst_offset, \
+        size_t token, \
+        size_t hidden_q, \
+        size_t hidden_kv, \
+        uint32_t cp_degree, \
+        cudaStream_t stream);
+
+INSTANTIATE_QKV_DISPATCH(float, float);
+INSTANTIATE_QKV_DISPATCH(nv_bfloat16, nv_bfloat16);
+INSTANTIATE_QKV_DISPATCH(half, half);
+};  // namespace attn
+

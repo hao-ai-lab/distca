@@ -43,11 +43,25 @@ function(set_cuda_compile_options target)
         $<$<COMPILE_LANGUAGE:CUDA>:--threads=32 -O3>)
 endfunction()
 
+# Add CUDA kernel library
+add_library(dispatch_kernels STATIC
+    core/in_place_attn_switch.cu
+)
+target_link_libraries(dispatch_kernels PUBLIC
+    CUDA::cudart
+)
+target_link_libraries(dispatch_kernels INTERFACE
+    nvshmem::nvshmem
+)
+set_cuda_compile_options(dispatch_kernels)
+
 add_library(as_comm SHARED
     bindings/bindings.cpp
     bindings/nvshmem.cpp
+    bindings/all_to_all.cpp
 )
 target_link_libraries(as_comm PUBLIC
+    attn_kernels
     torch::py_limited
     Python::Module
     CUDA::cuda_driver
