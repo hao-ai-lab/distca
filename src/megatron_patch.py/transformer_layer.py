@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import torch
 import torch.distributed
@@ -16,6 +16,32 @@ from megatron.core.transformer.transformer_layer import (
 
 from packed_seq_params import PingPangPackedSeqParams
 from dispatcher_wrapper import n_to_n_dispatch
+
+#### Tool functions for splitting and gathering args ####
+def _split_tensor(x: Optional[torch.Tensor], num_splits: int):
+    if x is None:
+        return (None,) * num_splits
+    return x.split(num_splits, dim=0)
+
+def _repack_args(args: List[List[torch.Tensor]], num_splits: int):
+    assert all(len(a) == num_splits for a in args)
+    return [
+        [a[i] for a in args]
+        for i in range(num_splits)
+    ]
+
+def _splits_all(tensors: List[torch.Tensor], num_splits: int):
+    splits = [_split_tensor(t, num_splits) for t in tensors]
+    return _repack_args(splits, num_splits)
+
+def _gather_tensor(tensors: List[torch.Tensor], num_splits: int):
+    assert len(tensors) == num_splits
+    if any(t is None for t in tensors):
+        assert all(t is None for t in tensors), "None tensors in gather_tensor"
+        return None
+    return torch.cat(tensors, dim=0)
+####
+
 
 class TransformerLayer(MegatronTransformerLayer):
 
@@ -49,39 +75,18 @@ class TransformerLayer(MegatronTransformerLayer):
         """
         In-place Ping-Pang parallel
         """
-        from typing import List
         assert inference_params is None, "inference not supported yet"
         assert inference_context is None, "inference not supported yet"
         assert context is None, "cross-attention not supported yet"
         assert context_mask is None, "cross-attention not supported yet"
+
         debug = packed_seq_params.debug
+        # NOTE: transformer_block.py sets layer_number to 1 for the first layer
         needs_split = debug or self.layer_number == 1
         needs_gather = debug    # NOTE: cannot infer if this is the last local layer or not.
+
         # FIXME(yonghao): args shared by layers and used by attention should be preprocessed in advance.
         comm_stream = torch.cuda.current_stream() if debug else self.comm_stream
-
-        def split_tensor(x: Optional[torch.Tensor], num_splits: int):
-            if x is None:
-                return (None,) * num_splits
-            return x.split(num_splits, dim=0)
-
-        def repack_args(args: List[List[torch.Tensor]], num_splits: int):
-            assert all(len(a) == num_splits for a in args)
-            return [
-                [a[i] for a in args]
-                for i in range(num_splits)
-            ]
-
-        def splits_all(tensors: List[torch.Tensor], num_splits: int):
-            splits = [split_tensor(t, num_splits) for t in tensors]
-            return repack_args(splits, num_splits)
-
-        def gather_tensor(tensors: List[torch.Tensor], num_splits: int):
-            assert len(tensors) == num_splits
-            if any(t is None for t in tensors):
-                assert all(t is None for t in tensors), "None tensors in gather_tensor"
-                return None
-            return torch.cat(tensors, dim=0)
 
         def attn_to_mlp(attn_out: torch.Tensor, attn_out_shape: torch.Size, packed_seq_params: PingPangPackedSeqParams):
             """
@@ -118,16 +123,16 @@ class TransformerLayer(MegatronTransformerLayer):
         args = [hidden_states, attention_mask, context, context_mask, rotary_pos_emb,
                 rotary_pos_cos, rotary_pos_sin, attention_bias, packed_seq_params, sequence_len_offset]
         if needs_split:
-            args_0, args_1 = splits_all(args, 2)
+            args_0, args_1 = _splits_all(args, 2)
         else:
-            args_0, args_1 = repack_args(args, 2)
+            args_0, args_1 = _repack_args(args, 2)
         (hidden_states_0, attention_mask_0, context_0, context_mask_0, rotary_pos_emb_0,
             rotary_pos_cos_0, rotary_pos_sin_0, attention_bias_0, packed_seq_params_0,
             sequence_len_offset_0) = args_0
         (hidden_states_1, attention_mask_1, context_1, context_mask_1, rotary_pos_emb_1,
             rotary_pos_cos_1, rotary_pos_sin_1, attention_bias_1, packed_seq_params_1,
             sequence_len_offset_1) = args_1
-        # NOTE: transformer_block.py sets layer_number to 1 for the first layer
+
         # 2. pre-self-attention forward microbatch 0.
         # Ideally, this part should merge to the previous layer's post-self-attention to maximize
         # the communication-computation overlap.
@@ -140,6 +145,7 @@ class TransformerLayer(MegatronTransformerLayer):
             rotary_pos_cos_0,
             rotary_pos_sin_0,
         )
+
         # 3. pre-attention forward of microbatch 1, mlp2attn all2all of microbatch 0
         self.comm_event.wait(torch.cuda.current_stream())
         query_0, key_0, value_0, rotary_pos_emb_0 = mlp_to_attn(query_0, key_0, value_0, packed_seq_params_0)
@@ -204,8 +210,8 @@ class TransformerLayer(MegatronTransformerLayer):
         )
         # concatenate the two microbatches to one.
         if needs_gather:
-            output = gather_tensor([mlp_output_0, mlp_output_1], 2)
-            context = gather_tensor([context_0, context_1], 2)
+            output = _gather_tensor([mlp_output_0, mlp_output_1], 2)
+            context = _gather_tensor([context_0, context_1], 2)
         else:
             output = [mlp_output_0, mlp_output_1]
             context = [context_0, context_1]
