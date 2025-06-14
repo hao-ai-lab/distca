@@ -296,7 +296,8 @@ def get_attn_time(
     }
 
     scoped_time = unit_time[(tp, cp)]
-    y = x / (tp * cp)
+    # y = x / (tp * cp)
+    y = x
     
     if y < 128:
         return scoped_time[128]
@@ -316,7 +317,8 @@ def get_attn_time(
     lower_time = scoped_time[lower_key]
     upper_time = scoped_time[upper_key]
     
-    return lower_time + (upper_time - lower_time) * (y - lower_key) / (upper_key - lower_key)
+    result = lower_time + (upper_time - lower_time) * (y - lower_key) / (upper_key - lower_key)
+    return result
 
 
 
