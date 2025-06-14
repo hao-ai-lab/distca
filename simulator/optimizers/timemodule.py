@@ -1,3 +1,5 @@
+# TODO: Add more models.
+
 INF = int(1e15)
 
 def get_mlp_time(x: int, tp: int, cp: int) -> float:
