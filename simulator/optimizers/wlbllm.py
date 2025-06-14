@@ -5,21 +5,9 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Any
 
+import timemodule as tm
 
-# ————————————————————————————————————————————————————————————
-#  Problem-specific helpers
-# ————————————————————————————————————————————————————————————
-def attn_time(x: int) -> float:
-    """O(seq²) quadratic attention cost (arbitrary demo model)."""
-    return x ** 2
-
-
-def mlp_time(x: int) -> float:
-    """O(seq) MLP cost (arbitrary demo model)."""
-    return x
-
-INF = 10**9
-
+INF = int(1e15)
 # ————————————————————————————————————————————————————————————
 #  Dataclass to hold the results
 # ————————————————————————————————————————————————————————————
@@ -59,16 +47,44 @@ class WlbLlmSolution:
 class WlbLlmSolver:
     """Minimise the slowest worker's latency subject to length and assignment constraints."""
 
+    def get_attn_time(self, x: int, tp: int, cp: int) -> float:
+
+        hqo = 64
+        hkv = 4
+        d = 128
+
+        allreduce_perdevice_nelem = x * hqo * d // tp
+        allgather_perdevice_nelem = x * d * max(1, hkv // cp)
+
+        
+        attn = tm.get_attn_time(x, tp, cp)
+        allreduce_time = tm.get_allreduce_time(allreduce_perdevice_nelem, tp)
+        allgather_time = tm.get_allgather_time(allgather_perdevice_nelem, cp)
+
+        return attn + allreduce_time + allgather_time
+
+    
+    def get_mlp_time(self, x: int, tp: int, cp: int) -> float:
+        import timemodule as tm
+        return tm.get_mlp_time(x, tp, cp)
+
     def solve(
         self,
         doc_lengths: List[int],
         max_length: int,
         num_workers: int,
+        parallel_plan: tuple[int, int],
         *,
         time_limit_s: int | None = 30,
     ) -> WlbLlmSolution:
+        tp, cp = parallel_plan
+
         n_docs = len(doc_lengths)
-        costs = [int(attn_time(d) + mlp_time(d)) for d in doc_lengths]  # ms, cast to int
+        attn_time = self.get_attn_time
+        mlp_time = self.get_mlp_time
+
+        costs = [int(attn_time(d, tp = tp, cp = cp) + mlp_time(d, tp = tp, cp = cp)) for d in doc_lengths]  # ms, cast to int
+        print(costs)
 
         # ——— CP-SAT model ——————————————————————————————————————————
         model = cp_model.CpModel()
@@ -95,6 +111,7 @@ class WlbLlmSolver:
             model.NewIntVar(0, INF, f"lat_{w}") for w in range(num_workers)
         ]
         for w in range(num_workers):
+            # TODO: The cost of MLP is subject to the parallel plan to split the MLP.
             model.Add(
                 lat_worker[w]
                 == sum(costs[d] * x[d, w] for d in range(n_docs))
@@ -149,3 +166,4 @@ def test_solver():
 
 if __name__ == "__main__":
     test_solver()
+

@@ -2,6 +2,11 @@ from ortools.sat.python import cp_model
 import numpy as np
 from dataclasses import dataclass
 
+import sys
+sys.path.append(".")
+import timemodule as tm
+
+
 @dataclass
 class AttnServerSolution:
     # worker -> plan
@@ -51,14 +56,32 @@ class AttnServerSolver:
         self.resource = [tp * cp for tp, cp in parallel_plan]
         self.num_plans = len(parallel_plan)
 
+    # TODO: Subject to override.
     def get_latency_table(self, batch: list[int], parallel_plan: list[tuple[int, int]]):
+        # TODO: (Still a hack - need to be improved)
+        hqo = 64
+        hkv = 4
+        d = 128
+
         latency = np.zeros((len(parallel_plan), len(batch)))
         for j, (tp, cp) in enumerate(parallel_plan):
             for k in range(len(batch)):
                 doc_length = batch[k]
                 # TODO: Put the proper modeling here.
-                latency[j, k] = doc_length / (1 + tp * (cp ** 0.5))
-        latency *= 1000
+                # latency[j, k] = doc_length / (1 + tp * (cp ** 0.5))
+                import timemodule as tm
+                if tp * cp == 0:
+                    latency[j, k] = tm.INF
+                else:
+                    lat = 0
+                    lat = tm.get_attn_time(doc_length, tp, cp)
+                    allreduce_elem = doc_length * hqo * d // tp
+                    allgather_elem = doc_length * d * max(1, hkv // cp)
+
+                    # lat += tm.get_allreduce_time(allreduce_elem, tp)
+                    # lat += tm.get_allgather_time(allgather_elem, cp)
+                    lat += tm.get_mlp_time(doc_length, tp, cp)
+                    latency[j, k] = lat
         latency = latency.astype(int)
         # print(latency)
         return latency
