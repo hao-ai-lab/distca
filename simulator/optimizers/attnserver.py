@@ -2,8 +2,6 @@ from ortools.sat.python import cp_model
 import numpy as np
 from dataclasses import dataclass
 
-import sys
-sys.path.append(".")
 import timemodule as tm
 
 
@@ -41,8 +39,10 @@ class AttnServerSolution:
     def print_solution(self):
         print("AttnServer Solution:")
         for i, (worker, plan) in enumerate(self.worker2plan.items()):
-            print(f"- Worker {i}: {plan} (latency: {self.lat_worker[i]})")
-        print(f"- Batches: {self.batches}")
+            if len(self.batches[i]) == 0:
+                continue
+            print(f"- Worker {i}: {plan} (latency: {self.lat_worker[i]}) -> {self.batches[i]}")
+        # print(f"- Batches: {self.batches}")
         print(f"- Maximum Latency: {self.lat_max}")
 
 
@@ -86,7 +86,10 @@ class AttnServerSolver:
         # print(latency)
         return latency
         
-    def solve(self, batch: list[int], num_workers: int, num_total_devices: int) -> AttnServerSolution:
+    def solve(
+            self, batch: list[int], num_workers: int, num_total_devices: int,
+            timeout: float = 15,
+    ) -> AttnServerSolution:
         """
         Solve the attnserver problem.
 
@@ -167,7 +170,7 @@ class AttnServerSolver:
         # Solve – parallel by default
         solver = cp_model.CpSolver()
         solver.parameters.num_search_workers = 0   # 0 → use all logical cores
-        solver.parameters.max_time_in_seconds = 60 # optional time-limit
+        solver.parameters.max_time_in_seconds = timeout # optional time-limit
         status = solver.Solve(model)
 
         # Extract the solutions

@@ -1,58 +1,202 @@
 # %%
 
-import wlbllm as wlbllm
-import attnserver as attnserver
-
 from attnserver import AttnServerSolver
 from wlbllm import WlbLlmSolver
 
+import numpy as np
+import time
+from typing import Deque, Iterable, List, Sequence
+from collections import deque
+import matplotlib.pyplot as plt
 
 # %%
 K = 1024
-batch = [64, 32]
-batch =  [i * K for i in batch]
+M = 1024 ** 2
+
+# %%
+
+def wlbllm_vs_attnserver(
+    batch, 
+    num_workers = 4, # DP Degree
+    num_total_devices = 32, # Number of GPUs
+):
+    # WLB-LLM Results
+    wlbllm_results = {}
+    for tp in [8, 4, 2, 1]:
+        wlbllm_results[tp] = {}
+        for cp in [8, 4, 2, 1]:
+            wlbllm_results[tp][cp] = 1e15
+
+    wlb_start_time = time.time()
+    wlbllm_best_solution = (1e15, None, None)
+    # print("WLB-LLM Solution:")
+    for tp in [8, 4, 2, 1]:
+        for cp in [8, 4, 2, 1]:
+            if tp * cp > num_total_devices:
+                continue
+            parallel_plan = (tp, cp)
+            num_workers = num_total_devices // (tp * cp)
+            assert (
+                num_workers * tp * cp == num_total_devices, 
+                "num_workers * tp * cp != num_total_devices"
+            )
+            
+            solver = WlbLlmSolver()
+            solution = solver.solve(
+                batch, 
+                max_length=sum(batch),
+                num_workers=num_workers,
+                parallel_plan=parallel_plan,
+            )
+            lat_max = solution.lat_max
+            wlbllm_results[tp][cp] = lat_max
+            wlbllm_best_solution = min(wlbllm_best_solution, (lat_max, parallel_plan, solution))
+    wlbllm_lat = wlbllm_best_solution[0]
+    wlb_end_time = time.time()
+    wlb_time = wlb_end_time - wlb_start_time
+    # print(f"WLB-LLM Best solution: {wlbllm_best_solution[0]} ms <- {wlbllm_best_solution[1]}")
+
+
+    # AttnServer Results
+    attn_start_time = time.time()
+    solver = AttnServerSolver()
+    attnserver_solution = solver.solve(
+        batch, 
+        num_workers=num_total_devices, 
+        num_total_devices=num_total_devices,
+    )
+    attnserver_lat = attnserver_solution.lat_max
+    attn_end_time = time.time()
+    attn_time = attn_end_time - attn_start_time
+    # attnserver_solution.print_solution()
+
+    # Compare WLB-LLM and AttnServer
+    speedup = (wlbllm_lat - attnserver_lat) / wlbllm_lat
+    return speedup, wlbllm_best_solution[2], attnserver_solution, wlb_time, attn_time
+
+
+# %%
+
+full_results = []
+display_results = []
+
+from samples import (
+    sample_multimodal_gaussian, 
+    sample_random_docs,
+    sample_wlbllm_docs,
+    batch_documents,
+)
+
+docs = sample_multimodal_gaussian(
+    means=[1*K,  8*K, 16*K], 
+    sigmas=[0.1*K, 0.2*K, 0.2*K], 
+    weights=[0.3, 0.25, 0.45], 
+    size=64,
+    seed=42,
+)
+# docs = sample_random_docs(
+#     max_ctx_length = 64 * K,
+#     # size = 1 * K,
+#     size = 128,
+#     seed=42,
+# )
+
+# docs = sample_wlbllm_docs(
+#     size = 128,
+#     seed=42,
+# )
+
+batches = batch_documents(
+    docs, 
+    max_ctx_length = 64 * K,
+    # max_ctx_length = 16 * K,
+)
+batches = list(batches)
+
+
+# # Plot the distribution of docs
+plt.hist(docs, bins=100, edgecolor='black')
+plt.show()
+
+# batches
+
+
+
+# %%
 
 num_workers = 4
 num_total_devices = 32
 
-print("Qwen3-235B")
+cumulative_batches = []
+for i, batch in enumerate(batches):
+    cumulative_batches.extend(batch)
+    (
+        speedup, 
+        wlbllm_best_solution, attnserver_solution, 
+        wlb_time, attn_time
+    ) = wlbllm_vs_attnserver(
+        batch = batch,
+        num_workers = num_workers,
+        num_total_devices = num_total_devices,
+    )
+    display_results.append(speedup * 100)
+    full_results.append(
+        {
+            "batch": batch,
+            "speedup": speedup,
+            "wlbllm_best_solution": wlbllm_best_solution,
+            "attnserver_solution": attnserver_solution,
+            "wlb_time": wlb_time,
+            "attn_time": attn_time,
+        }
+    )
 
+    print(f"Iteration {i+1}: WLB-LLM Time: {wlb_time:.2f}s, AttnServer Time: {attn_time:.2f}s")
+    
+    # Plot figure every 10 iterations
+    # if (i + 1) % 10 == 0:
+    #     plt.figure(figsize=(10, 6))
+    #     plt.plot(display_results, marker='o')
+    #     plt.title(f'Speedup after {i+1} iterations')
+    #     plt.xlabel('Iteration')
+    #     plt.ylabel('Speedup (%)')
+    #     plt.ylim(-50, 50)
+    #     plt.grid(True, which='major', linestyle='--', alpha=0.7)
+    #     plt.yticks(range(-50, 50, 5))  # Set y-ticks every 5
+    #     plt.tight_layout()
+    #     plt.show()
+    def plot_speedup_distribution():
+        plt.figure(figsize=(10, 10))  # Increased figure height to accommodate two subplots
+        
+        # Top subplot for speedup distribution
+        plt.subplot(2, 1, 1)
+        bin_edges = [-20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+        n, bins, patches = plt.hist(display_results, bins=bin_edges, edgecolor='black')
+        
+        # Add labels for each bar
+        for count, x in zip(n, bins[:-1]):
+            plt.text(x + (bins[1]-bins[0])/2, count, str(int(count)), 
+                     ha='center', va='bottom')
+        
+        plt.title(f'Distribution of Speedup (Workers: {num_workers}, Devices: {num_total_devices})')
+        plt.xlabel('Speedup (%)')
+        plt.ylabel('Frequency')
+        plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+        
+        # Bottom subplot for cumulative batches distribution
+        plt.subplot(2, 1, 2)
+        batch_bin_edges = list(range(0, int(max(cumulative_batches))+1000, 1000))
+        plt.hist(cumulative_batches, bins=batch_bin_edges, edgecolor='black')
+        plt.title('Distribution of Cumulative Batch Sizes')
+        plt.xlabel('Batch Size (tokens)')
+        plt.ylabel('Frequency')
+        plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+        
+        plt.tight_layout()
+        plt.show()
+    if (i + 1) % 10 == 0:
+        plot_speedup_distribution()
+
+plot_speedup_distribution()
 
 # %%
-import timemodule as tm
-
-# %%
-# tm.get_attn_time(64 * 1024, 8, 2)
-print("Check attention time: ")
-for ctx_len in [1, 2, 4, 32, 64, 96]:
-    # a = tm.get_attn_time(ctx_len * 1024, 8, 2)
-    a = tm.get_attn_time(ctx_len * 1024, 8, 4)
-    print(f"ctx_len: {ctx_len}, attn: {a}ms")
-
-# %%
-
-# %%
-# %%
-
-solver = WlbLlmSolver()
-solution = solver.solve(
-    batch, 
-    max_length=sum(batch),
-    num_workers=1,
-    parallel_plan=(8, 4),
-)
-solution.print_solution()
-
-# %%
-solver = AttnServerSolver()
-solution = solver.solve(
-    batch, 
-    num_workers=num_total_devices, 
-    num_total_devices=num_total_devices,
-)
-solution.print_solution()
-
-
-# %%
-for batch in distribution:
-    pass

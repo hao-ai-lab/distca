@@ -20,6 +20,7 @@ class WlbLlmSolution:
     # latency per worker and objective
     lat_worker: List[int]
     lat_max: int
+    parallel_plan: tuple[int, int]
 
     # raw artefacts (optional – handy for debugging / tweaking)
     model: cp_model.CpModel
@@ -28,7 +29,10 @@ class WlbLlmSolution:
 
     def print_solution(self) -> None:  # noqa: D401 (simple “Print …”)
         print("WLB-LLM ILP Solution")
+        print(f"- Parallel plan: {self.parallel_plan}")
         for w, docs in enumerate(self.batches):
+            if len(docs) == 0:
+                continue
             print(f"- Worker {w:<2d}: docs {docs}  —  latency {self.lat_worker[w]} ms")
         print(f"- Maximum latency: {self.lat_max}\n")
 
@@ -38,6 +42,7 @@ class WlbLlmSolution:
             lat_max=self.lat_max,
             lat_worker=self.lat_worker,
             doc2worker=self.doc2worker,
+            parallel_plan=self.parallel_plan,
         )
 
 
@@ -84,7 +89,6 @@ class WlbLlmSolver:
         mlp_time = self.get_mlp_time
 
         costs = [int(attn_time(d, tp = tp, cp = cp) + mlp_time(d, tp = tp, cp = cp)) for d in doc_lengths]  # ms, cast to int
-        print(costs)
 
         # ——— CP-SAT model ——————————————————————————————————————————
         model = cp_model.CpModel()
@@ -148,6 +152,7 @@ class WlbLlmSolver:
             batches=batches,
             lat_worker=[solver.Value(lw) for lw in lat_worker],
             lat_max=solver.Value(lat_max),
+            parallel_plan=parallel_plan,
             model=model,
             solver=solver,
             variables=dict(x=x, lat_worker=lat_worker, lat_max=lat_max),
