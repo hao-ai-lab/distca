@@ -3,6 +3,10 @@
 
 import sys
 import subprocess
+import os
+
+# Ensure the plot directory exists
+os.makedirs("plot", exist_ok=True)
 
 args = sys.argv[1:]
 args = args or ["attn-dist_wlbllm-64k", "attn-dist_multimodal-64k"]
@@ -78,9 +82,9 @@ fig.add_trace(go.Scatter(
 ))
 
 # Save the plot as an interactive HTML file
-fig.write_html(f"{filename}.scatter.html")
+fig.write_html(f"plot/{filename}.scatter.html")
 # Save the plot as a PNG file
-fig.write_image(f"{filename}.scatter.png")
+fig.write_image(f"plot/{filename}.scatter.png")
 
 
 # Show the plot
@@ -137,9 +141,9 @@ fig_diff.update_layout(
 )
 
 # Save the plot as an interactive HTML file
-fig_diff.write_html(f"{filename}.diff_scatter.html")
+fig_diff.write_html(f"plot/{filename}.diff_scatter.html")
 # Save the plot as a PNG file
-fig_diff.write_image(f"{filename}.diff_scatter.png")
+fig_diff.write_image(f"plot/{filename}.diff_scatter.png")
 
 # Show the plot
 fig_diff.show()
@@ -191,9 +195,9 @@ fig_bs_diff.update_layout(
 )
 
 # Save the plot as an interactive HTML file
-fig_bs_diff.write_html(f"{filename}.bs_diff_scatter.html")
+fig_bs_diff.write_html(f"plot/{filename}.bs_diff_scatter.html")
 # Save the plot as a PNG file
-fig_bs_diff.write_image(f"{filename}.bs_diff_scatter.png")
+fig_bs_diff.write_image(f"plot/{filename}.bs_diff_scatter.png")
 
 # Show the plot
 fig_bs_diff.show()
@@ -247,9 +251,9 @@ fig_bs_rel_error.update_layout(
 )
 
 # Save the plot as an interactive HTML file
-fig_bs_rel_error.write_html(f"{filename}.bs_rel_error_scatter.html")
+fig_bs_rel_error.write_html(f"plot/{filename}.bs_rel_error_scatter.html")
 # Save the plot as a PNG file
-fig_bs_rel_error.write_image(f"{filename}.bs_rel_error_scatter.png")
+fig_bs_rel_error.write_image(f"plot/{filename}.bs_rel_error_scatter.png")
 
 # Show the plot
 fig_bs_rel_error.show()
@@ -317,10 +321,10 @@ for tp in tp_values:
         fig_time_dist.update_yaxes(title_text='Frequency', row=2, col=1)
 
         # Save the plot as an interactive HTML file
-        fig_time_dist.write_html(f"{filename}.time_distribution.tp{tp}.cp{cp}.html")
+        fig_time_dist.write_html(f"plot/{filename}.time_distribution.tp{tp}.cp{cp}.html")
 
         # Save the plot as a PNG file
-        fig_time_dist.write_image(f"{filename}.time_distribution.tp{tp}.cp{cp}.png")
+        fig_time_dist.write_image(f"plot/{filename}.time_distribution.tp{tp}.cp{cp}.png")
 
         # Show the plot
         fig_time_dist.show()

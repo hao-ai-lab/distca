@@ -61,9 +61,11 @@ print(f"- Size: {size}")
 print(f"- Max Context Length: {max_ctx_length}")
 print(f"- Number of Batches: {len(batches)}")
 
+from tqdm import tqdm
+
 with open(f"attn-{name}.psv", "w") as f:
     f.write("tp|cp|total_len|bs|real_attn_time_ms|sim_attn_time_ms|allreduce_time_ms|allgather_time_ms|batch\n")
-    for batch in batches:
+    for batch in tqdm(batches):
         for cp in [8, 4, 2, 1]:
             for tp in [8, 4, 2, 1]:
 
