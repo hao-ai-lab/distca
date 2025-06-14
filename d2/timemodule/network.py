@@ -190,6 +190,7 @@ network_time_dict = {
         4294967296: 969.17
     }
 }
+
 def get_allreduce_time(x: int, tp: int) -> float:
     if tp == 1:
         return 0
