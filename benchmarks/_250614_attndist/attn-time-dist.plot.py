@@ -3,24 +3,36 @@
 
 import sys
 import subprocess
+import os
+
+def is_jupyter():
+    return 'get_ipython' in globals()
+
+# Ensure the plot directory exists
+os.makedirs("plot", exist_ok=True)
+
+default_datasets = ["attn-dist_wlbllm-64k", "attn-dist_multimodal-64k"]
 
 args = sys.argv[1:]
-args = args or ["attn-dist_wlbllm-64k", "attn-dist_multimodal-64k"]
+args = args or default_datasets
 
 # If multiple names are provided, recursively call the script
-if len(args) > 1:
+if len(args) > 1 and not is_jupyter():
     for name in args:
         subprocess.run([sys.executable, __file__, name])
     sys.exit(0)
 
-# Else use the single provided name, or default
-name = args[0]
+if is_jupyter():
+    # Else use the single provided name, or default
+    name = default_datasets[0]
+else:
+    name = args[0]
 
 print(f"Processing: {name}")
 
 # %%
 import pandas as pd
-filename = f"{name}.psv"
+filename = f"data-run/{name}.psv"
 # filename = f"attn-dist_multimodal-64k.psv"
 df = pd.read_csv(f"{filename}", sep="|")
 df.head()
@@ -78,9 +90,9 @@ fig.add_trace(go.Scatter(
 ))
 
 # Save the plot as an interactive HTML file
-fig.write_html(f"{filename}.scatter.html")
+fig.write_html(f"plot/{name}.scatter.html")
 # Save the plot as a PNG file
-fig.write_image(f"{filename}.scatter.png")
+fig.write_image(f"plot/{name}.scatter.png")
 
 
 # Show the plot
@@ -137,9 +149,9 @@ fig_diff.update_layout(
 )
 
 # Save the plot as an interactive HTML file
-fig_diff.write_html(f"{filename}.diff_scatter.html")
+fig_diff.write_html(f"plot/{name}.diff_scatter.html")
 # Save the plot as a PNG file
-fig_diff.write_image(f"{filename}.diff_scatter.png")
+fig_diff.write_image(f"plot/{name}.diff_scatter.png")
 
 # Show the plot
 fig_diff.show()
@@ -191,9 +203,9 @@ fig_bs_diff.update_layout(
 )
 
 # Save the plot as an interactive HTML file
-fig_bs_diff.write_html(f"{filename}.bs_diff_scatter.html")
+fig_bs_diff.write_html(f"plot/{name}.bs_diff_scatter.html")
 # Save the plot as a PNG file
-fig_bs_diff.write_image(f"{filename}.bs_diff_scatter.png")
+fig_bs_diff.write_image(f"plot/{name}.bs_diff_scatter.png")
 
 # Show the plot
 fig_bs_diff.show()
@@ -204,7 +216,7 @@ fig_bs_rel_error = go.Figure()
 
 # Iterate through unique (tp, cp) combinations
 for (tp, cp) in df[['tp', 'cp']].drop_duplicates().itertuples(index=False):
-    subset = df[(df['tp'] == tp) & (df['cp'] == cp)]
+    subset = df[(df['tp'] == tp) & (df['cp'] == cp)].copy()  # Use .copy() to avoid SettingWithCopyWarning
     
     # Calculate color based on tp (grey to red)
     tp_color_val = (tp_values.index(tp) / (len(tp_values) - 1)) if len(tp_values) > 1 else 0
@@ -219,8 +231,8 @@ for (tp, cp) in df[['tp', 'cp']].drop_duplicates().itertuples(index=False):
                     f'{(int(tp_color.split(",")[1]) + int(cp_color.split(",")[1]))//2}, ' \
                     f'{(int(tp_color.split(",")[2].split(")")[0]) + int(cp_color.split(",")[2].split(")")[0]))//2})'
     
-    # Calculate relative error
-    subset['relative_error'] = (subset['real_attn_time_ms'] - subset['sim_attn_time_ms']) / subset['real_attn_time_ms']
+    # Calculate relative error using .loc to avoid SettingWithCopyWarning
+    subset.loc[:, 'relative_error'] = (subset['real_attn_time_ms'] - subset['sim_attn_time_ms']) / subset['real_attn_time_ms']
     
     # Add scatter trace for each (tp, cp) combination
     # Plotting the relative error vs batch size
@@ -247,9 +259,9 @@ fig_bs_rel_error.update_layout(
 )
 
 # Save the plot as an interactive HTML file
-fig_bs_rel_error.write_html(f"{filename}.bs_rel_error_scatter.html")
+fig_bs_rel_error.write_html(f"plot/{name}.bs_rel_error_scatter.html")
 # Save the plot as a PNG file
-fig_bs_rel_error.write_image(f"{filename}.bs_rel_error_scatter.png")
+fig_bs_rel_error.write_image(f"plot/{name}.bs_rel_error_scatter.png")
 
 # Show the plot
 fig_bs_rel_error.show()
@@ -257,69 +269,141 @@ fig_bs_rel_error.show()
 # %%
 # Create a subplot for real and simulated attention time distribution
 from plotly.subplots import make_subplots
+import plotly.graph_objs as go
+
+# Create a single figure with subplots for all (tp, cp) combinations
 fig_time_dist = make_subplots(
-    rows=2, cols=1, 
-    subplot_titles=('Real Attention Time Distribution', 'Simulated Attention Time Distribution'),
-    vertical_spacing=0.1
+    rows=len(tp_values), 
+    cols=len(cp_values), 
+    subplot_titles=[
+        f'tp={tp}, cp={cp}' 
+        for tp in tp_values 
+        for cp in cp_values
+    ],
+    vertical_spacing=0.05,  # Increased vertical spacing
+    horizontal_spacing=0.05
 )
 
-# Flatten the data across all (tp, cp) combinations
-real_times = []
-sim_times = []
-
-for tp in tp_values:
-    for cp in cp_values:
+# Iterate through all (tp, cp) combinations
+for row, tp in enumerate(tp_values, 1):
+    for col, cp in enumerate(cp_values, 1):
+        # Filter data for current (tp, cp) combination
         subset = df[(df['tp'] == tp) & (df['cp'] == cp)]
-        real_times.extend(subset['real_attn_time_ms'])
-        sim_times.extend(subset['sim_attn_time_ms'])
+        real_times = subset['real_attn_time_ms']
+        sim_times = subset['sim_attn_time_ms']
+        total_len = subset['total_len'].max().item()
 
-# Add histogram for real attention times
-fig_time_dist.add_trace(
-    go.Histogram(
-        x=real_times, 
-        name='Real Attention Time',
-        marker_color='blue',
-        opacity=0.7
-    ),
-    row=1, col=1
-)
+        # Add histogram for real attention times
+        fig_time_dist.add_trace(
+            go.Histogram(
+                x=real_times, 
+                name=f'Real Time (tp={tp}, cp={cp})',
+                marker_color='blue',
+                opacity=0.7
+            ),
+            row=row, col=col
+        )
 
-# Add histogram for simulated attention times
-fig_time_dist.add_trace(
-    go.Histogram(
-        x=sim_times, 
-        name='Simulated Attention Time',
-        marker_color='red',
-        opacity=0.7
-    ),
-    row=2, col=1
-)
+        # Add histogram for simulated attention times
+        fig_time_dist.add_trace(
+            go.Histogram(
+                x=sim_times, 
+                name=f'Sim Time (tp={tp}, cp={cp})',
+                marker_color='red',
+                opacity=0.7
+            ),
+            row=row, col=col
+        )
 
-# Update layout
+        # Get MLP time for the current (tp, cp) combination
+        from d2.timemodule import get_mlp_time
+        mlp_time = get_mlp_time(
+            x = total_len, tp = tp, cp = cp,
+        )
+
+        # Add vertical line for MLP time
+        fig_time_dist.add_shape(
+            type='line', 
+            x0=mlp_time, 
+            x1=mlp_time, 
+            y0=0, 
+            y1=1, 
+            yref='paper',
+            line=dict(color='green', width=2, dash='dot'),
+            row=row, col=col
+        )
+
+        # Add annotation for MLP time
+        fig_time_dist.add_annotation(
+            x=mlp_time, 
+            y=1, 
+            xref='x', 
+            yref='paper',
+            text=f'MLP Time: {mlp_time:.2f} ms', 
+            showarrow=True,
+            arrowhead=1,
+            row=row, col=col
+        )
+
+# Update layout for the entire figure
 fig_time_dist.update_layout(
     title=(
         f'Distribution of Real vs Simulated Attention Times - {name} Dataset<br>'
         f'Dataset: {name}, Size: {size}, Max Context Length: {max_ctx_length}'
     ),
-    height=600,
+    height=300 * len(tp_values),
+    width=300 * len(cp_values),
     showlegend=True
 )
 
-# Update x-axis labels
-fig_time_dist.update_xaxes(title_text='Time (ms)', row=1, col=1)
-fig_time_dist.update_xaxes(title_text='Time (ms)', row=2, col=1)
+# Update x and y axis labels for all subplots
+for row in range(1, len(tp_values) + 1):
+    for col in range(1, len(cp_values) + 1):
+        # Only show x-axis label for the last row
+        if row == len(tp_values):
+            fig_time_dist.update_xaxes(title_text='Time (ms)', row=row, col=col)
+        else:
+            fig_time_dist.update_xaxes(title_text='', row=row, col=col)
+        
+        fig_time_dist.update_yaxes(title_text='Frequency', row=row, col=col)
 
-# Update y-axis labels
-fig_time_dist.update_yaxes(title_text='Frequency', row=1, col=1)
-fig_time_dist.update_yaxes(title_text='Frequency', row=2, col=1)
+# Add buttons to toggle real and simulated time traces
+fig_time_dist.update_layout(
+    updatemenus=[
+        dict(
+            type="buttons",
+            direction="right",
+            x=0.7,
+            y=1.15,
+            showactive=True,
+            buttons=[
+                dict(
+                    label="Show Real Time",
+                    method="update",
+                    args=[{"visible": [True if 'Real' in trace.name else False for trace in fig_time_dist.data]}]
+                ),
+                dict(
+                    label="Show Simulated Time", 
+                    method="update",
+                    args=[{"visible": [True if 'Sim' in trace.name else False for trace in fig_time_dist.data]}]
+                ),
+                dict(
+                    label="Show All",
+                    method="update", 
+                    args=[{"visible": [True for trace in fig_time_dist.data]}]
+                )
+            ]
+        )
+    ]
+)
+
 
 # Save the plot as an interactive HTML file
-fig_time_dist.write_html(f"{filename}.time_distribution.html")
+fig_time_dist.write_html(f"plot/{name}.time_distribution.html")
 
 # Save the plot as a PNG file
-fig_time_dist.write_image(f"{filename}.time_distribution.png")
+fig_time_dist.write_image(f"plot/{name}.time_distribution.png")
 
 # Show the plot
 fig_time_dist.show()
-
 # %%
