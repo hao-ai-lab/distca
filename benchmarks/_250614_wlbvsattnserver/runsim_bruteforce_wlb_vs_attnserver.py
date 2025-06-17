@@ -87,13 +87,13 @@ from d2.simulator.optimizers.samples import (
     batch_documents,
 )
 
-docs = sample_multimodal_gaussian(
-    means=[1*K,  8*K, 16*K], 
-    sigmas=[0.1*K, 0.2*K, 0.2*K], 
-    weights=[0.3, 0.25, 0.45], 
-    size=64,
-    seed=42,
-)
+# docs = sample_multimodal_gaussian(
+#     means=[1*K,  8*K, 16*K], 
+#     sigmas=[0.1*K, 0.2*K, 0.2*K], 
+#     weights=[0.3, 0.25, 0.45], 
+#     size=64,
+#     seed=42,
+# )
 # docs = sample_random_docs(
 #     max_ctx_length = 64 * K,
 #     # size = 1 * K,
@@ -101,10 +101,10 @@ docs = sample_multimodal_gaussian(
 #     seed=42,
 # )
 
-# docs = sample_wlbllm_docs(
-#     size = 128,
-#     seed=42,
-# )
+docs = sample_wlbllm_docs(
+    size = 128,
+    seed=42,
+)
 
 batches = batch_documents(
     docs, 
