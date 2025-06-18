@@ -170,7 +170,7 @@ class AttnServerSolver:
         x = {(i,j): model.NewBoolVar(f"x_{i}_{j}") for i in range(num_workers) for j in range(num_plans)}
         y = {(k,i): model.NewBoolVar(f"y_{k}_{i}") for k in range(num_docs) for i in range(num_workers)}
 
-        INF = 1e6
+        INF = 1e9
         lat_worker = [model.NewIntVar(0, int(INF), f"lat_{i}") for i in range(num_workers)]
         lat_max    = model.NewIntVar(0, int(INF), "lat_max")
 
