@@ -124,8 +124,9 @@ class AttnServerSolver:
         # mlp_time = tm.get_mlp_time(batch[0], 2, 2)
         
         # latency += mlp_time 
-        latency = latency.astype(int)
-        return latency, mlp_time
+        # latency = latency.astype(int)
+        latency_us = (latency * 1000).astype(int)
+        return latency_us, mlp_time
         
     def solve(
             self, batch: list[int], num_workers: int, num_total_devices: int,
@@ -145,7 +146,9 @@ class AttnServerSolver:
         parallel_plan = self.parallel_plan
         resource = self.resource
         
-        latency, mlp_time = self.get_latency_table(batch, parallel_plan, num_total_devices)
+        latency_us, mlp_time = self.get_latency_table(batch, parallel_plan, num_total_devices)
+        latency = latency_us
+
         print_latency_table(batch, parallel_plan, latency)
 
         model = cp_model.CpModel()
@@ -170,7 +173,7 @@ class AttnServerSolver:
         x = {(i,j): model.NewBoolVar(f"x_{i}_{j}") for i in range(num_workers) for j in range(num_plans)}
         y = {(k,i): model.NewBoolVar(f"y_{k}_{i}") for k in range(num_docs) for i in range(num_workers)}
 
-        INF = 1e9
+        INF = tm.INF
         lat_worker = [model.NewIntVar(0, int(INF), f"lat_{i}") for i in range(num_workers)]
         lat_max    = model.NewIntVar(0, int(INF), "lat_max")
 
@@ -244,12 +247,14 @@ class AttnServerSolver:
             batches[i].append(batch[k])
 
 
+        lat_max_value = solver.Value(lat_max) / 1000
+
         return AttnServerSolution(
             worker2plan=worker2plan,
             doc2worker=doc2worker,
             batches=batches,
             parallel_plan=parallel_plan,
-            lat_max=solver.Value(lat_max) + mlp_time,
+            lat_max=lat_max_value + mlp_time,
             lat_worker=[solver.Value(lat_worker[i]) for i in range(num_workers)],
             lat_doc_table=latency,
             model=model,

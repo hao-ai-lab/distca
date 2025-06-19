@@ -6,7 +6,7 @@ from d2.simulator.optimizers.wlbllm import WlbLlmSolver
 
 # %%
 K = 1024
-# batch = [64, 64]
+# batch = [64 * K, 64 * K]
 batch = [2030, 22, 5521, 2260, 4800, 5912, 4524, 4160, 2253, 2958, 3119, 3473, 1408, 579, 2887, 1793, 4614, 1369, 4687, 707, 5225, 816, 419]
 # batch = [64] * 64
 # batch =  [i * K for i in batch]
@@ -15,17 +15,6 @@ num_workers = 4
 num_total_devices = 16
 
 print("Qwen3-235B")
-
-
-# %%
-
-# %%
-# tm.get_attn_time(64 * 1024, 8, 2)
-print("Check attention time: ")
-for ctx_len in [1, 2, 4, 32, 64, 96]:
-    # a = tm.get_attn_time(ctx_len * 1024, 8, 2)
-    a = tm.get_attn_time(ctx_len * 1024, 8, 4)
-    print(f"ctx_len: {ctx_len}, attn: {a}ms")
 
 # %%
 best_latency = 1e15
@@ -91,7 +80,7 @@ solution = solver.solve(
     batch, 
     num_workers=num_total_devices, 
     num_total_devices=num_total_devices,
-    # timeout=15,
+    timeout=30,
 )
 lat_max = solution.lat_max
 solution.print_solution()
