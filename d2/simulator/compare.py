@@ -4,6 +4,8 @@ from typing import Deque, Iterable, List, Sequence
 from collections import deque
 import matplotlib.pyplot as plt
 
+import d2.timemodule.compute as tm
+
 from d2.simulator.optimizers.attnserver import AttnServerSolver
 from d2.simulator.optimizers.wlbllm import WlbLlmSolver
 from d2.simulator.optimizers.samples import (

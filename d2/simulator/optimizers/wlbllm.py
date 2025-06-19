@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple, Any
 
 import d2.timemodule as tm
 
-INF = int(1e15)
+INF = tm.INF
 # ————————————————————————————————————————————————————————————
 #  Dataclass to hold the results
 # ————————————————————————————————————————————————————————————
@@ -102,16 +102,22 @@ class WlbLlmSolver:
         mlp_time = self.get_mlp_time
         network_time = self.get_network_time
 
+        for d in doc_lengths:
+            print(f"[WLB-LLM] [{tp=}, {cp=}] d: {d}, attn_time: {attn_time(d, tp = tp, cp = cp)}, mlp_time: {mlp_time(d, tp = tp, cp = cp):.2f}, network_time: {network_time(d, tp = tp, cp = cp):.2f}")
+            pass
+
         costs = [
             int(
-                attn_time(d, tp = tp, cp = cp) 
+                (
+                    attn_time(d, tp = tp, cp = cp) 
                 + mlp_time(d, tp = tp, cp = cp) 
-                # + network_time(d, tp = tp, cp = cp)
+                + network_time(d, tp = tp, cp = cp)
+                ) * 1000
             ) 
             for d in doc_lengths
         ]
 
-        print(f"costs (tp={tp}, cp={cp}): {costs[0]}")
+        # print(f"costs (tp={tp}, cp={cp}): {costs[0]}")
 
         # ——— CP-SAT model ——————————————————————————————————————————
         model = cp_model.CpModel()
@@ -170,11 +176,14 @@ class WlbLlmSolver:
                     batches[w].append(doc_lengths[d])
                     break
 
+        lat_max_value = solver.Value(lat_max) / 1000
+        lat_worker_values = [solver.Value(lw) / 1000 for lw in lat_worker]
+
         return WlbLlmSolution(
             doc2worker=doc2worker,
             batches=batches,
-            lat_worker=[solver.Value(lw) for lw in lat_worker],
-            lat_max=solver.Value(lat_max),
+            lat_worker=lat_worker_values,
+            lat_max=lat_max_value,
             parallel_plan=parallel_plan,
             model=model,
             solver=solver,
