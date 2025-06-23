@@ -193,6 +193,9 @@ def test_mlp_attn_ratio():
     fig.write_image(plt_dir / "mlp_vs_attn_time_and_ratio.png")
 
 
+def test_mlp_attn_ratio_rand():
+    pass
+
 
 if __name__ == "__main__":
     print("Running tests...")

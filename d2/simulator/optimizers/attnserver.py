@@ -115,19 +115,23 @@ class AttnServerSolver:
                     latency[j, k] = lat
                     print(f"[AttnServer] [{tp=}, {cp=}] d: {doc_length}, latency: {lat:.2f}, attn_time: {attn_time:.2f}, allreduce_time: {allreduce_time:.2f}, allgather_time: {allgather_time:.2f}")
 
-
-        mcp = max(num_total_devices // 8, 1)
-        mtp = min(num_total_devices, 8)
+        # Scatter the MLP tokens in all devices.
         total_length = sum(batch)
-
-        # TODO: The MLP time is not exactly correct...
-        # latency += tm.get_mlp_time(total_length, mtp, mcp)
-        
-        mlp_time = tm.get_mlp_time(sum(batch), mtp, mcp)
-        print(f"[AttnServer] MLP(tp={mtp},cp={mcp}): {mlp_time:.2f} ms")
-        # mlp_time = tm.get_mlp_time(batch[0], mtp, mcp)
-        # mlp_time = tm.get_mlp_time(batch[0], 2, 2)
+        mlp_time, mlp_time_tp, mlp_time_cp = self.get_min_mlp_time(batch, num_total_devices)
+        print(f"[AttnServer] MLP(tp={mlp_time_tp},cp={mlp_time_cp}): {mlp_time:.2f} ms")
         return latency, mlp_time
+
+    def get_min_mlp_time(self, batch, total_num_devices):
+        candidates = []
+        for tp in [1, 2, 4, 8]:
+            for cp in [1, 2, 4, 8]:
+                if tp * cp != total_num_devices:
+                    continue
+                mlp_time = tm.get_mlp_time(sum(batch), tp, cp)
+                candidates.append((mlp_time, tp, cp))
+        print(f"[AttnServer] MLP candidates: {candidates}")
+        min_mlp_time, min_mlp_time_tp, min_mlp_time_cp = min(candidates)
+        return min_mlp_time, min_mlp_time_tp, min_mlp_time_cp
         
     def solve(
             self, batch: list[int], num_workers: int, num_total_devices: int,
@@ -147,6 +151,7 @@ class AttnServerSolver:
         parallel_plan = self.parallel_plan
         resource = self.resource
         
+        total_tokens = sum(batch)
         latency_ms, mlp_time = self.get_latency_table(batch, parallel_plan, num_total_devices)
         latency_us = latency_ms * 1000
         

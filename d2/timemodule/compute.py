@@ -24,7 +24,7 @@ def get_mlp_time(x: int, tp: int, cp: int) -> float:
     max_key = max(scoped_time.keys())
 
     if y < min_key:
-        return scoped_time[min_key]
+        return scoped_time[min_key]  * (y / min_key)
     
     if y > max_key:
         return scoped_time[max_key] * (y / max_key)
