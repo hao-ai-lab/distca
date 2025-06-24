@@ -1,3 +1,4 @@
+# %%
 import contextlib
 from runsim_func import run_simulation
 import sys
@@ -22,24 +23,40 @@ batches += [
     [i * K] * 2
     for i in range(1, 65)
 ]
+batches += [
+    [i * K] * 4
+    for i in range(1, 65)
+]
+
+batches += [
+    [237],
+    [2237],
+    [137],
+]
+
+
 
 f = open("wlb_vs_attnserver_diff.psv", "w+")
-dual_print("idx|batch|diff(ms)\n", f)
-
+dual_print("idx|batch|num_total_devices|num_workers|diff(ms)", f)
 
 should_redirect = True
 def redirect_ctx(log_file):
     return redirect_stdout(log_file) if should_redirect else contextlib.nullcontext()
 
-for idx, batch in enumerate(batches):
-    log_file_path = f"log/wva.{idx}.log"
-    with open(log_file_path, "w") as log_file:
-        with redirect_ctx(log_file):
-            diff = run_simulation(
-                batch=batch, 
-                num_total_devices=8,
-                num_workers=1,
-            )
-    
-    diff = 0.0 if abs(diff) < 1e-2 else diff
-    dual_print(f"{idx}|{batch}|{diff:.2f}", f)
+idx = 0
+for num_workers in [1]:
+    for num_total_devices in [1, 2, 8]:
+        for batch in batches:
+            
+            log_file_path = f"log/wva.{idx}.log"
+            with open(log_file_path, "w") as log_file:
+                with redirect_ctx(log_file):
+                    diff = run_simulation(
+                        batch=batch, 
+                        num_total_devices=num_total_devices,
+                        num_workers=num_workers,
+                    )
+        
+            diff = 0.0 if abs(diff) < 1e-3 else diff
+            dual_print(f"{idx}|{batch}|{num_total_devices}|{num_workers}|{diff:.3f}", f)
+            idx += 1

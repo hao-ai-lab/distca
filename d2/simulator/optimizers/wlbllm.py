@@ -65,7 +65,8 @@ class WlbLlmSolver:
 
         allreduce_time = tm.get_allreduce_time(allreduce_perdevice_nelem, tp)
         allgather_time = tm.get_allgather_time(allgather_perdevice_nelem, cp)
-        return allreduce_time + allgather_time
+        # return allreduce_time + allgather_time
+        return allgather_time
     
     def get_attn_time(self, x: int, tp: int, cp: int) -> float:
 
@@ -76,7 +77,6 @@ class WlbLlmSolver:
         # allreduce_perdevice_nelem = x * hqo * d // tp
         # allgather_perdevice_nelem = x * d * max(1, hkv // cp)
 
-        
         attn = tm.get_attn_time(x, tp, cp)
         # allreduce_time = tm.get_allreduce_time(allreduce_perdevice_nelem, tp)
         # allgather_time = tm.get_allgather_time(allgather_perdevice_nelem, cp)
@@ -106,7 +106,12 @@ class WlbLlmSolver:
         network_time = self.get_network_time
 
         for d in doc_lengths:
-            print(f"[WLB-LLM] [{tp=}, {cp=}] d: {d}, attn_time: {attn_time(d, tp = tp, cp = cp)}, mlp_time: {mlp_time(d, tp = tp, cp = cp):.2f}, network_time: {network_time(d, tp = tp, cp = cp):.2f}")
+            _attn_time = self.get_attn_time(d, tp = tp, cp = cp)
+            _mlp_time = self.get_mlp_time(d, tp = tp, cp = cp)
+            _network_time = self.get_network_time(d, tp = tp, cp = cp)
+            _lat = _attn_time + _mlp_time + _network_time
+
+            print(f"[WLB-LLM] [{tp=}, {cp=}] d: {d}, latency: {_lat:.2f},  attn_time: {_attn_time:.2f}, mlp_time: {_mlp_time:.2f}, network_time: {_network_time:.2f}")
             pass
 
         costs = [

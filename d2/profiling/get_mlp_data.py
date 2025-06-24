@@ -1,3 +1,4 @@
+# %%
 import pandas as pd
 import os
 from pathlib import Path
@@ -38,13 +39,28 @@ def get_mlp_data() -> "dict[tuple[int, int], dict[int, float]]":
     df['latency(ms)'] = df['qkv'] + df['linear_proj'] + df['attn_bda'] + df['mlp'] + df['mlp_bda']
     
     # divide by 4 because data is of batch size 4
-    df['latency(ms)'] = df['latency(ms)'] / 4
+    df['latency(ms)'] = df['latency(ms)']
 
 
     result = {}
     for _, row in df.iterrows():
         tp, cp = row["tp"], row["cp"]
+        tp, cp = int(tp), int(cp)
         if (tp, cp) not in result:
             result[(tp, cp)] = {}
-        result[(tp, cp)][row["seq_len"]] = row["latency(ms)"]
+        seq_len = int(row["seq_len"])
+        seq_len = seq_len * 4 # because data is of batch size 4
+        latency = row["latency(ms)"].item()
+        result[(tp, cp)][seq_len] = latency
+
+
+    # Now for each (tp, cp), we only return the highest profiled result.
     return result
+
+
+# %%
+
+data = get_mlp_data()
+# %%
+data
+# %%

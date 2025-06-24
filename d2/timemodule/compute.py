@@ -15,7 +15,7 @@ def setup_mlp_data():
     return
 
 
-def get_mlp_time(x: int, tp: int, cp: int) -> float:
+def get_mlp_time_1_interpolate_all(x: int, tp: int, cp: int) -> float:
     setup_mlp_data()
     scoped_time = MLP_plan2dict[(tp, cp)]
 
@@ -42,6 +42,20 @@ def get_mlp_time(x: int, tp: int, cp: int) -> float:
 
     result = lower_time + (upper_time - lower_time) * (y - lower_key) / (upper_key - lower_key)
     return result
+
+def get_mlp_time_2_remain_highest(x: int, tp: int, cp: int) -> float:
+    """Remain only the highest and interpolate all rest."""
+    setup_mlp_data()
+    scoped_time = MLP_plan2dict[(tp, cp)]
+
+    max_key = max(scoped_time.keys())
+    max_time = scoped_time[max_key]
+
+    duration = max_time * (x / max_key)
+    return duration
+
+# get_mlp_time = get_mlp_time_1_interpolate_all
+get_mlp_time = get_mlp_time_2_remain_highest
 
 # (tp, cp) -> {seq_len: latency(ms)}
 ATTN_plan2dict = None

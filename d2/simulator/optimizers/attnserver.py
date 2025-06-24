@@ -78,8 +78,8 @@ class AttnServerSolution:
             if len(self.batches[i]) == 0:
                 continue
             print(f"- Worker {i}: {plan} docs {self.batches[i]} - latency: {self.lat_worker[i] / 1000} ms")
-        print(f"- MLP Time: {self.mlp_time} ms")
-        print(f"- Maximum Latency: {self.lat_max}")
+        print(f"- MLP Time: {self.mlp_time:.2f} ms")
+        print(f"- Maximum Latency: {self.lat_max:.2f}")
 
 
 
@@ -99,6 +99,9 @@ class AttnServerSolver:
 
         latency = np.zeros((len(parallel_plan), len(batch)))
         for j, (tp, cp) in enumerate(parallel_plan):
+            if tp * cp > num_total_devices:
+                continue
+            
             for k in range(len(batch)):
                 doc_length = batch[k]
                 if tp * cp == 0:
@@ -111,7 +114,8 @@ class AttnServerSolver:
                     allreduce_time = tm.get_allreduce_time(allreduce_elem, tp)
                     allgather_time = tm.get_allgather_time(allgather_elem, cp)
 
-                    lat = attn_time + allreduce_time + allgather_time
+                    # lat = attn_time + allreduce_time + allgather_time
+                    lat = attn_time
                     latency[j, k] = lat
                     print(f"[AttnServer] [{tp=}, {cp=}] d: {doc_length}, latency: {lat:.2f}, attn_time: {attn_time:.2f}, allreduce_time: {allreduce_time:.2f}, allgather_time: {allgather_time:.2f}")
 

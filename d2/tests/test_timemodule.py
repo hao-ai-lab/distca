@@ -448,24 +448,8 @@ def test_mlp_attn_ratio_rand_cdf(
     fig.write_html(plt_dir / f"{name}.html")
     fig.write_image(plt_dir / f"{name}.png")
 
-    
 
-from itertools import repeat
-
-if __name__ == "__main__":
-    print("Running tests...")
-    # print("test_get_attn_time_monotonically_increase")
-    # test_get_attn_time_monotonically_increase()
-    # print("test_plot_get_attn_time")
-    # test_plot_get_attn_time()
-    # print("test_plot_get_mlp_time")
-    # test_plot_get_mlp_time()
-    # print("test_mlp_attn_ratio")
-    # test_mlp_attn_ratio()
-    # print("test_mlp_attn_ratio_rand")
-    # test_mlp_attn_ratio_rand()
-    print("test_mlp_attn_ratio_rand_cdf")
-    
+def test_mlp_attn_ratio_rand_cdf_batch():
     for max_ctx_length in [
         16 * K, 32 * K, 64 * K, 128 * K,
         256 * K, 512 * K, 1 * M,
@@ -481,3 +465,24 @@ if __name__ == "__main__":
                 name=f"mva_rand_cdf_64k_wlbllm_{_size}k_max_ctx_length_{max_ctx_length}",
                 title=f"CDF of MLP vs Attn Time and Ratio (WLBLLM, 64K tokens per batch, sample {_size}k docs, max_ctx_length={max_ctx_length})",
             )
+    
+
+from itertools import repeat
+
+if __name__ == "__main__":
+    print("Running tests...")
+    
+    print("test_get_attn_time_monotonically_increase")
+    test_get_attn_time_monotonically_increase()
+    
+    print("test_plot_get_attn_time")
+    test_plot_get_attn_time()
+    
+    print("test_plot_get_mlp_time")
+    test_plot_get_mlp_time()
+    
+    print("test_mlp_attn_ratio")
+    test_mlp_attn_ratio()
+
+    # print("test_mlp_attn_ratio_rand_cdf")
+    # test_mlp_attn_ratio_rand_cdf_batch()
