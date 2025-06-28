@@ -52,15 +52,3 @@ def plot_distributions(docs, max_seq_length:int = 64 * K):
 
     plt.tight_layout()
     return fig
-
-
-
-def test_sample_wlbllm_docs_altered():
-    plot_dir = this_dir / "test_samples.plots"
-    plot_dir.mkdir(parents=True, exist_ok=True)
-
-    for i in [64, 128, 256, 512, 1024, 2048]:
-        docs = sample_wlbllm_docs_altered(size=i)
-        plt.hist(docs, bins=100, edgecolor='black')
-        plt.savefig(f"test_samples_wlbllm_docs_altered_{i}.png")
-

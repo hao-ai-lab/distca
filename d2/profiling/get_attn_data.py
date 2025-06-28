@@ -11,8 +11,9 @@ def get_attn_data() -> "dict[tuple[int, int], dict[int, float]]":
         this_dir = Path(d2.profiling.__path__[0])
 
     this_dir = Path(this_dir)
-    filepath = this_dir / "data" / "compute-attn-H100.psv"
-    df = pd.read_csv(filepath, sep="|")
+    # filepath = this_dir / "data" / "compute-attn-H100.psv"
+    filepath = this_dir / "data" / "compute-attn-H100.csv"
+    df = pd.read_csv(filepath)
 
 
     result = {}
@@ -20,7 +21,7 @@ def get_attn_data() -> "dict[tuple[int, int], dict[int, float]]":
         tp, cp = row["tp"], row["cp"]
         if (tp, cp) not in result:
             result[(tp, cp)] = {}
-        result[(tp, cp)][row["seq_len"]] = row["latency(ms)"]
+        result[(tp, cp)][row["L"]] = row["duration_per_doc"]
     return result
 
 if __name__ == "__main__":

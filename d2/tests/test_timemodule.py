@@ -33,7 +33,11 @@ def test_plot_get_attn_time():
     """Use matplotlib to plot the result of attn time as a bar chart"""
     fig = go.Figure()
 
-    sequence_lengths = [1 * K, 4 * K, 8 * K, 16 * K, 32 * K, 64 * K]
+    sequence_lengths = [
+        64, 128, 256, 512, 
+        1 * K, 2 * K, 4 * K, 8 * K, 
+        16 * K, 32 * K, 64 * K,
+    ]
     sequence_labels = [f"{seq_len}" for seq_len in sequence_lengths]  # Convert sequence lengths to categorical labels
 
     for tp in [1, 2, 4, 8]:
@@ -77,7 +81,7 @@ def test_plot_get_mlp_time():
     plt.close()
     
 
-def test_plot_get_attn_vs_mlp():
+def test_plot_get_attn_vs_mlp(batch_size=1):
     """Plot a 4x4 grid of bar charts comparing MLP and Attention times."""
     fig = sp.make_subplots(
         rows=4, cols=4,
@@ -90,11 +94,12 @@ def test_plot_get_attn_vs_mlp():
 
     sequence_lengths = [1 * K, 4 * K, 8 * K, 16 * K, 32 * K, 64 * K]
     sequence_labels = [f"{seq_len}" for seq_len in sequence_lengths]
+    perdoc_seqlen = [i // batch_size for i in sequence_lengths]
 
     for i, tp in enumerate([1, 2, 4, 8], start=1):
         for j, cp in enumerate([1, 2, 4, 8], start=1):
             y_mlp = [tm.get_mlp_time(seq_len, tp, cp) for seq_len in sequence_lengths]
-            y_attn = [tm.get_attn_time(seq_len, tp, cp) for seq_len in sequence_lengths]
+            y_attn = [tm.get_attn_time(seq_len, tp, cp) * batch_size for seq_len in perdoc_seqlen]
 
             fig.add_trace(go.Bar(x=sequence_labels, y=y_mlp, name=f"MLP (tp={tp}, cp={cp})", marker_color='blue', text=[f"{val:.2f}" for val in y_mlp], textposition='auto'), row=i, col=j)
             fig.add_trace(go.Bar(x=sequence_labels, y=y_attn, name=f"Attn (tp={tp}, cp={cp})", marker_color='red', text=[f"{val:.2f}" for val in y_attn], textposition='auto'), row=i, col=j)
@@ -102,7 +107,7 @@ def test_plot_get_attn_vs_mlp():
     fig.update_layout(
         height=1200,
         width=1200,
-        title_text="MLP vs Attention Time (bs1)",
+        title_text=f"MLP vs Attention Time (bs={batch_size}, same length per doc). x-axis is total sequence length, not per-doc sequence length",
         barmode='group',
         margin=dict(l=20, r=20, t=50, b=0),
     )
@@ -110,8 +115,8 @@ def test_plot_get_attn_vs_mlp():
     # Set y-axis to logarithmic scale
     fig.update_yaxes(type="log", title="Time (ms)")
 
-    fig.write_html(plt_dir / "attn_vs_mlp_bar.html")
-    fig.write_image(plt_dir / "attn_vs_mlp_bar.png")
+    fig.write_html(plt_dir / f"attn_vs_mlp_bar.bs{batch_size}.html")
+    fig.write_image(plt_dir / f"attn_vs_mlp_bar.bs{batch_size}.png")
 
     plt.close()
 
@@ -335,8 +340,8 @@ from itertools import repeat
 if __name__ == "__main__":
     print("Running tests...")
     
-    print("test_get_attn_time_monotonically_increase")
-    test_get_attn_time_monotonically_increase()
+    # print("test_get_attn_time_monotonically_increase")
+    # test_get_attn_time_monotonically_increase()
     
     print("test_plot_get_attn_time")
     test_plot_get_attn_time()
@@ -345,10 +350,14 @@ if __name__ == "__main__":
     test_plot_get_mlp_time()
 
     print("test_plot_get_attn_vs_mlp")
-    test_plot_get_attn_vs_mlp()
+    test_plot_get_attn_vs_mlp(batch_size=1)
+    test_plot_get_attn_vs_mlp(batch_size=2)
+    test_plot_get_attn_vs_mlp(batch_size=4)
+    test_plot_get_attn_vs_mlp(batch_size=8)
+    test_plot_get_attn_vs_mlp(batch_size=16)
     
     print("test_mlp_attn_ratio")
     test_mlp_attn_ratio()
 
-    # print("test_mlp_attn_ratio_rand_cdf")
-    # test_mlp_attn_ratio_rand_cdf_batch()
+    print("test_mlp_attn_ratio_rand_cdf")
+    test_mlp_attn_ratio_rand_cdf_batch()

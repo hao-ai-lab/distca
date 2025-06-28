@@ -5,6 +5,7 @@ from typing import Deque, Iterable, List, Sequence
 from collections import deque
 from pathlib import Path
 
+
 def sample_random_docs(
     *,
     max_ctx_length: int,
@@ -110,6 +111,7 @@ def sample_wlbllm_docs(
     rng = np.random.default_rng(seed)
     docs = rng.choice(docs, size=size, replace=False)
     return docs.tolist()
+
 
 def sample_wlbllm_docs_altered(
     *,

@@ -1,3 +1,4 @@
+# %%
 import contextlib
 from runsim_func import run_simulation
 import sys

@@ -16,7 +16,7 @@ def print_latency_table(batch: list[int], parallel_plan: list[tuple[int, int]], 
         if doc_length in seen_length:
             continue
         seen_length.add(doc_length)
-        table = Table(title=f"Doc[{k}] = {doc_length} Latency")
+        table = Table(title=f"Doc[{k}] = {doc_length} Latency (us)")
 
         # Add columns for cp values
         table.add_column("tp/cp", justify="right", style="cyan", no_wrap=True)
@@ -28,7 +28,7 @@ def print_latency_table(batch: list[int], parallel_plan: list[tuple[int, int]], 
             for cp in [8, 4, 2, 1]:
                 plan_idx = parallel_plan.index((tp, cp))
                 value = latency[plan_idx, k]
-                row.append(f"{value:.2f}" if value != float('inf') else 'inf')
+                row.append(f"{(value):.1f}" if value != float('inf') else 'inf')
             table.add_row(*row)
 
         console.print(table)
@@ -56,6 +56,7 @@ class AttnServerSolution:
     variables: dict[str, 'cp_model.BoolVarT | cp_model.IntVar']
 
     mlp_time: float
+    did_time_out: bool
 
     def get_parallel_plan(self):
         return [plan for plan in self.worker2plan.values() if plan != (0, 0)]
@@ -105,24 +106,26 @@ class AttnServerSolver:
             for k in range(len(batch)):
                 doc_length = batch[k]
                 if tp * cp == 0:
-                    latency[j, k] = tm.INF
+                    lat = int(1e7)
+                    latency[j, k] = lat
                 else:
                     lat = 0
                     attn_time = tm.get_attn_time(doc_length, tp, cp)
-                    allreduce_elem = doc_length * hqo * d // tp
-                    allgather_elem = doc_length * d * max(1, hkv // cp)
-                    allreduce_time = tm.get_allreduce_time(allreduce_elem, tp)
-                    allgather_time = tm.get_allgather_time(allgather_elem, cp)
+
+                    # allreduce_elem = doc_length * hqo * d // tp
+                    # allgather_elem = doc_length * d * max(1, hkv // cp)
+                    # allreduce_time = tm.get_allreduce_time(allreduce_elem, tp)
+                    # allgather_time = tm.get_allgather_time(allgather_elem, cp)
 
                     # lat = attn_time + allreduce_time + allgather_time
                     lat = attn_time
                     latency[j, k] = lat
-                    print(f"[AttnServer] [{tp=}, {cp=}] d: {doc_length}, latency: {lat:.2f}, attn_time: {attn_time:.2f}, allreduce_time: {allreduce_time:.2f}, allgather_time: {allgather_time:.2f}")
+                    # print(f"[AttnServer] [{tp=}, {cp=}] d: {doc_length}, latency: {(lat*1000):.1f} us, attn_time: {attn_time:.2f}, allreduce_time: {allreduce_time:.2f}, allgather_time: {allgather_time:.2f}")
+                    print(f"[AttnServer] [{tp=}, {cp=}] d: {doc_length}, latency: {(lat*1000):.1f} us, attn_time: {attn_time*1000:.2f} us")
 
         # Scatter the MLP tokens in all devices.
-        total_length = sum(batch)
         mlp_time, mlp_time_tp, mlp_time_cp = self.get_min_mlp_time(batch, num_total_devices)
-        print(f"[AttnServer] MLP(tp={mlp_time_tp},cp={mlp_time_cp}): {mlp_time:.2f} ms")
+        print(f"[AttnServer] MLP(tp={mlp_time_tp}, cp={mlp_time_cp}): {mlp_time:.2f} ms")
         return latency, mlp_time
 
     def get_min_mlp_time(self, batch, total_num_devices):
@@ -161,7 +164,7 @@ class AttnServerSolver:
         
         latency = latency_us.astype(int)
 
-        print_latency_table(batch, parallel_plan, latency_ms)
+        print_latency_table(batch, parallel_plan, latency_us)
 
         model = cp_model.CpModel()
         num_plans    = len(parallel_plan)
@@ -185,9 +188,9 @@ class AttnServerSolver:
         x = {(i,j): model.NewBoolVar(f"x_{i}_{j}") for i in range(num_workers) for j in range(num_plans)}
         y = {(k,i): model.NewBoolVar(f"y_{k}_{i}") for k in range(num_docs) for i in range(num_workers)}
 
-
-        lat_worker = [model.NewIntVar(0, tm.INF, f"lat_{i}") for i in range(num_workers)]
-        lat_max    = model.NewIntVar(0, tm.INF, "lat_max")
+        INF = int(1e10)
+        lat_worker = [model.NewIntVar(0, INF, f"lat_{i}") for i in range(num_workers)]
+        lat_max    = model.NewIntVar(0, INF, "lat_max")
 
 
         # 1. Each worker picks one plan
@@ -228,7 +231,15 @@ class AttnServerSolver:
         solver = cp_model.CpSolver()
         solver.parameters.num_search_workers = 0   # 0 → use all logical cores
         solver.parameters.max_time_in_seconds = timeout # optional time-limit
+
         status = solver.Solve(model)
+        print(f"AttnServer Status: {status}")
+        did_time_out = (status == cp_model.UNKNOWN)
+        
+        # solver.parameters.maximize = False
+        # solver.parameters.random_seed = 1
+        # solver.parameters.search_branching = cp_model.AutomaticSearch
+        # solver.parameters.linearization_level = 0
 
         # Extract the solutions
         xs = dict() # worker -> plan
@@ -258,8 +269,8 @@ class AttnServerSolver:
             i = doc2worker[k]
             batches[i].append(batch[k])
 
-
         lat_max_value = solver.Value(lat_max) / 1000
+
 
         return AttnServerSolution(
             worker2plan=worker2plan,
@@ -277,6 +288,7 @@ class AttnServerSolver:
                 lat_max=lat_max,
             ),
             mlp_time=mlp_time,
+            did_time_out=did_time_out,
         )
     
 def test_attnserver():

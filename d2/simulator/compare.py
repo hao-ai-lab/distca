@@ -108,6 +108,7 @@ def run_comparison(
                 "attnserver_solution": attnserver_solution,
                 "wlb_time": wlb_time,
                 "attn_time": attn_time,
+                "did_time_out": attnserver_solution.did_time_out,
             }
         )
 

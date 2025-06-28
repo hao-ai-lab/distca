@@ -109,9 +109,10 @@ class WlbLlmSolver:
             _attn_time = self.get_attn_time(d, tp = tp, cp = cp)
             _mlp_time = self.get_mlp_time(d, tp = tp, cp = cp)
             _network_time = self.get_network_time(d, tp = tp, cp = cp)
-            _lat = _attn_time + _mlp_time + _network_time
+            # _lat = _attn_time + _mlp_time + _network_time
+            _lat = _attn_time + _mlp_time
 
-            print(f"[WLB-LLM] [{tp=}, {cp=}] d: {d}, latency: {_lat:.2f},  attn_time: {_attn_time:.2f}, mlp_time: {_mlp_time:.2f}, network_time: {_network_time:.2f}")
+            print(f"[WLB-LLM] [{tp=}, {cp=}] d: {d}, latency: {(_lat * 1000):.1f} us, attn_time: {(_attn_time * 1000):.2f} us, mlp_time: {(_mlp_time * 1000):.2f} us")
             pass
 
         costs = [
@@ -119,7 +120,7 @@ class WlbLlmSolver:
                 (
                 attn_time(d, tp = tp, cp = cp) 
                 + mlp_time(d, tp = tp, cp = cp) 
-                + network_time(d, tp = tp, cp = cp)
+                # + network_time(d, tp = tp, cp = cp)
                 ) * 1000
             ) 
             for d in doc_lengths
