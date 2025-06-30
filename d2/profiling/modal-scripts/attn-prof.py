@@ -66,6 +66,7 @@ def attn_flash_attn(
     def test_flash_attn():
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
+        torch.cuda.synchronize()
         start_event.record()
         output = flash_attn_varlen_func(
             q, k, v, 
@@ -79,7 +80,7 @@ def attn_flash_attn(
         return duration
     
     # warmup
-    for _ in range(5):
+    for _ in range(10):
         test_flash_attn()
     
     # benchmark
@@ -156,12 +157,14 @@ def run_amortized_batch_sequence():
     ]
 
     seq_lens = [
+        32, 64,
         128, 256, 512, 
         1*K, 2*K, 4*K,
         8*K, 16*K, 32*K,
-        64*K, 128*K
+        # 64*K, 128*K,
     ]
     max_seq_len = max(seq_lens)
+    # max_seq_len = 128*K
     batches = [
         f"[{s}] * ({max_seq_len // s})"
         for s in seq_lens
@@ -196,7 +199,7 @@ def run_amortized_batch_sequence():
                                 **model_config,
                             )
                             per_doc_avg_duration = total_avg_duration / batch_size
-                            print_dual(f"{gpu_type}|attn|{total_len}|{batch_size}|{tp}|{cp}|{per_doc_avg_duration:.2f}|{total_avg_duration:.2f}|{hqo}|{hkv}|{d}|{batch}")
+                            print_dual(f"{gpu_type}|attn|{total_len}|{batch_size}|{tp}|{cp}|{per_doc_avg_duration}|{total_avg_duration}|{hqo}|{hkv}|{d}|{batch}")
                         except Exception as e:
                             print(f"Batch: {batch}, TP: {tp}, CP: {cp}, Model Config: {model_config} encountered error: {e}")
                             continue
@@ -205,4 +208,5 @@ def run_amortized_batch_sequence():
 
 @app.local_entrypoint()
 def main():
-    run_single_sequence()
+    # run_single_sequence()
+    run_amortized_batch_sequence()

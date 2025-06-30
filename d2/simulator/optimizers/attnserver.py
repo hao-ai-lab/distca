@@ -247,7 +247,7 @@ class AttnServerSolver:
             cp_model.OPTIMAL: "OPTIMAL",
         }
         print(f"AttnServer Status: {status_str[status]}")
-        breakpoint()
+
         did_time_out = (status == cp_model.UNKNOWN)
         
         # solver.parameters.maximize = False
