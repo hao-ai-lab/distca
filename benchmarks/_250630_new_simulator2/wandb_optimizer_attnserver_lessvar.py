@@ -19,7 +19,9 @@ def main(
     mlp_cp=8,
     max_time_in_seconds=360,
     sample_name="test",
-    sample_id="0"
+    sample_id="0",
+    num_workers=16,
+    sweep_all_mlp_plans=False,
 ):
     """
     Main function for attention server optimization.
@@ -32,6 +34,8 @@ def main(
         max_time_in_seconds: Maximum solving time
         sample_name: Name for the sample
         sample_id: ID for the sample
+        num_workers: Number of workers
+        sweep_all_mlp_plans: Whether to sweep all MLP plan combinations
     """
     # Handle batch parameter - can be string or list
     if isinstance(batch, str):
@@ -41,28 +45,6 @@ def main(
 
     # Hardware / MLP parameters
     mlp_dp = num_total_devices // (mlp_tp * mlp_cp)
-    num_workers = mlp_dp
-
-    # ------------------------------------------------------------------
-    # setup wandb
-    import wandb
-    wandb.init(
-        entity="jundachen",
-        project="d2", 
-        name=f"attnserver/{sample_name}/{sample_id}",
-    )
-    wandb.config.update(dict(
-        solver="attnserver",
-        sample_name=sample_name,
-        sample_id=sample_id,
-        batch=str(batch) if isinstance(batch, list) else batch,
-
-        num_workers=num_workers,
-        num_total_devices=num_total_devices,
-        mlp_tp=mlp_tp,
-        mlp_cp=mlp_cp,
-        max_time_in_seconds=max_time_in_seconds,
-    ))
 
     # ------------------------------------------------------------------
     # Parallel-plan catalogue & resources
@@ -161,7 +143,7 @@ def main(
             f"(status: {solver.StatusName(status)})[/]")
 
     # ------------------------------------------------------------------
-    # 4)  Pretty-print solution (worker plans, doc assignment) + Extract data for wandb
+    # 4)  Pretty-print solution (worker plans, doc assignment) + Extract structured data
     # ------------------------------------------------------------------
     console = Console()
 
@@ -173,7 +155,7 @@ def main(
 
     xs = {}                      # plan chosen per worker
     min_worker_lat = INF
-    worker_plan_data = []        # For wandb logging
+    worker_plan_data = []        # For structured data
 
     for i in range(num_workers):
         pidx = solver.Value(plan[i])
@@ -184,7 +166,7 @@ def main(
             min_worker_lat = min(min_worker_lat, w_lat)
             w_tbl.add_row(str(i), f"{tp},{cp}", f"{w_lat:.0f}")
             
-            # Store structured data for wandb
+            # Store structured data
             worker_plan_data.append({
                 "worker_id": i,
                 "tp": tp,
@@ -201,7 +183,7 @@ def main(
     d_tbl.add_column("Worker", style="green", justify="right")
     d_tbl.add_column("Attn time (µs)", style="red", justify="right")
 
-    doc_assignment_data = []     # For wandb logging
+    doc_assignment_data = []     # For structured data
 
     for k in range(D):
         for i in range(num_workers):
@@ -210,7 +192,7 @@ def main(
                 d_lat = tm.get_attn_time(tp, cp, batch[k]) * 1000
                 d_tbl.add_row(str(k), str(batch[k]), str(i), f"{d_lat:.0f}")
                 
-                # Store structured data for wandb
+                # Store structured data
                 doc_assignment_data.append({
                     "doc_id": k,
                     "doc_len": batch[k],
@@ -225,6 +207,32 @@ def main(
     # ------------------------------------------------------------------
     # 5)  MLP + all-reduce timing  (unchanged)
     # ------------------------------------------------------------------
+    if sweep_all_mlp_plans:
+        sweep_results = {}
+        for mlp_tp_sweep in (1, 2, 4, 8):
+            for mlp_cp_sweep in (1, 2, 4, 8):
+                token_per_dp_shard = sum(batch) // mlp_dp
+                batch_mlp_time, _   = tm.get_mlp_time(mlp_tp_sweep, mlp_cp_sweep, token_per_dp_shard)
+                batch_mlp_time     *= 1000          # ms → µs
+                batch_allreduce_time = (tm.get_allreduce_time_with_config(
+                    mlp_tp_sweep, token_per_dp_shard, tm.hidden_size) * 2 * 1000)
+                batch_total_time = batch_attn_time + batch_mlp_time + batch_allreduce_time
+                sweep_results[(mlp_tp_sweep, mlp_cp_sweep)] = dict(
+                    batch_total_time=batch_total_time,
+                    batch_attn_time=batch_attn_time,
+                    batch_mlp_time=batch_mlp_time,
+                    batch_allreduce_time=batch_allreduce_time,
+                    solver_status=solver.StatusName(status),
+                    solved_time_s=t1-t0,
+                    num_vars=n_vars,
+                    num_cons=n_cons,
+                    worker_plans=worker_plan_data,
+                    doc_assignments=doc_assignment_data,
+                    mlp_tp=mlp_tp_sweep,
+                    mlp_cp=mlp_cp_sweep,
+                )
+    
+    # Always compute the main result with the specified mlp_tp/mlp_cp
     token_per_dp_shard = sum(batch) // mlp_dp
     batch_mlp_time, _   = tm.get_mlp_time(mlp_tp, mlp_cp, token_per_dp_shard)
     batch_mlp_time     *= 1000          # ms → µs
@@ -244,24 +252,40 @@ def main(
     )
     rich.print(panel)
 
-    wandb.log(dict(
-        batch_total_time=batch_total_time,
-        batch_attn_time=batch_attn_time,
-        batch_mlp_time=batch_mlp_time,
-        batch_allreduce_time=batch_allreduce_time,
-        solver_status=solver.StatusName(status),
-        solved_time_s=t1-t0,
-        num_vars=n_vars,
-        num_cons=n_cons,
-        worker_plans=worker_plan_data,
-        doc_assignments=doc_assignment_data,
-    ))
+    # Create timing breakdown
+    timing_breakdown = {
+        "batch_linear_time_us": batch_mlp_time,
+        "batch_attention_time_us": batch_attn_time,
+        "batch_allreduce_time_us": batch_allreduce_time,
+        "batch_total_time_us": batch_total_time,
+        "solver_status": solver.StatusName(status),
+        "solved_time_s": t1-t0,
+        "num_vars": n_vars,
+        "num_cons": n_cons,
+    }
+
+    if sweep_all_mlp_plans:
+        return {
+            'sweep_results': sweep_results,
+            'main_result': {
+                'batch_total_time': batch_total_time,
+                'batch_attn_time': batch_attn_time,
+                'batch_mlp_time': batch_mlp_time,
+                'batch_allreduce_time': batch_allreduce_time,
+                'worker_plans': worker_plan_data,
+                'doc_assignments': doc_assignment_data,
+                'timing_breakdown': timing_breakdown,
+            }
+        }
 
     return {
         'batch_total_time': batch_total_time,
         'batch_attn_time': batch_attn_time,
         'batch_mlp_time': batch_mlp_time,
         'batch_allreduce_time': batch_allreduce_time,
+        'worker_plans': worker_plan_data,
+        'doc_assignments': doc_assignment_data,
+        'timing_breakdown': timing_breakdown,
     }
 
 
@@ -283,6 +307,10 @@ def main_with_args():
     parser.add_argument("--sample_name", type=str, default="test")
     # sample_id
     parser.add_argument("--sample_id", type=str, default="0")
+    # num_workers
+    parser.add_argument("--num_workers", type=int, default=16)
+    # sweep_all_mlp_plans
+    parser.add_argument("--sweep_all_mlp_plans", action="store_true", default=False)
     args = parser.parse_args()
     print(args)
 
@@ -293,7 +321,9 @@ def main_with_args():
         mlp_cp=args.mlp_cp,
         max_time_in_seconds=args.max_time_in_seconds,
         sample_name=args.sample_name,
-        sample_id=args.sample_id
+        sample_id=args.sample_id,
+        num_workers=args.num_workers,
+        sweep_all_mlp_plans=args.sweep_all_mlp_plans,
     )
 
 
