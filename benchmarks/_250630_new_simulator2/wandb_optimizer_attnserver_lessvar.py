@@ -43,9 +43,6 @@ def main(
     elif not isinstance(batch, list):
         raise ValueError("batch must be either a string or a list")
 
-    # Hardware / MLP parameters
-    mlp_dp = num_total_devices // (mlp_tp * mlp_cp)
-
     # ------------------------------------------------------------------
     # Parallel-plan catalogue & resources
     parallel_plan = [(tp, cp) for tp in (1, 2, 4, 8) for cp in (1, 2, 4, 8)] + [(0, 0)]
@@ -211,6 +208,7 @@ def main(
         sweep_results = {}
         for mlp_tp_sweep in (1, 2, 4, 8):
             for mlp_cp_sweep in (1, 2, 4, 8):
+                mlp_dp = num_total_devices // (mlp_tp_sweep * mlp_cp_sweep)
                 token_per_dp_shard = sum(batch) // mlp_dp
                 batch_mlp_time, _   = tm.get_mlp_time(mlp_tp_sweep, mlp_cp_sweep, token_per_dp_shard)
                 batch_mlp_time     *= 1000          # ms → µs
@@ -233,6 +231,7 @@ def main(
                 )
     
     # Always compute the main result with the specified mlp_tp/mlp_cp
+    mlp_dp = num_total_devices // (mlp_tp * mlp_cp)
     token_per_dp_shard = sum(batch) // mlp_dp
     batch_mlp_time, _   = tm.get_mlp_time(mlp_tp, mlp_cp, token_per_dp_shard)
     batch_mlp_time     *= 1000          # ms → µs

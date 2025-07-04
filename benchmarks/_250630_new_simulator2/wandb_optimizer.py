@@ -18,9 +18,11 @@ batches = list(batch_documents(
 ))
 
 # Create a unique run name with sample name and timestamp
-run_name = f"{sample_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+num_total_devices = 64
+max_num_workers_attnserver = 8
+run_name = f"{sample_name}_gpu{num_total_devices}_atworker{max_num_workers_attnserver}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-wandb.init(project="d2", name=run_name)
+wandb.init(project="d2-test", name=run_name)
 
 # Define metrics for W&B
 wandb.define_metric("step")
@@ -39,13 +41,15 @@ wandb.config.update(dict(
     ),
 ))
 
+table = wandb.Table
+
 for idx, batch in enumerate(batches):
     wlbllm_results = {}
     for tp in (1, 2, 4, 8):
         for cp in (1, 2, 4, 8):
             wlbllm_results[(tp, cp)] = wlbllm_solver(
                 batch=batch,
-                num_total_devices=64,
+                num_total_devices=num_total_devices,
                 tp=tp,
                 cp=cp,
                 max_time_in_seconds=360,
@@ -55,10 +59,10 @@ for idx, batch in enumerate(batches):
     
     attnserver_results = attnserver_solver(
         batch=batch,
-        num_total_devices=64,
+        num_total_devices=num_total_devices,
         mlp_tp=8,
         mlp_cp=4,
-        num_workers=8,
+        num_workers=max_num_workers_attnserver,
         max_time_in_seconds=360,
         sample_name=sample_name,
         sample_id=idx,
@@ -66,16 +70,30 @@ for idx, batch in enumerate(batches):
     )
 
     log_data = {"step": idx}
+    log_item = dict()
     for tp in (1, 2, 4, 8):
         for cp in (1, 2, 4, 8):
+            dp = num_total_devices // (tp * cp)
             wlb_result = wlbllm_results[(tp, cp)]
             attnserver_result = attnserver_results['sweep_results'][(tp, cp)]
             ratio = attnserver_result["batch_total_time"] / wlb_result["max_worker_latency_us"]
-            key = f"ratio/tp{tp}_cp{cp}"
+            key = f"ratio/tp{tp}_cp{cp}_dp{dp}"
             log_data[key] = ratio
 
-            log_data[f"wlbllm/tp{tp}_cp{cp}"] = wlb_result
-            log_data[f"attnserver/tp{tp}_cp{cp}"] = attnserver_result
-
+            log_item.update(dict(
+                idx=idx,
+                run_name=run_name, tp=tp, cp=cp, dp=dp, 
+                ratio=ratio,
+                num_total_devices=num_total_devices, 
+                max_num_workers_attnserver=max_num_workers_attnserver,
+                wlb_result=wlb_result,
+                attnserver_result=attnserver_result
+            ))
+    
     wandb.log(log_data)
+
+    with open(f"logs/{run_name}.jsonl", "a") as f:
+        import json
+        log_item_str = json.dumps(log_item)
+        f.write(f"{log_item_str}\n")
     # breakpoint()
