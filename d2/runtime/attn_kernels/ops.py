@@ -24,6 +24,8 @@ def nvshmem_alloc_empty_unique_id() -> torch.Tensor:
     return torch.zeros(nvshmem_unique_id_size(), dtype=torch.uint8, device="cpu")
 
 def nvshmem_init(uid: torch.Tensor, rank: int, world_size: int) -> int:
+    # NOTE: this is because we set device in python. Should move it to the cpp end.
+    torch.cuda.synchronize()
     status = _ops.nvshmem_init(uid, rank, world_size)
     torch.cuda.synchronize()
     return status
