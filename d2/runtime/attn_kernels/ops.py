@@ -126,6 +126,7 @@ class DispatcherWrapper:
 
     def __del__(self):
         destroy_dispatcher(self.dispatcher)
+        nvshmem_finalize()
 
     
     @staticmethod

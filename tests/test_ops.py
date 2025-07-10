@@ -12,21 +12,20 @@ class Worker:
         self.rank = rank
         self.world_size = world_size
         self.nvshmem_initialized = False
-        self.nvshmem_pe = None
         self.dispatcher = None
 
     def init_comm(self, uid: torch.Tensor, stride: int, max_tokens_query: int, max_tokens_key_value: int):
         nvshmem_init(uid, self.rank, self.world_size)
-        self.nvshmem_initialized = True
-        self.nvshmem_pe = nvshmem_my_pe()
-        self.dispatcher = DispatcherWrapper(
+        DispatcherWrapper.init(
             q_stride=stride,
             kv_stride=stride,
             max_tokens_query=max_tokens_query,
             max_tokens_key_value=max_tokens_key_value,
             rank=self.rank,
             world_size=self.world_size,
+            uid=uid,
         )
+        self.nvshmem_initialized = True
 
     def test(self, seed: int, tensor: torch.Tensor,
              fwd_metadata: Metadata, rev_metadata: Metadata):
@@ -37,7 +36,6 @@ class Worker:
         hidden_size = tensor.shape[-1]
         torch.manual_seed(seed)
 
-        cp_degree = fwd_metadata.dst_rank.shape[2] if fwd_metadata.dst_rank.dim() == 3 else 1
         num_tokens = tensor.shape[0]
 
         # forward communication buffer
@@ -54,7 +52,7 @@ class Worker:
         print(f"rank {self.rank} fwd done", flush=True)
 
         # reverse communication buffer
-        back_tensor_shape = (num_tokens, cp_degree, hidden_size,) if cp_degree > 1 else (num_tokens, hidden_size,)
+        back_tensor_shape = (num_tokens, hidden_size,)
         back_tensor = torch.zeros(
             back_tensor_shape, dtype=tensor.dtype, device=tensor.device
         )
@@ -64,16 +62,9 @@ class Worker:
         )
         torch.cuda.synchronize()
         print(f"rank {self.rank} bwd communication done", flush=True)
-        if cp_degree > 1:
-            back_tensor_dedup = back_tensor.sum(dim=1) / (back_tensor != 0).sum(dim=1)
-            assert torch.allclose(
-                back_tensor_dedup.unsqueeze(1).repeat(1, cp_degree, 1) * (back_tensor != 0), back_tensor
-            )
-        else:
-            back_tensor_dedup = back_tensor
-        torch.testing.assert_close(tensor, back_tensor_dedup)
+        torch.testing.assert_close(tensor, back_tensor)
         torch.cuda.synchronize()
-        return dst_tensor, back_tensor_dedup
+        return dst_tensor, back_tensor
 
     @torch.no_grad()
     def orchestrate(self,
@@ -85,29 +76,16 @@ class Worker:
         nvshmem_barrier_all()
         return dst_tensor
 
-    def __del__(self):
-        if getattr(self, "nvshmem_initialized", False):
-            self.shutdown()
-
-    def shutdown(self):
-        if self.nvshmem_initialized:
-            nvshmem_finalize()
-            self.nvshmem_initialized = False
-
 
 def create_testcase(
-    seed: int, world_size: int, num_tokens: int, cp_degree: int, num_seqs: int, hidden_size: int
+    seed: int, world_size: int, num_tokens: int, num_seqs: int, hidden_size: int
 ) -> Tuple[Metadata, Metadata, torch.Tensor, torch.Tensor, torch.Tensor]:
     torch.manual_seed(seed)
     # Init seq lens and dispatch tensor.
     seq_lens = gen_seq_lens(world_size, num_seqs, num_tokens).long()
 
-    min_rank = 0 if cp_degree == 1 else -1  # q does not have padding but kv does.
-    global_dispatch = torch.randint(min_rank, world_size, (world_size, num_seqs, cp_degree), dtype=torch.int64)
-    global_dispatch_err = torch.max(global_dispatch, dim=2, keepdim=True)[0] < 0    # error means there is no receiver. We need to at least assign it one.
-    global_dispatch[:, :, -1:] += global_dispatch_err.int()
-    if cp_degree == 1:
-        global_dispatch = global_dispatch.squeeze(2)
+    min_rank = 0
+    global_dispatch = torch.randint(min_rank, world_size, (world_size, num_seqs), dtype=torch.int64)
 
     tensor = torch.randn(world_size, num_tokens, hidden_size, dtype=torch.float16)
     fwd_metadata, rev_metadata = compute_metadata(seq_lens, global_dispatch)
@@ -116,21 +94,16 @@ def create_testcase(
     output_tensor = torch.zeros((world_size, max_recv_tokens, hidden_size), dtype=tensor.dtype, device=tensor.device)
     output_tensor = orchestrate_simulate(tensor, output_tensor, fwd_metadata)
 
-    back_tensor = torch.zeros((world_size, num_tokens, cp_degree, hidden_size), dtype=output_tensor.dtype, device=output_tensor.device)
-    if cp_degree == 1:
-        back_tensor = back_tensor.squeeze(2)
+    back_tensor = torch.zeros((world_size, num_tokens, hidden_size), dtype=output_tensor.dtype, device=output_tensor.device)
     back_tensor = orchestrate_simulate(output_tensor, back_tensor, rev_metadata)
 
-    if cp_degree > 1:
-        back_tensor_dedup = back_tensor.sum(dim=2) / (back_tensor != 0).sum(dim=2)
-    else:
-        back_tensor_dedup = back_tensor
+    back_tensor_dedup = back_tensor
     # print(f"fwd_metadata={fwd_metadata}, rev_metadata={rev_metadata}")
     return fwd_metadata, rev_metadata, tensor, output_tensor, back_tensor_dedup
 
 @torch.no_grad()
-def test(seed, world_size, num_tokens, cp_degree, num_seqs, workers: List[ray.ObjectRef], hidden_size: int=128):
-    fwd_metadata, rev_metadata, tensor, output_tensor, back_tensor_dedup = create_testcase(seed, world_size, num_tokens, cp_degree, num_seqs, hidden_size)
+def test(seed, world_size, num_tokens, num_seqs, workers: List[ray.ObjectRef], hidden_size: int=128):
+    fwd_metadata, rev_metadata, tensor, output_tensor, back_tensor_dedup = create_testcase(seed, world_size, num_tokens, num_seqs, hidden_size)
     assert len(workers) == world_size
     refs = []
 
@@ -164,7 +137,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--world-size", type=int, default=2)
     parser.add_argument("--num-tokens", type=int, default=1024)
-    parser.add_argument("--cp-degree", type=int, default=1)
     parser.add_argument("--hidden-size", type=int, default=128)
     parser.add_argument("--num-seqs", type=int, default=4)
     args = parser.parse_args()
@@ -184,10 +156,6 @@ if __name__ == "__main__":
     ])
 
     print("init done")
-    test(0, args.world_size, args.num_tokens, args.cp_degree, args.num_seqs, workers, args.hidden_size)
+    test(0, args.world_size, args.num_tokens, args.num_seqs, workers, args.hidden_size)
     print("test done")
-    ray.get([
-        worker.shutdown.remote()
-        for worker in workers
-    ])
 
