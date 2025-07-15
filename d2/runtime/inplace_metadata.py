@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -11,16 +11,22 @@ class Metadata:
     dst_offset: torch.Tensor
     seq_len: torch.Tensor
     num_recv_tokens: torch.Tensor
+    seq_recv_mask: Optional[torch.Tensor] = None
+    num_seqs: Optional[torch.Tensor] = None
     world_size: int = None
     normalized: bool = False
 
     def get_slice(self, rank: int):
         assert self.world_size is not None
+        assert self.num_seqs is not None
+
+        num_seqs = self.num_seqs[rank]
         return Metadata(
-            dst_rank=self.dst_rank[rank],
-            dst_offset=self.dst_offset[rank],
-            seq_len=self.seq_len[rank],
-            num_recv_tokens=self.num_recv_tokens[rank],
+            dst_rank=self.dst_rank[rank][:num_seqs],
+            dst_offset=self.dst_offset[rank][:num_seqs],
+            seq_len=self.seq_len[rank][:num_seqs],
+            num_recv_tokens=self.num_recv_tokens[rank], # this is of shape (world_size,)
+            seq_recv_mask=self.seq_recv_mask[rank] if self.seq_recv_mask is not None else None,
             normalized=self.normalized,
         )
 
@@ -30,6 +36,7 @@ class Metadata:
             dst_offset=self.dst_offset.to(torch.uint32),
             seq_len=self.seq_len.to(torch.uint32),
             num_recv_tokens=self.num_recv_tokens.to(torch.uint64),
+            seq_recv_mask=self.seq_recv_mask.to(torch.uint32) if self.seq_recv_mask is not None else None,
             world_size=self.world_size,
             normalized=True,
         )
@@ -40,6 +47,7 @@ class Metadata:
             dst_offset=self.dst_offset.cuda().contiguous(),
             seq_len=self.seq_len.cuda().contiguous(),
             num_recv_tokens=self.num_recv_tokens.cuda().contiguous(),
+            seq_recv_mask=self.seq_recv_mask.cuda().contiguous() if self.seq_recv_mask is not None else None,
             world_size=self.world_size,
             normalized=self.normalized,
         )
@@ -146,11 +154,19 @@ def compute_metadata(
     rev_num_received_tokens = tokens_to_dst_per_dispatch.reshape(world_size, -1, world_size).sum(dim=1)
     rev_num_received_tokens = torch.cat([rev_num_received_tokens, rev_num_received_tokens.sum(dim=1, keepdim=True)], dim=1)
 
+    # If this is kv (has cp degree), we add the sequence-cp mask to the reverse communication metadata.
+    seq_recv_mask = None
+    if len(dispatch_shape) == 3:
+        seq_recv_mask = global_dispatch.reshape(dispatch_shape) >= 0
+    num_seqs = (seq_len > 0).sum(dim=1)
+    num_seqs_rev = (rev_seq_len > 0).sum(dim=1)
+
     fwd_metadata = Metadata(
         dst_rank=global_dispatch.reshape(dispatch_shape),
         dst_offset=seq_begin_offset.reshape(dispatch_shape),
         seq_len=seq_len,
         num_recv_tokens=num_recv_tokens,
+        num_seqs=num_seqs,
         world_size=world_size,
     )
     rev_metadata = Metadata(
@@ -158,6 +174,8 @@ def compute_metadata(
         dst_offset=rev_dst_offset,
         seq_len=rev_seq_len,
         num_recv_tokens=rev_num_received_tokens,
+        seq_recv_mask=seq_recv_mask,
+        num_seqs=num_seqs_rev,
         world_size=world_size,
     )
     return fwd_metadata, rev_metadata

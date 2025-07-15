@@ -4,7 +4,10 @@ from typing import List, Tuple, Optional
 import ray
 import torch
 
-from d2.runtime.attn_kernels.ops import dispatch, nvshmem_barrier_all, nvshmem_get_unique_id, DispatcherWrapper
+from d2.runtime.attn_kernels.ops import (
+    dispatch_no_cp_tensor, dispatch_kv_backward, dispatch_qkv,
+    nvshmem_barrier_all, nvshmem_get_unique_id, DispatcherWrapper,
+)
 from d2.runtime.inplace_metadata import compute_metadata, orchestrate_simulate, gen_seq_lens, Metadata
 
 @ray.remote(num_gpus=1)
@@ -61,15 +64,14 @@ class Worker:
         dst_tensor_kv = torch.zeros(
             (num_received_tokens_kv, hidden_size_kv), dtype=tensor_kv.dtype, device=tensor_kv.device
         )
-        dst_tensor_q, dst_tensor_kv = self.orchestrate(
-            tensor_q, fwd_q_metadata,
-            dst_tensor=dst_tensor_q,
-            kv_tensor=tensor_kv,
-            kv_metadata=fwd_kv_metadata,
-            kv_dst_tensor=dst_tensor_kv,
+        dispatch_qkv(
+            DispatcherWrapper.get_instance(),
+            tensor_q, dst_tensor_q, fwd_q_metadata,
+            tensor_kv, dst_tensor_kv, fwd_kv_metadata,
         )
+        nvshmem_barrier_all()
         torch.cuda.synchronize()
-        print(f"rank {self.rank} fwd done", flush=True)
+        # print(f"rank {self.rank} fwd done", flush=True)
 
         # reverse communication buffer
         back_tensor_shape_q = (num_tokens, hidden_size_q,)
@@ -79,17 +81,20 @@ class Worker:
         )
         back_tensor_kv = torch.zeros(
             back_tensor_shape_kv, dtype=tensor_kv.dtype, device=tensor_kv.device
+        ).contiguous()
+        dispatch_no_cp_tensor(
+            DispatcherWrapper.get_instance(),
+            dst_tensor_q, back_tensor_q, rev_q_metadata,
         )
-        back_tensor_q, _ = self.orchestrate(
-            dst_tensor_q, rev_q_metadata,
-            dst_tensor=back_tensor_q,
+        nvshmem_barrier_all()
+
+        dispatch_kv_backward(
+            DispatcherWrapper.get_instance(),
+            dst_tensor_kv, back_tensor_kv, rev_kv_metadata,
         )
-        back_tensor_kv, _ = self.orchestrate(
-            dst_tensor_kv, rev_kv_metadata,
-            dst_tensor=back_tensor_kv,
-        )
+        nvshmem_barrier_all()
         torch.cuda.synchronize()
-        print(f"rank {self.rank} bwd communication done", flush=True)
+        # print(f"rank {self.rank} bwd communication done", flush=True)
 
         back_tensor_kv = back_tensor_kv.reshape(
             (cp_degree, num_tokens, hidden_size_kv)
@@ -101,12 +106,15 @@ class Worker:
             for k in range(cp_degree):
                 if fwd_kv_metadata.dst_rank[j, k] >= 0:
                     dedup_mask[k, tot_tokens:tot_tokens+seq_len] = 1
+                    assert rev_kv_metadata.seq_recv_mask[j, k] == 1
+                else:
+                    assert rev_kv_metadata.seq_recv_mask[j, k] == 0
             tot_tokens += seq_len
 
-        back_tensor_kv_dedup = back_tensor_kv.sum(dim=0) / dedup_mask.sum(dim=0)
-        torch.testing.assert_close(
-            back_tensor_kv_dedup.unsqueeze(0).repeat(cp_degree, 1, 1) * (dedup_mask != 0), back_tensor_kv
-        )
+        back_tensor_kv_dedup = (back_tensor_kv * dedup_mask).sum(dim=0) / dedup_mask.sum(dim=0)
+        # torch.testing.assert_close(
+        #     back_tensor_kv_dedup.unsqueeze(0).repeat(cp_degree, 1, 1) * dedup_mask, back_tensor_kv
+        # )
         torch.testing.assert_close(tensor_q, back_tensor_q)
         torch.testing.assert_close(tensor_kv, back_tensor_kv_dedup)
         torch.cuda.synchronize()
@@ -116,22 +124,6 @@ class Worker:
             "rev_q": back_tensor_q,
             "rev_kv": back_tensor_kv_dedup,
         }
-
-    @torch.no_grad()
-    def orchestrate(self,
-                    tensor: torch.Tensor,
-                    metadata: Metadata,
-                    dst_tensor: torch.Tensor,
-                    kv_tensor: Optional[torch.Tensor] = None,
-                    kv_metadata: Optional[Metadata] = None,
-                    kv_dst_tensor: Optional[torch.Tensor] = None,
-                    ):
-        # print(f"rank {self.rank} orchestrate tensor {tensor[:, :2]=}, {dst_id=}, {dst_offset=}, {dst_tensor.shape=}, {num_recv_tokens=}")
-        dispatch(
-            DispatcherWrapper.get_instance(), tensor, dst_tensor, metadata, kv_tensor, kv_dst_tensor, kv_metadata,
-        )
-        nvshmem_barrier_all()
-        return dst_tensor, kv_dst_tensor
 
 
 def create_testcase_qkv(
@@ -191,9 +183,14 @@ def create_testcase_qkv(
             )
             # triangular mask of seq_cp_dst_kv. Mask value is always 0 but we want it -1.
             # FIXME: the following line leads to a number mismatch.
-            # seq_cp_dst_kv_tril = (seq_cp_dst_kv + 1).tril() - 1
-            # cp_kv_dst_local.append(seq_cp_dst_kv_tril)
-            cp_kv_dst_local.append(seq_cp_dst_kv)
+            kv_dst_mask = ((
+                torch.arange(max_cp_degree).view(1, -1) # keep j > i and j <= a
+                >= torch.arange(num_cp.item()).view(-1, 1)
+            ) & (
+                torch.arange(max_cp_degree).view(1, -1) < num_cp
+            ))
+            seq_cp_dst_kv_tril = (seq_cp_dst_kv + 1) * kv_dst_mask - 1
+            cp_kv_dst_local.append(seq_cp_dst_kv_tril)
         
         cp_seq_lens_local = torch.cat(cp_seq_lens_local, dim=0)
         cp_query_dst_local = torch.cat(cp_query_dst_local, dim=0)

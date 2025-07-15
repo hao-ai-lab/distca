@@ -39,7 +39,10 @@ public:
     const size_t max_cp_degree,
     const size_t stride,
     const size_t kv_stride,
-    cudaStream_t stream
+    cudaStream_t stream,
+    // recv kv backward special metadata
+    const uint32_t *seq_recv_mask,
+    const size_t kv_backward_num_tokens
   );
 
   unsigned rank() const {

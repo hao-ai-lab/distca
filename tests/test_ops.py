@@ -3,7 +3,7 @@ from typing import List, Tuple
 import ray
 import torch
 
-from d2.runtime.attn_kernels.ops import dispatch, nvshmem_finalize, nvshmem_init, nvshmem_my_pe, nvshmem_barrier_all, nvshmem_get_unique_id, DispatcherWrapper
+from d2.runtime.attn_kernels.ops import dispatch_no_cp_tensor, nvshmem_init, nvshmem_barrier_all, nvshmem_get_unique_id, DispatcherWrapper
 from d2.runtime.inplace_metadata import compute_metadata, orchestrate_simulate, gen_seq_lens, Metadata
 
 @ray.remote(num_gpus=1)
@@ -72,7 +72,7 @@ class Worker:
                     metadata: Metadata,
                     dst_tensor: torch.Tensor):
         # print(f"rank {self.rank} orchestrate tensor {tensor[:, :2]=}, {dst_id=}, {dst_offset=}, {dst_tensor.shape=}, {num_recv_tokens=}")
-        dispatch(DispatcherWrapper.get_instance(), tensor, dst_tensor, metadata, None, None, None)
+        dispatch_no_cp_tensor(DispatcherWrapper.get_instance(), tensor, dst_tensor, metadata)
         nvshmem_barrier_all()
         return dst_tensor
 

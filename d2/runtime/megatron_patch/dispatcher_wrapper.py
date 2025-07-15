@@ -6,7 +6,7 @@ from typing import Optional
 
 import torch
 
-from d2.runtime.attn_kernels.ops import DispatcherWrapper, dispatch
+from d2.runtime.attn_kernels.ops import DispatcherWrapper, dispatch_kv_backward, dispatch_no_cp_tensor, dispatch_qkv,
 from d2.runtime.inplace_metadata import Metadata
 
 
@@ -20,13 +20,13 @@ def dispatch_reverse(
 ):
     dispatcher = DispatcherWrapper.get_instance()
     # the input has two shapes, so we dispatch them separately.
-    dispatch(
-        dispatcher, q_output_grad, q_input_grad, query_metadata, None, None, None
+    dispatch_no_cp_tensor(
+        dispatcher, q_output_grad, q_input_grad, query_metadata,
     )
     # NOTE: In the reversed pass, each token of kv grad is only sent to one copy, so its behavior
     # is the same as query in forward.
     if kv_input_grad is not None:
-        dispatch(dispatcher, kv_output_grad, kv_input_grad, key_value_metadata, None, None, None)
+        dispatch_kv_backward(dispatcher, kv_output_grad, kv_input_grad, key_value_metadata)
 
 
 def _both_none_or_neither(a, b):
@@ -77,7 +77,7 @@ class n_to_n_dispatch(torch.autograd.Function):
         else:
             ctx = nullcontext()
         with ctx:
-            dispatch(
+            dispatch_qkv(
                 dispatcher=DispatcherWrapper.get_instance(),
                 tensor=query_in,
                 dst_tensor=out_query,

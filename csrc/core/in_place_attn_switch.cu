@@ -11,7 +11,108 @@
 
 namespace {
 
+__forceinline__ __device__ void _dispatch_recv_impl_kv_backward(
+  std::byte *recv_tensor,
+  // Metadata Tensors
+  const uint32_t *seq_lens,
+  // Metadata
+  const size_t stride,
+  const unsigned world_size,
+  const unsigned BUFFER_STRIDE,
+  // nvshmem buffer
+  std::byte *recv_buffer,
+  // recv kv special metadata
+  // TODO(yonghao): the seq_recv_mask is of layout (num_sequence, max_cp_degree), while tokens are stored of layout (max_cp_degree, num_sequence).
+  // We need to transpose the token receive layout in compute metadata.
+  const uint32_t *seq_recv_mask,
+  const size_t max_cp_degree,
+  const size_t num_tokens
+) {
+  size_t current_seq = 0;
+  size_t current_cp = 0;
+  // size_t seq_is_pad_idx = 0;
+  size_t current_seq_end = __ldg(&seq_lens[0]);
+  size_t current_seq_len = __ldg(&seq_lens[0]);
+  bool skip_current_seq = __ldg(&seq_recv_mask[0]) == 0;
+
+  for (size_t token_idx = blockIdx.x; token_idx < num_tokens * max_cp_degree; token_idx += gridDim.x) {
+    while (token_idx >= current_seq_end) {
+      // This is for the case that recv buffer layout is also (num_sequence, max_cp_degree).
+      // seq_is_pad_idx += 1;
+      // skip_current_seq = __ldg(&seq_recv_mask[seq_is_pad_idx]);
+      // if (current_cp < max_cp_degree - 1) {
+      //   current_cp += 1;
+      // } else {
+      //   current_cp = 0;
+      //   current_seq += 1;
+      //   current_seq_len = __ldg(&seq_lens[current_seq]);
+      // }
+      // current_seq_end += current_seq_len;
+      if (current_seq_end % num_tokens == 0) {
+        current_cp += 1;
+        current_seq = 0;
+      } else {
+        current_seq += 1;
+      }
+      current_seq_len = __ldg(&seq_lens[current_seq]);
+      current_seq_end += current_seq_len;
+      if (token_idx < current_seq_end) {
+        skip_current_seq = __ldg(&seq_recv_mask[current_seq * max_cp_degree + current_cp]) == 0;
+      }
+    }
+    // if (skip_current_seq) {
+    //   continue;
+    // }
+
+    std::byte* recv_buffer_token = recv_buffer + token_idx * BUFFER_STRIDE;
+    int4* recv_token = (int4*)(recv_tensor + token_idx * stride);
+    for (int i = threadIdx.x; i * sizeof(int4) < stride; i += blockDim.x) {
+      recv_token[i] = ((int4*)recv_buffer_token)[i];
+    }
+  }
+}
+
 template <bool KEY_VALUE>
+__forceinline__ __device__ void _dispatch_recv_impl(
+  // Input and output tensors
+  std::byte *recv_tensor,
+  std::byte *kv_recv_tensor,
+  // Metadata tensors
+  const uint64_t *num_recv_tokens,
+  const uint32_t *seq_lens,
+  //
+  const uint64_t *kv_num_recv_tokens,
+  // Metadata
+  const size_t stride,
+  const size_t kv_stride,
+  const unsigned world_size,
+  const unsigned Q_BUFFER_STRIDE,
+  const unsigned KV_BUFFER_STRIDE,
+  // nvshmem buffers
+  std::byte *q_recv_buffer,
+  std::byte *kv_recv_buffer
+) {
+  uint64_t tot_num_recv_tokens = __ldg(&num_recv_tokens[world_size]);
+  for (size_t token_idx = blockIdx.x; token_idx < tot_num_recv_tokens; token_idx += gridDim.x) {
+    std::byte* recv_buffer_token = q_recv_buffer + token_idx * Q_BUFFER_STRIDE;
+    int4* recv_token = (int4*)(recv_tensor + token_idx * stride);
+    for (int i = threadIdx.x; i * sizeof(int4) < stride; i += blockDim.x) {
+      recv_token[i] = ((int4*)recv_buffer_token)[i];
+    }
+  }
+  if constexpr (KEY_VALUE) {
+    uint64_t tot_kv_num_recv_tokens = __ldg(&kv_num_recv_tokens[world_size]);
+    for (size_t token_idx = blockIdx.x; token_idx < tot_kv_num_recv_tokens; token_idx += gridDim.x) {
+      std::byte* kv_recv_buffer_token = kv_recv_buffer + token_idx * KV_BUFFER_STRIDE;
+      int4* kv_recv_token = (int4*)(kv_recv_tensor + token_idx * kv_stride);
+      for (int i = threadIdx.x; i * sizeof(int4) < kv_stride; i += blockDim.x) {
+        kv_recv_token[i] = ((int4*)kv_recv_buffer_token)[i];
+      }
+    }
+  }
+}
+
+template <bool KEY_VALUE, bool IS_KV_BACKWARD>
 __global__ void dispatch_kernel(
   // Input and output tensors
   const std::byte *send_tensor,
@@ -41,7 +142,10 @@ __global__ void dispatch_kernel(
   std::byte *kv_send_buffer,
   std::byte *kv_recv_buffer,
   uint64_t *q_signal_buffer,
-  uint64_t *kv_signal_buffer
+  uint64_t *kv_signal_buffer,
+  // recv kv special metadata
+  const uint32_t *seq_recv_mask,
+  const size_t kv_backward_num_tokens
 ) {
   // --- Calculate thread/warp IDs based on the new launch grid ---
   const unsigned WARP_SIZE = 32;
@@ -123,6 +227,7 @@ __global__ void dispatch_kernel(
     } else {
       if constexpr (KEY_VALUE) {
         // warp 1...max_cp_degree dispatches to its own rank and recv_offset
+        // FIXME(yonghao): we assume that max_cp_degree is small. Otherwise, we should do a round-robin
         if (warp_id <= max_cp_degree) {
           // move to the next sequence.
           while (token_idx >= sequence_end) {
@@ -167,21 +272,33 @@ __global__ void dispatch_kernel(
   __syncthreads();
 
   // --- RECEIVER-SIDE MEMCPY ---
-  for (size_t token_idx = blockIdx.x; token_idx < num_recv_tokens[world_size]; token_idx += gridDim.x) {
-    std::byte* recv_buffer_token = q_recv_buffer + token_idx * Q_BUFFER_STRIDE;
-    int4* recv_token = (int4*)(recv_tensor + token_idx * stride);
-    for (int i = threadIdx.x; i * sizeof(int4) < stride; i += warp_group_size) {
-      recv_token[i] = ((int4*)recv_buffer_token)[i];
-    }
-  }
-  if constexpr (KEY_VALUE) {
-    for (size_t token_idx = blockIdx.x; token_idx < kv_num_recv_tokens[world_size]; token_idx += gridDim.x) {
-      std::byte* kv_recv_buffer_token = kv_recv_buffer + token_idx * KV_BUFFER_STRIDE;
-      int4* kv_recv_token = (int4*)(kv_recv_tensor + token_idx * kv_stride);
-      for (int i = threadIdx.x; i * sizeof(int4) < kv_stride; i += warp_group_size) {
-        kv_recv_token[i] = ((int4*)kv_recv_buffer_token)[i];
-      }
-    }
+  if constexpr (IS_KV_BACKWARD) {
+    _dispatch_recv_impl_kv_backward(
+      recv_tensor,
+      seq_lens,
+      stride,
+      world_size,
+      Q_BUFFER_STRIDE,
+      q_recv_buffer,
+      seq_recv_mask,
+      max_cp_degree,
+      kv_backward_num_tokens
+    );
+  } else {
+    _dispatch_recv_impl<KEY_VALUE>(
+      recv_tensor,
+      kv_recv_tensor,
+      num_recv_tokens,
+      seq_lens,
+      kv_num_recv_tokens,
+      stride,
+      kv_stride,
+      world_size,
+      Q_BUFFER_STRIDE,
+      KV_BUFFER_STRIDE,
+      q_recv_buffer,
+      kv_recv_buffer
+    );
   }
 }
 
@@ -238,10 +355,14 @@ void DispatchHelper::dispatch(
   const size_t max_cp_degree,
   const size_t stride,
   const size_t kv_stride,
-  cudaStream_t stream
+  cudaStream_t stream,
+  // recv kv backward special metadata
+  const uint32_t *seq_recv_mask,
+  const size_t kv_backward_num_tokens
 ) {
   int numSMs = get_sm_count();
   const bool has_key_value = kv_send_tensor != nullptr;
+  const bool is_kv_backward = seq_recv_mask != nullptr;
   constexpr unsigned NUM_WARPS = 10;
   const unsigned numBlocks = std::min(
     static_cast<unsigned>(numSMs),
@@ -282,12 +403,24 @@ void DispatchHelper::dispatch(
     &kv_send_buffer,
     &kv_recv_buffer,
     &q_signal_buffer,
-    &kv_signal_buffer
+    &kv_signal_buffer,
+    // recv kv special metadata
+    const_cast<uint32_t **>(&seq_recv_mask),
+    const_cast<size_t *>(&kv_backward_num_tokens)
   };
 
-  if (has_key_value) {
+  if (is_kv_backward) {
     CUDACHECK(cudaLaunchCooperativeKernel(
-      (void *)&dispatch_kernel<true>,
+      (void *)&dispatch_kernel<false, true>,
+      dimGrid,
+      dimBlock,
+      args,
+      sharedMemory,
+      stream
+    ));
+  } else if (has_key_value) {
+    CUDACHECK(cudaLaunchCooperativeKernel(
+      (void *)&dispatch_kernel<true, false>,
       dimGrid,
       dimBlock,
       args,
@@ -296,7 +429,7 @@ void DispatchHelper::dispatch(
     ));
   } else {
     CUDACHECK(cudaLaunchCooperativeKernel(
-      (void *)&dispatch_kernel<false>,
+      (void *)&dispatch_kernel<false, false>,
       dimGrid,
       dimBlock,
       args,

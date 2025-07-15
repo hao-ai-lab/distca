@@ -147,32 +147,70 @@ class DispatcherWrapper:
 
 
 
-def dispatch(
+def dispatch_qkv(
     dispatcher: DispatcherWrapper,
     tensor: torch.Tensor,
     dst_tensor: torch.Tensor,
     metadata: Metadata,
-    kv_tensor: Optional[torch.Tensor],
-    kv_dst_tensor: Optional[torch.Tensor],
-    kv_metadata: Optional[Metadata],
+    kv_tensor: torch.Tensor,
+    kv_dst_tensor: torch.Tensor,
+    kv_metadata: Metadata,
 ):
     assert metadata.dst_rank.dtype == torch.int32
     assert metadata.dst_offset.dtype == torch.uint32
     assert metadata.num_recv_tokens.dtype == torch.uint64
     assert metadata.seq_len.dtype == torch.uint32
     assert tensor.dtype == dst_tensor.dtype
-    if kv_metadata is not None:
-        assert kv_metadata.dst_rank.dtype == torch.int32
-        assert kv_metadata.dst_offset.dtype == torch.uint32
-        assert kv_metadata.num_recv_tokens.dtype == torch.uint64
-        assert kv_metadata.seq_len.dtype == torch.uint32
-        assert kv_tensor.dtype == kv_dst_tensor.dtype
-    else:
-        kv_metadata = Metadata(None, None, None, None, None)
-    return _ops.dispatch(
+
+    assert kv_metadata.dst_rank.dtype == torch.int32
+    assert kv_metadata.dst_offset.dtype == torch.uint32
+    assert kv_metadata.num_recv_tokens.dtype == torch.uint64
+    assert kv_metadata.seq_len.dtype == torch.uint32
+    assert kv_tensor.dtype == kv_dst_tensor.dtype
+    return _ops.dispatch_core(
         dispatcher.dispatcher,
         tensor, dst_tensor,
         metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
         kv_tensor, kv_dst_tensor,
-        kv_metadata.dst_rank, kv_metadata.dst_offset, kv_metadata.num_recv_tokens
+        kv_metadata.dst_rank, kv_metadata.dst_offset, kv_metadata.num_recv_tokens,
+        None,
+    )
+
+def dispatch_no_cp_tensor(
+    dispatcher: DispatcherWrapper,
+    tensor: torch.Tensor,
+    dst_tensor: torch.Tensor,
+    metadata: Metadata,
+):
+    assert metadata.dst_rank.dtype == torch.int32
+    assert metadata.dst_offset.dtype == torch.uint32
+    assert metadata.num_recv_tokens.dtype == torch.uint64
+    assert metadata.seq_len.dtype == torch.uint32
+    assert tensor.dtype == dst_tensor.dtype
+    return _ops.dispatch_core(
+        dispatcher.dispatcher,
+        tensor, dst_tensor,
+        metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
+        None, None, None, None, None, None,
+    )
+
+
+def dispatch_kv_backward(
+    dispatcher: DispatcherWrapper,
+    tensor: torch.Tensor,
+    dst_tensor: torch.Tensor,
+    metadata: Metadata,
+):
+    assert metadata.dst_rank.dtype == torch.int32
+    assert metadata.dst_offset.dtype == torch.uint32
+    assert metadata.num_recv_tokens.dtype == torch.uint64
+    assert metadata.seq_len.dtype == torch.uint32
+    assert tensor.dtype == dst_tensor.dtype
+    assert metadata.seq_recv_mask.dtype == torch.uint32
+    return _ops.dispatch_core(
+        dispatcher.dispatcher,
+        tensor, dst_tensor,
+        metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
+        None, None, None, None, None,
+        metadata.seq_recv_mask
     )
