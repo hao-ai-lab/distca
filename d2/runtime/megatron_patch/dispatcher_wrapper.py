@@ -6,7 +6,7 @@ from typing import Optional
 
 import torch
 
-from d2.runtime.attn_kernels.ops import DispatcherWrapper, dispatch_kv_backward, dispatch_no_cp_tensor, dispatch_qkv,
+from d2.runtime.attn_kernels.ops import DispatcherWrapper, dispatch_kv_backward, dispatch_no_cp_tensor, dispatch_qkv
 from d2.runtime.inplace_metadata import Metadata
 
 

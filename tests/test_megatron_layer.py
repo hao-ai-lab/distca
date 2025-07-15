@@ -1,11 +1,19 @@
-# Run the test with:
-# torchrun --nproc_per_node=4 --nnodes=1 --rdzv_id=5800 --rdzv_backend=c10d --rdzv_endpoint=127.0.0.1:29500 test_megatron_layer.py
+"""
+Using ray to init processes. This makes multi process logging format cleaner and launching script simpler.
+"""
 
+import argparse
+from dataclasses import dataclass
 import os
+import socket
+from typing import Optional
 
+from megatron.core import parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
+import ray
+from ray.util.placement_group import placement_group
 import torch
 
 from d2.runtime.attn_kernels.ops import nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, DispatcherWrapper
@@ -16,15 +24,104 @@ from d2.runtime.megatron_patch.model_patch import get_gpt_layer_with_transformer
 from test_dispatch_qkv import create_testcase_qkv
 
 
-class Worker:
+def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
+    gpu_nodes = [node for node in ray.nodes() if node.get("Resources", {}).get("GPU")]
+    gpu_nodes.sort(key=lambda node: node["NodeManagerAddress"])
+
+    workers = []
+    world_size = num_nodes * num_gpus_per_node
+    master_addr = None
+    master_port = None
+    worker_cls = ray.remote(worker_cls)
+
+    for n_id in range(num_nodes):
+        node = gpu_nodes[n_id]
+        node_id = node["NodeID"]
+        bundles = [{"GPU": 1} for _ in range(num_gpus_per_node)]
+        pg = placement_group(bundles, strategy="STRICT_PACK", name=f"node_{n_id}", _soft_target_node_id=node_id)
+        ray.get(pg.ready())
+        for i in range(num_gpus_per_node):
+
+            rank = n_id * num_gpus_per_node + i
+            env_vars = {
+                "WORLD_SIZE": str(world_size),
+                "RANK": str(rank),
+                "LOCAL_RANK": str(i),
+            }
+            if rank > 0:
+                env_vars["MASTER_ADDR"] = master_addr
+                env_vars["MASTER_PORT"] = master_port
+
+            worker = worker_cls.options(
+                # Target the placement group and a specific bundle within it
+                placement_group=pg,
+                placement_group_bundle_index=i,
+                num_gpus=1,
+                runtime_env={"env_vars": env_vars},
+            ).remote(
+                world_size=world_size,
+                rank=n_id * num_gpus_per_node + i,
+            )
+            workers.append(worker)
+
+            if rank == 0:
+                master_addr, master_port = ray.get(worker.get_node_ip_port.remote())
+                worker.set_master_addr_port.remote(master_addr, master_port)
+    return workers
+
+
+@dataclass
+class ParallelConfig:
+    tensor_model_parallel_size: int = 1
+    pipeline_model_parallel_size: int = 1
+    virtual_pipeline_model_parallel_size: Optional[int] = None
+    context_parallel_size: int = 1
+    expert_model_parallel_size: Optional[int] = None
+    expert_tensor_parallel_size: Optional[int] = None
+
+
+class MegatronBaseWorker:
     def __init__(self, rank: int, world_size: int):
         self.rank = rank
         self.world_size = world_size
         self.nvshmem_initialized = False
         self.nvshmem_pe = None
-        self.layer = None
 
-    def init_comm(self, uid: torch.Tensor, stride: int, max_tokens_query: int, max_tokens_key_value: int):
+    #### General init functions
+    def get_node_ip_port(self):
+        host_ipv4 = os.getenv("MY_HOST_IP", None)
+        host_ipv6 = os.getenv("MY_HOST_IPV6", None)
+        host_ip_by_env = host_ipv4 or host_ipv6
+        host_ip_by_sdk = ray._private.services.get_node_ip_address()
+
+        host_ip = host_ip_by_env or host_ip_by_sdk
+
+        with socket.socket() as sock:
+            sock.bind(("", 0))
+            port = sock.getsockname()[1]
+        return host_ip, str(port)
+
+    def set_master_addr_port(self, master_addr: str, master_port: str):
+        os.environ["MASTER_ADDR"] = master_addr
+        os.environ["MASTER_PORT"] = master_port
+
+    def init_comm(self, uid: torch.Tensor, stride: int, max_tokens_query: int, max_tokens_key_value: int,
+                  parallel_config: ParallelConfig):
+        if not torch.distributed.is_initialized():
+            rank = int(os.environ["LOCAL_RANK"])
+            torch.distributed.init_process_group(backend="cpu:gloo,gpu:nccl", rank=self.rank, world_size=self.world_size)
+            torch.cuda.set_device(rank)
+        mpu.initialize_model_parallel(
+            tensor_model_parallel_size=parallel_config.tensor_model_parallel_size,
+            pipeline_model_parallel_size=parallel_config.pipeline_model_parallel_size,
+            virtual_pipeline_model_parallel_size=parallel_config.virtual_pipeline_model_parallel_size,
+            pipeline_model_parallel_split_rank=None,
+            use_sharp=False,
+            context_parallel_size=parallel_config.context_parallel_size,
+            expert_model_parallel_size=parallel_config.expert_model_parallel_size,
+            expert_tensor_parallel_size=parallel_config.expert_tensor_parallel_size,
+            nccl_communicator_config_path=None,
+        )
         DispatcherWrapper.init(
             q_stride=stride,
             kv_stride=stride,
@@ -34,8 +131,14 @@ class Worker:
             world_size=self.world_size,
             uid=uid,
         )
-        # TODO: init megatron distributed environment to test TP, CP, DP backward, etc.
 
+
+class MegatronLayerWorker(MegatronBaseWorker):
+    def __init__(self, rank: int, world_size: int):
+        super().__init__(rank, world_size)
+        self.layer = None
+
+    #### Megatron layer init and running functions
     def init_layer(self, config: TransformerConfig, spec: ModuleSpec,
                    seed: int):
         torch.manual_seed(seed)
@@ -60,7 +163,7 @@ def get_seqlen_shard(cu_seqlens_q: torch.Tensor, cu_seqlens_kv: torch.Tensor,
 
 
 @torch.no_grad()
-def test(worker: Worker, seed, rank,
+def test(worker, seed, rank,
          world_size, num_tokens, max_cp_degree, num_seqs,
          hidden_size):
     # Create two splits for ping-pong
@@ -183,21 +286,19 @@ def init_test(args):
     return worker
 
 
+def init_test(args):
+    ray.init()
+    workers = create_pg(args.num_nodes, args.num_gpus_per_node, MegatronLayerWorker)
+
+
 if __name__ == "__main__":
-    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=4)
     parser.add_argument("--hidden-size", type=int, default=128)
     parser.add_argument("--num-seqs", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--num-nodes", type=int, default=1)
+    parser.add_argument("--num-gpus-per-node", type=int, default=4)
+    parser.add_argument("--tp-size", type=int, default=1)
     args = parser.parse_args()
-
-    worker = init_test(args)
-    rank = torch.distributed.get_rank()
-    world_size = torch.distributed.get_world_size()
-
-    test(
-        worker, args.seed, rank, world_size, args.num_tokens, args.cp_degree, args.num_seqs,
-        args.hidden_size, args.num_heads
-    )
