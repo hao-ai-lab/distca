@@ -37,7 +37,7 @@ def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
     for n_id in range(num_nodes):
         node = gpu_nodes[n_id]
         node_id = node["NodeID"]
-        bundles = [{"GPU": 1} for _ in range(num_gpus_per_node)]
+        bundles = [{"GPU": 1, "CPU": 1} for _ in range(num_gpus_per_node)]
         pg = placement_group(bundles, strategy="STRICT_PACK", name=f"node_{n_id}", _soft_target_node_id=node_id)
         ray.get(pg.ready())
         for i in range(num_gpus_per_node):
@@ -57,6 +57,7 @@ def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
                 placement_group=pg,
                 placement_group_bundle_index=i,
                 num_gpus=1,
+                num_cpus=1,
                 runtime_env={"env_vars": env_vars},
             ).remote(
                 world_size=world_size,
@@ -76,11 +77,12 @@ class ParallelConfig:
     pipeline_model_parallel_size: int = 1
     virtual_pipeline_model_parallel_size: Optional[int] = None
     context_parallel_size: int = 1
-    expert_model_parallel_size: Optional[int] = None
+    expert_model_parallel_size: int = 1
     expert_tensor_parallel_size: Optional[int] = None
 
 
 class MegatronBaseWorker:
+    """Worker base class to init communication groups (megatron and nvshmem)."""
     def __init__(self, rank: int, world_size: int):
         self.rank = rank
         self.world_size = world_size
@@ -105,12 +107,15 @@ class MegatronBaseWorker:
         os.environ["MASTER_ADDR"] = master_addr
         os.environ["MASTER_PORT"] = master_port
 
-    def init_comm(self, uid: torch.Tensor, stride: int, max_tokens_query: int, max_tokens_key_value: int,
+    def init_comm(self, stride: int, max_tokens_query: int, max_tokens_key_value: int,
                   parallel_config: ParallelConfig):
+        # Init megatron communication.
         if not torch.distributed.is_initialized():
-            rank = int(os.environ["LOCAL_RANK"])
-            torch.distributed.init_process_group(backend="cpu:gloo,gpu:nccl", rank=self.rank, world_size=self.world_size)
-            torch.cuda.set_device(rank)
+            local_rank = int(os.environ["LOCAL_RANK"])
+            torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", rank=self.rank, world_size=self.world_size)
+        # NOTE: do not set to local_rank here because the cuda visible device is set by ray.
+        torch.cuda.set_device(0)
+
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=parallel_config.tensor_model_parallel_size,
             pipeline_model_parallel_size=parallel_config.pipeline_model_parallel_size,
@@ -122,6 +127,13 @@ class MegatronBaseWorker:
             expert_tensor_parallel_size=parallel_config.expert_tensor_parallel_size,
             nccl_communicator_config_path=None,
         )
+        # Init nvshmem.
+        if self.rank == 0:
+            uid = nvshmem_get_unique_id()
+        else:
+            uid = nvshmem_alloc_empty_unique_id()
+        torch.distributed.broadcast(uid, src=0)
+
         DispatcherWrapper.init(
             q_stride=stride,
             kv_stride=stride,
@@ -252,6 +264,22 @@ def test(worker, seed, rank,
 
 
 def init_test(args):
+    ray.init()
+    workers = create_pg(args.num_nodes, args.num_gpus_per_node, MegatronLayerWorker)
+    print("Workers created")
+    stride = args.hidden_size * torch.float16.itemsize
+    world_size = len(workers)
+    max_tokens_query = args.num_tokens * world_size
+    max_tokens_key_value = args.num_tokens * world_size
+    parallel_config = ParallelConfig(
+        tensor_model_parallel_size=args.tp_size
+    )
+    ray.get([worker.init_comm.remote(
+        stride, max_tokens_query, max_tokens_key_value, parallel_config
+    ) for worker in workers])
+    print("Communication groups initialized")
+
+    seed = args.seed
     spec = get_gpt_layer_with_transformer_engine_spec()
     config = get_gpt_config(
         num_layers=1,
@@ -259,36 +287,10 @@ def init_test(args):
         num_attention_heads=1,
         ffn_hidden_size=args.hidden_size * 4,
     )
-    num_tokens = args.num_tokens
-    hidden_size = args.hidden_size
-    seed = args.seed
-
-    torch.distributed.init_process_group(
-        backend="cpu:gloo",
-    )
-    local_rank = int(os.environ["LOCAL_RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
-    rank = int(os.environ["RANK"])
-    if rank == 0:
-        uid = nvshmem_get_unique_id()
-    else:
-        uid = nvshmem_alloc_empty_unique_id()
-    torch.distributed.broadcast(uid, src=0)
-    torch.cuda.set_device(local_rank)
-    worker = Worker(rank, world_size)
-
-    world_size = torch.distributed.get_world_size()
-    stride = hidden_size * torch.float16.itemsize
-    max_tokens_query = num_tokens * world_size
-    max_tokens_key_value = num_tokens * world_size
-    worker.init_comm(uid, stride, max_tokens_query, max_tokens_key_value)
-    worker.init_layer(config, spec, seed)
-    return worker
-
-
-def init_test(args):
-    ray.init()
-    workers = create_pg(args.num_nodes, args.num_gpus_per_node, MegatronLayerWorker)
+    ray.get([
+        worker.init_layer.remote(config, spec, seed) for worker in workers
+    ])
+    return workers
 
 
 if __name__ == "__main__":
@@ -302,3 +304,5 @@ if __name__ == "__main__":
     parser.add_argument("--num-gpus-per-node", type=int, default=4)
     parser.add_argument("--tp-size", type=int, default=1)
     args = parser.parse_args()
+    workers = init_test(args)
+    print("Test env initialized.")

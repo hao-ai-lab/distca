@@ -60,7 +60,7 @@ class TransformerLayer(MegatronTransformerLayer):
         from megatron.core.transformer.attention import SelfAttention
         from megatron.core.extensions.transformer_engine import TEDotProductAttention
         self.self_attention: SelfAttention
-        assert self.self_attention.core_attention is TEDotProductAttention
+        assert isinstance(self.self_attention.core_attention, TEDotProductAttention)
 
     def _layout_attn_to_mlp(
             self, attn_out: torch.Tensor, attn_out_shape: torch.Size,
