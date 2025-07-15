@@ -51,7 +51,8 @@ void dispatch_core(
   const std::optional<at::Tensor> &kv_dst_offset,
   const std::optional<at::Tensor> &kv_num_recv_tokens,
   //
-  const std::optional<at::Tensor> &seq_recv_mask
+  const std::optional<at::Tensor> &seq_recv_mask,
+  const std::optional<at::Tensor> &recv_seq_lens
 ) {
   cudaStream_t stream = c10::cuda::getCurrentCUDAStream().stream();
   auto* dispatch_helper = (DispatchHelper*)fptr;
@@ -95,6 +96,9 @@ void dispatch_core(
 
   if (seq_recv_mask.has_value()) {
     TORCH_CHECK(seq_recv_mask.value().ndimension() == 2, "seq_recv_mask is of dimension (num_sequence, cp_degree)");
+    TORCH_CHECK(recv_seq_lens.has_value(), "recv_seq_lens must be provided.");
+    TORCH_CHECK(recv_seq_lens.value().ndimension() == 1, "recv_seq_lens is of dimension (num_sequence)");
+    TORCH_CHECK(recv_seq_lens.value().size(0) == seq_recv_mask.value().size(0), "recv_seq_lens dim 0 different from seq_recv_mask dim 0");
     TORCH_CHECK(!kv_send_tensor.has_value(), "seq_recv_mask is used to send kv backward using the query-only-forward pattern");
   }
   // Get max cp degree for KV communication
@@ -153,6 +157,7 @@ void dispatch_core(
     stream,
     // recv kv backward metadata
     seq_recv_mask.has_value() ? seq_recv_mask.value().data_ptr<uint32_t>() : nullptr,
+    recv_seq_lens.has_value() ? recv_seq_lens.value().data_ptr<uint32_t>() : nullptr,
     kv_backward_num_tokens
   );
 

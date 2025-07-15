@@ -12,6 +12,7 @@ class Metadata:
     seq_len: torch.Tensor
     num_recv_tokens: torch.Tensor
     seq_recv_mask: Optional[torch.Tensor] = None
+    recv_seq_lens: Optional[torch.Tensor] = None
     num_seqs: Optional[torch.Tensor] = None
     world_size: int = None
     normalized: bool = False
@@ -27,6 +28,7 @@ class Metadata:
             seq_len=self.seq_len[rank][:num_seqs],
             num_recv_tokens=self.num_recv_tokens[rank], # this is of shape (world_size,)
             seq_recv_mask=self.seq_recv_mask[rank] if self.seq_recv_mask is not None else None,
+            recv_seq_lens=self.recv_seq_lens[rank] if self.recv_seq_lens is not None else None,
             normalized=self.normalized,
         )
 
@@ -37,6 +39,7 @@ class Metadata:
             seq_len=self.seq_len.to(torch.uint32),
             num_recv_tokens=self.num_recv_tokens.to(torch.uint64),
             seq_recv_mask=self.seq_recv_mask.to(torch.uint32) if self.seq_recv_mask is not None else None,
+            recv_seq_lens=self.recv_seq_lens.to(torch.uint32) if self.recv_seq_lens is not None else None,
             world_size=self.world_size,
             normalized=True,
         )
@@ -48,6 +51,7 @@ class Metadata:
             seq_len=self.seq_len.cuda().contiguous(),
             num_recv_tokens=self.num_recv_tokens.cuda().contiguous(),
             seq_recv_mask=self.seq_recv_mask.cuda().contiguous() if self.seq_recv_mask is not None else None,
+            recv_seq_lens=self.recv_seq_lens.cuda().contiguous() if self.recv_seq_lens is not None else None,
             world_size=self.world_size,
             normalized=self.normalized,
         )
@@ -175,6 +179,7 @@ def compute_metadata(
         seq_len=rev_seq_len,
         num_recv_tokens=rev_num_received_tokens,
         seq_recv_mask=seq_recv_mask,
+        recv_seq_lens=seq_len if seq_recv_mask is not None else None,
         num_seqs=num_seqs_rev,
         world_size=world_size,
     )

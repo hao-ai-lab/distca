@@ -111,10 +111,10 @@ class Worker:
                     assert rev_kv_metadata.seq_recv_mask[j, k] == 0
             tot_tokens += seq_len
 
-        back_tensor_kv_dedup = (back_tensor_kv * dedup_mask).sum(dim=0) / dedup_mask.sum(dim=0)
-        # torch.testing.assert_close(
-        #     back_tensor_kv_dedup.unsqueeze(0).repeat(cp_degree, 1, 1) * dedup_mask, back_tensor_kv
-        # )
+        back_tensor_kv_dedup = back_tensor_kv.sum(dim=0) / dedup_mask.sum(dim=0)
+        torch.testing.assert_close(
+            back_tensor_kv_dedup.unsqueeze(0).repeat(cp_degree, 1, 1) * dedup_mask, back_tensor_kv
+        )
         torch.testing.assert_close(tensor_q, back_tensor_q)
         torch.testing.assert_close(tensor_kv, back_tensor_kv_dedup)
         torch.cuda.synchronize()

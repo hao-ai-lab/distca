@@ -173,7 +173,7 @@ def dispatch_qkv(
         metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
         kv_tensor, kv_dst_tensor,
         kv_metadata.dst_rank, kv_metadata.dst_offset, kv_metadata.num_recv_tokens,
-        None,
+        None, None,
     )
 
 def dispatch_no_cp_tensor(
@@ -191,7 +191,7 @@ def dispatch_no_cp_tensor(
         dispatcher.dispatcher,
         tensor, dst_tensor,
         metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
-        None, None, None, None, None, None,
+        None, None, None, None, None, None, None
     )
 
 
@@ -212,5 +212,5 @@ def dispatch_kv_backward(
         tensor, dst_tensor,
         metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
         None, None, None, None, None,
-        metadata.seq_recv_mask
+        metadata.seq_recv_mask, metadata.recv_seq_lens
     )

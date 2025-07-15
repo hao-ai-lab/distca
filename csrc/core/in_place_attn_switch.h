@@ -42,6 +42,7 @@ public:
     cudaStream_t stream,
     // recv kv backward special metadata
     const uint32_t *seq_recv_mask,
+    const uint32_t *recv_seq_lens,
     const size_t kv_backward_num_tokens
   );
 
