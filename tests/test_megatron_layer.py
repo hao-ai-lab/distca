@@ -158,23 +158,34 @@ class MegatronLayerWorker(MegatronBaseWorker):
         self.layer = build_module(spec, config)
         # FIXME: init layer weights
 
-    def forward_normal(self, tensor_input: torch.Tensor, packed_seq_params: PingPangPackedSeqParams):
+    def forward_normal(self, tensor_input: torch.Tensor, packed_seq_params: PackedSeqParams):
+        packed_seq_params = PackedSeqParams(
+            qkv_format=packed_seq_params.qkv_format,
+            cu_seqlens_q=packed_seq_params.cu_seqlens_q.cuda(),
+            cu_seqlens_kv=packed_seq_params.cu_seqlens_kv.cuda(),
+            max_seqlen_q=packed_seq_params.max_seqlen_q.cuda(),
+            max_seqlen_kv=packed_seq_params.max_seqlen_kv.cuda(),
+        )
+        tensor_input = tensor_input.cuda()
         return self.layer(tensor_input, packed_seq_params=packed_seq_params)
 
     def forward_ping_pang(self, tensor_input: torch.Tensor, packed_seq_params: PingPangPackedSeqParams):
+        packed_seq_params = packed_seq_params.to_device()
+        tensor_input = tensor_input.cuda()
         return self.layer.ping_pang_forward(tensor_input, packed_seq_params=packed_seq_params)
 
     def forward_ping_pang_one_stage(self, tensor_input: torch.Tensor, packed_seq_params: PingPangSingleStepPackedSeqParams):
         packed_seq_params = packed_seq_params.to_device()
+        tensor_input = tensor_input.cuda()
         return self.layer.forward_one_stage(tensor_input, packed_seq_params=packed_seq_params)
 
 def get_seqlen_shard(cu_seqlens_q: torch.Tensor, cu_seqlens_kv: torch.Tensor,
                      max_seqlen_q: torch.Tensor, max_seqlen_kv: torch.Tensor, num_local_seqs_recv: torch.Tensor, rank: int):
-    num_seq = num_local_seqs_recv[rank]
+    num_seq = num_local_seqs_recv[rank].item()
     max_seqlen_q = max_seqlen_q[rank]
     max_seqlen_kv = max_seqlen_kv[rank]
-    cu_seqlens_q = cu_seqlens_q[rank][:num_seq]
-    cu_seqlens_kv = cu_seqlens_kv[rank][:num_seq]
+    cu_seqlens_q = torch.cat([torch.zeros((1,), dtype=cu_seqlens_q.dtype), cu_seqlens_q[rank][:num_seq]])
+    cu_seqlens_kv = torch.cat([torch.zeros((1,), dtype=cu_seqlens_kv.dtype), cu_seqlens_kv[rank][:num_seq]])
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_seq
 
 
@@ -185,18 +196,18 @@ def test_dp(workers, seed, num_tokens, max_cp_degree, num_seqs, hidden_size):
     (
         fwd_q_metadata_0, rev_q_metadata_0,
         fwd_kv_metadata_0, rev_kv_metadata_0,
-        sp_kv_dst_0, sp_seq_lens_0, cp_dst_kv_len_0, seq_lens_0,
+        sp_kv_dst_0, sp_seq_lens_0, sp_query_dst_0, cp_dst_kv_len_0, seq_lens_0,
     ) = create_testcase_qkv(seed, world_size, num_tokens, max_cp_degree, num_seqs)
     (
         fwd_q_metadata_1, rev_q_metadata_1,
         fwd_kv_metadata_1, rev_kv_metadata_1,
-        sp_kv_dst_1, sp_seq_lens_1, cp_dst_kv_len_1, seq_lens_1,
+        sp_kv_dst_1, sp_seq_lens_1, sp_query_dst_1, cp_dst_kv_len_1, seq_lens_1,
     ) = create_testcase_qkv(seed, world_size, num_tokens, max_cp_degree, num_seqs)
     (cu_seqlens_q_pp_0, cu_seqlens_kv_pp_0, max_seqlen_q_pp_0, max_seqlen_kv_pp_0, num_local_seqs_recv_pp_0) = compute_attn_layout_seqlens(
-        sp_seq_lens_0, cp_dst_kv_len_0, sp_kv_dst_0
+        sp_seq_lens_0, cp_dst_kv_len_0, sp_query_dst_0
     )
     (cu_seqlens_q_pp_1, cu_seqlens_kv_pp_1, max_seqlen_q_pp_1, max_seqlen_kv_pp_1, num_local_seqs_recv_pp_1) = compute_attn_layout_seqlens(
-        sp_seq_lens_1, cp_dst_kv_len_1, sp_kv_dst_1
+        sp_seq_lens_1, cp_dst_kv_len_1, sp_query_dst_1
     )
 
     # Create tensor input
@@ -287,11 +298,11 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
     (
         fwd_q_metadata, rev_q_metadata,
         fwd_kv_metadata, rev_kv_metadata,
-        sp_kv_dst, sp_seq_lens, cp_dst_kv_len, seq_lens,
+        sp_kv_dst, sp_seq_lens, sp_query_dst, sp_dst_kv_len, seq_lens,
     ) = create_testcase_qkv(seed, world_size, num_tokens, max_cp_degree, num_seqs)
 
     (cu_seqlens_q_pp, cu_seqlens_kv_pp, max_seqlen_q_pp, max_seqlen_kv_pp, num_local_seqs_recv_pp) = compute_attn_layout_seqlens(
-        sp_seq_lens, cp_dst_kv_len, sp_kv_dst
+        sp_seq_lens, sp_dst_kv_len, sp_query_dst
     )
 
     # Create tensor input
@@ -308,9 +319,9 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
         # Create packed seq params metadata
         # Normal forward. No layout switch. Running data parallel
         seq_lens_local = seq_lens[rank]
-        cu_seqlens_q = seq_lens_local.cuda().cumsum(dim=0)
+        cu_seqlens_q = torch.cat([torch.zeros((1,), dtype=seq_lens_local.dtype), seq_lens_local.cumsum(dim=0)])
         cu_seqlens_kv = cu_seqlens_q.clone()
-        max_seqlen_q = seq_lens_local.max().cuda()
+        max_seqlen_q = seq_lens_local.max()
         max_seqlen_kv = max_seqlen_q.clone()
         packed_seq_params_normal = PackedSeqParams(
             qkv_format="thd",
@@ -345,6 +356,8 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
         )
         ref_ans_handles.append(ref_ans_handle)
         ans_handles.append(ans_handle)
+    ref_ans = ray.get(ref_ans_handles)
+    ans = ray.get(ans_handles)
 
 
 def init_test(args):
@@ -380,14 +393,15 @@ def init_test(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
-    parser.add_argument("--cp-degree", type=int, default=4)
+    parser.add_argument("--cp-degree", type=int, default=2)
     parser.add_argument("--hidden-size", type=int, default=128)
-    parser.add_argument("--num-seqs", type=int, default=4)
+    parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
-    parser.add_argument("--num-gpus-per-node", type=int, default=4)
+    parser.add_argument("--num-gpus-per-node", type=int, default=2)
     parser.add_argument("--tp-size", type=int, default=1)
     args = parser.parse_args()
     workers = init_test(args)
     print("Test env initialized.")
     test_dp_single_split(workers, args.seed, args.num_tokens, args.cp_degree, args.num_seqs, args.hidden_size)
+    print("test done.")

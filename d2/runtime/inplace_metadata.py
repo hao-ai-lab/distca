@@ -198,38 +198,36 @@ def compute_attn_layout_seqlens(
     max_num_local_seqs = dispatch.shape[1]
     assert dispatch.dim() == 2
     assert seq_shard_len.shape == (world_size, max_num_local_seqs)
-    assert seq_shard_cumsum.shape == (world_size, max_num_local_seqs + 1)
+    assert seq_shard_cumsum.shape == (world_size, max_num_local_seqs)
     assert dispatch.dtype == torch.int64
     assert seq_shard_len.dtype == torch.int64
     assert seq_shard_cumsum.dtype == torch.int64
     # dispatch[i, j] = the rank that sequence [i,j] is dispatched to.
     flatten_dispatch = dispatch.flatten()
 
-    flatten_dispatch_one_hot = F.one_hot(flatten_dispatch, num_classes=world_size)
+    flatten_dispatch_one_hot = F.one_hot(flatten_dispatch + 1, num_classes=world_size + 1)[:, 1:]
     # shape: (world_size, seq_len, world_size)
     local_indices_flat = (
         # cumsum: the id of this sequence at the dst rank.
-        (flatten_dispatch_one_hot.cumsum(dim=0) - 1) *
-        # mask out those not at this rank.
-        (flatten_dispatch_one_hot != 0)
-    ).reshape(dispatch.shape + (world_size,))
+        (flatten_dispatch_one_hot.cumsum(dim=0) - 1) * flatten_dispatch_one_hot
+    ).sum(dim=1).reshape(-1)
     # if dispatch[i, j] = k, then local_indices_flat[i, j, k] = l means sequence [i,j] is at out_sequence [k,l]
     # out_seqlens_q[k, l] = seq_shard_len[i, j]
     max_num_seq = int(local_indices_flat.max().item() + 1)
     out_seqlens_q = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
     out_seqlens_kv = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
-    # TODO: use scatter_ or gather_ to make it the correct value.
-    scatter_index = flatten_dispatch * max_num_seq + local_indices_flat
+
+    scatter_index = (flatten_dispatch * (flatten_dispatch >= 0)) * max_num_seq + local_indices_flat
     src_seqlens = seq_shard_len.flatten()
     out_seqlens_q.scatter_(0, scatter_index, src_seqlens)
     out_seqlens_kv.scatter_(0, scatter_index, src_seqlens)
     out_seqlens_q = out_seqlens_q.reshape(world_size, max_num_local_seqs)
     out_seqlens_kv = out_seqlens_kv.reshape(world_size, max_num_local_seqs)
-    num_local_seqs_recv = local_indices_flat.reshape(-1, world_size).max(dim=0)
+    num_local_seqs_recv = local_indices_flat.reshape(-1, world_size).max(dim=0)[0] + 1
     cu_seqlens_q = out_seqlens_q.cumsum(dim=1)
     cu_seqlens_kv = out_seqlens_kv.cumsum(dim=1)
-    max_seqlen_q = cu_seqlens_q.max(dim=1)
-    max_seqlen_kv = cu_seqlens_kv.max(dim=1)
+    max_seqlen_q = out_seqlens_q.max(dim=1)[0]
+    max_seqlen_kv = out_seqlens_kv.max(dim=1)[0]
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_local_seqs_recv
 
 

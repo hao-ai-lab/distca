@@ -36,3 +36,9 @@ class PingPangSingleStepPackedSeqParams(PackedSeqParams):
 class PingPangPackedSeqParams:
     seq_params: List[PingPangSingleStepPackedSeqParams]
     debug: bool = False
+
+    def to_device(self):
+        return PingPangPackedSeqParams(
+            seq_params=[seq_param.to_device() for seq_param in self.seq_params],
+            debug=self.debug,
+        )

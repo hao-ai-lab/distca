@@ -480,9 +480,6 @@ class TransformerLayer(MegatronTransformerLayer):
 
         query, key, value, rotary_pos_emb, residual, attn_mask_type = self._forward_pre_core_attn(
             hidden_states,
-            attention_mask,
-            context,
-            context_mask,
             rotary_pos_emb,
             rotary_pos_cos,
             rotary_pos_sin,

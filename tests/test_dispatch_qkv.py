@@ -128,7 +128,7 @@ class Worker:
 
 def create_testcase_qkv(
     seed: int, world_size: int, num_tokens: int, max_cp_degree: int, num_seqs: int,
-) -> Tuple[Metadata, Metadata, Metadata, Metadata, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[Metadata, Metadata, Metadata, Metadata, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Create a random sequence parallel dispatch plan that:
     - Generate sequences of different lengths. The total number of tokens at each rank
@@ -214,7 +214,7 @@ def create_testcase_qkv(
 
     return (
         fwd_q_metadata, rev_q_metadata, fwd_kv_metadata, rev_kv_metadata,
-        cp_kv_dst, cp_seq_lens, cp_dst_kv_len, seq_lens,
+        cp_kv_dst, cp_seq_lens, cp_query_dst, cp_dst_kv_len, seq_lens,
     )
 
 
@@ -277,7 +277,7 @@ def test_qkv(
     (
         fwd_q_metadata, rev_q_metadata,
         fwd_kv_metadata, rev_kv_metadata,
-        cp_kv_dst, cp_seq_lens, cp_dst_kv_len, seq_lens,
+        cp_kv_dst, cp_seq_lens, cp_query_dst, cp_dst_kv_len, seq_lens,
     ) = create_testcase_qkv(
         seed, world_size, num_tokens, max_cp_degree, num_seqs,
     )
