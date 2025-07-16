@@ -214,20 +214,25 @@ def compute_attn_layout_seqlens(
     # if dispatch[i, j] = k, then local_indices_flat[i, j, k] = l means sequence [i,j] is at out_sequence [k,l]
     # out_seqlens_q[k, l] = seq_shard_len[i, j]
     max_num_seq = int(local_indices_flat.max().item() + 1)
+    scatter_index = (flatten_dispatch * (flatten_dispatch >= 0)) * max_num_seq + local_indices_flat
+
+    src_seqlens = seq_shard_len.flatten()
+    src_seq_lens_kv = seq_shard_cumsum.flatten()
+
     out_seqlens_q = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
     out_seqlens_kv = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
-
-    scatter_index = (flatten_dispatch * (flatten_dispatch >= 0)) * max_num_seq + local_indices_flat
-    src_seqlens = seq_shard_len.flatten()
     out_seqlens_q.scatter_(0, scatter_index, src_seqlens)
-    out_seqlens_kv.scatter_(0, scatter_index, src_seqlens)
+    out_seqlens_kv.scatter_(0, scatter_index, src_seq_lens_kv)
     out_seqlens_q = out_seqlens_q.reshape(world_size, max_num_local_seqs)
     out_seqlens_kv = out_seqlens_kv.reshape(world_size, max_num_local_seqs)
+
     num_local_seqs_recv = local_indices_flat.reshape(-1, world_size).max(dim=0)[0] + 1
+
     cu_seqlens_q = out_seqlens_q.cumsum(dim=1)
     cu_seqlens_kv = out_seqlens_kv.cumsum(dim=1)
     max_seqlen_q = out_seqlens_q.max(dim=1)[0]
     max_seqlen_kv = out_seqlens_kv.max(dim=1)[0]
+
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_local_seqs_recv
 
 

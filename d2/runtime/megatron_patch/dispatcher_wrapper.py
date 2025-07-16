@@ -38,9 +38,9 @@ class n_to_n_dispatch(torch.autograd.Function):
     def forward(
         ctx, query_in: torch.Tensor,
         query_metadata: Metadata,
+        rev_query_metadata: Metadata,
         key_value_in: Optional[torch.Tensor]=None,
         key_value_metadata: Optional[Metadata]=None,
-        rev_query_metadata: Optional[Metadata]=None,
         rev_key_value_metadata: Optional[Metadata]=None,
         stream: Optional[torch.cuda.Stream]=None,
         event: Optional[torch.cuda.Event]=None,

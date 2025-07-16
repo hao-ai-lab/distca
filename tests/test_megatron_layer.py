@@ -109,7 +109,7 @@ class MegatronBaseWorker:
         os.environ["MASTER_ADDR"] = master_addr
         os.environ["MASTER_PORT"] = master_port
 
-    def init_comm(self, stride: int, max_tokens_query: int, max_tokens_key_value: int,
+    def init_comm(self, stride_q: int, stride_kv: int, max_tokens_query: int, max_tokens_key_value: int,
                   parallel_config: ParallelConfig):
         # Init megatron communication.
         if not torch.distributed.is_initialized():
@@ -137,8 +137,8 @@ class MegatronBaseWorker:
         torch.distributed.broadcast(uid, src=0)
 
         DispatcherWrapper.init(
-            q_stride=stride,
-            kv_stride=stride,
+            q_stride=stride_q,
+            kv_stride=stride_kv,
             max_tokens_query=max_tokens_query,
             max_tokens_key_value=max_tokens_key_value,
             rank=self.rank,
@@ -169,7 +169,10 @@ class MegatronLayerWorker(MegatronBaseWorker):
         )
         tensor_input = tensor_input.cuda()
         self.layer.train()
-        return self.layer(tensor_input, packed_seq_params=packed_seq_params)
+        out = self.layer(tensor_input, packed_seq_params=packed_seq_params)
+        torch.cuda.synchronize()
+        print(self.rank, "normal forward done")
+        return out
 
     def forward_ping_pang(self, tensor_input: torch.Tensor, packed_seq_params: PingPangPackedSeqParams):
         packed_seq_params = packed_seq_params.to_device()
@@ -181,7 +184,10 @@ class MegatronLayerWorker(MegatronBaseWorker):
         packed_seq_params = packed_seq_params.to_device()
         tensor_input = tensor_input.cuda()
         self.layer.train()
-        return self.layer.forward_one_stage(tensor_input, packed_seq_params=packed_seq_params)
+        out = self.layer.forward_one_stage(tensor_input, packed_seq_params=packed_seq_params)
+        torch.cuda.synchronize()
+        print(self.rank, "ping-pong one stage forward done")
+        return out
 
 def get_seqlen_shard(cu_seqlens_q: torch.Tensor, cu_seqlens_kv: torch.Tensor,
                      max_seqlen_q: torch.Tensor, max_seqlen_kv: torch.Tensor, num_local_seqs_recv: torch.Tensor, rank: int):
@@ -309,12 +315,12 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
     (cu_seqlens_q_pp, cu_seqlens_kv_pp, max_seqlen_q_pp, max_seqlen_kv_pp, num_local_seqs_recv_pp) = compute_attn_layout_seqlens(
         sp_seq_lens, sp_dst_kv_len, sp_query_dst
     )
-    print(f"{seq_lens=}, {sp_seq_lens=}, {sp_query_dst=}, {sp_dst_kv_len=}")
 
     # Create tensor input
     tensor_input = torch.randn(world_size, num_tokens, hidden_size, dtype=torch.float16)
     ref_ans_handles = []
     ans_handles = []
+    args = []
     for rank in range(world_size):
         tensor_input_local = tensor_input[rank].unsqueeze(1)
         fwd_q_metadata_local = fwd_q_metadata.get_slice(rank)
@@ -351,19 +357,20 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
             mlp_to_attn_kv_metadata=fwd_kv_metadata_local,
             mlp_to_attn_kv_grad_metadata=rev_kv_metadata_local,
         )
-        print(f"{rank=}, {packed_seq_params_normal=}, {packed_seq_params_stage_0=}")
 
         # Compute the reference answer and test result
         ref_ans_handle = workers[rank].forward_normal.remote(
             tensor_input_local, packed_seq_params_normal
         )
-
-        ans_handle = workers[rank].forward_ping_pang_one_stage.remote(
-            tensor_input_local, packed_seq_params_stage_0
-        )
+        args.append([tensor_input_local, packed_seq_params_stage_0])
         ref_ans_handles.append(ref_ans_handle)
-        ans_handles.append(ans_handle)
     ref_ans = ray.get(ref_ans_handles)
+
+    for rank in range(world_size):
+        ans_handle = workers[rank].forward_ping_pang_one_stage.remote(
+            *args[rank]
+        )
+        ans_handles.append(ans_handle)
     ans = ray.get(ans_handles)
     for r, a in zip(ref_ans, ans):
         torch.testing.assert_close(r, a)
@@ -373,7 +380,8 @@ def init_test(args):
     ray.init()
     workers = create_pg(args.num_nodes, args.num_gpus_per_node, MegatronLayerWorker)
     print("Workers created")
-    stride = args.hidden_size * torch.float16.itemsize
+    stride_q = args.hidden_size * torch.float16.itemsize
+    stride_kv = args.hidden_size * torch.float16.itemsize * 2
     world_size = len(workers)
     max_tokens_query = args.num_tokens * world_size
     max_tokens_key_value = args.num_tokens * world_size
@@ -381,7 +389,7 @@ def init_test(args):
         tensor_model_parallel_size=args.tp_size
     )
     ray.get([worker.init_comm.remote(
-        stride, max_tokens_query, max_tokens_key_value, parallel_config
+        stride_q, stride_kv, max_tokens_query, max_tokens_key_value, parallel_config
     ) for worker in workers])
     print("Communication groups initialized")
 

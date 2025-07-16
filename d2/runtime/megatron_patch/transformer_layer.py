@@ -75,9 +75,9 @@ class TransformerLayer(MegatronTransformerLayer):
         attn_out_mlp_layout, _ = n_to_n_dispatch.apply(
             attn_out, # query_in
             packed_seq_params.attn_to_mlp_metadata, # query_metadata
+            packed_seq_params.mlp_to_attn_metadata, # rev_query_metadata
             None, # key_value_in
             None, # key_value_metadata
-            packed_seq_params.mlp_to_attn_metadata, # rev_query_metadata
             None, # rev_key_value_metadata
             packed_seq_params.stream, # stream
             self.comm_event, # event
@@ -88,9 +88,9 @@ class TransformerLayer(MegatronTransformerLayer):
         return attn_out_mlp_layout
 
     def _layout_mlp_to_attn(
-            self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
-            packed_seq_params: PingPangPackedSeqParams
-        ):
+        self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
+        packed_seq_params: PingPangPackedSeqParams
+    ):
         # FIXME: current we do a walk around: merge head dimension into hidden dimension
         #### NOTE: this is a hack. We should fix this in the future.
         assert query.dim() == 3, f"{query.shape=}, should be tnh layout"
@@ -103,13 +103,13 @@ class TransformerLayer(MegatronTransformerLayer):
         value = value.reshape(value.shape[0], num_kv_heads * kv_head_dim)
         ####
 
-        key_value = torch.cat([key, value], dim=1)
+        key_value = torch.cat([key, value], dim=-1).contiguous()
         query_attn_layout, key_value_attn_layout = n_to_n_dispatch.apply(
             query,  # query_in
             packed_seq_params.mlp_to_attn_metadata, # query_metadata
+            packed_seq_params.attn_to_mlp_metadata, # rev_query_metadata
             key_value, # key_value_in
             packed_seq_params.mlp_to_attn_kv_metadata, # key_value_metadata
-            packed_seq_params.attn_to_mlp_metadata, # rev_query_metadata
             packed_seq_params.mlp_to_attn_kv_grad_metadata, # rev_key_value_metadata
             packed_seq_params.stream, # stream
             self.comm_event, # event
@@ -174,7 +174,7 @@ class TransformerLayer(MegatronTransformerLayer):
         # 2. pre-self-attention forward microbatch 0.
         # Ideally, this part should merge to the previous layer's post-self-attention to maximize
         # the communication-computation overlap.
-        query_0, key_0, value_0, rotary_pos_emb_0, residual_0, attn_mask_type_0 = self._forward_pre_core_attn(
+        query_0, key_0, value_0, residual_0, attn_mask_type_0 = self._forward_pre_core_attn(
             hidden_states_0,
             attention_mask_0,
             context_0,
@@ -189,7 +189,7 @@ class TransformerLayer(MegatronTransformerLayer):
         # 3. pre-attention forward of microbatch 1, mlp2attn all2all of microbatch 0
         self.comm_event.wait(torch.cuda.current_stream())
         query_0, key_0, value_0 = self._layout_mlp_to_attn(query_0, key_0, value_0, packed_seq_params_0)
-        query_1, key_1, value_1, rotary_pos_emb_1, residual_1, attn_mask_type_1 = self._forward_pre_core_attn(
+        query_1, key_1, value_1, residual_1, attn_mask_type_1 = self._forward_pre_core_attn(
             hidden_states_1,
             attention_mask_1,
             context_1,
@@ -337,7 +337,7 @@ class TransformerLayer(MegatronTransformerLayer):
             # absolute positional embedding.
             # otherwise, only relative positional embedding takes effect
             # value_layer = apply_rotary_pos_emb(value_layer, k_pos_emb)
-        return query, key, value, rotary_pos_emb, residual, attn_mask_type
+        return query, key, value, residual, attn_mask_type
 
     def _forward_core_attn(
         self,
@@ -479,7 +479,7 @@ class TransformerLayer(MegatronTransformerLayer):
 
         setattr(packed_seq_params, "stream", torch.cuda.current_stream())
 
-        query, key, value, rotary_pos_emb, residual, attn_mask_type = self._forward_pre_core_attn(
+        query, key, value, residual, attn_mask_type = self._forward_pre_core_attn(
             hidden_states,
             rotary_pos_emb,
             rotary_pos_cos,
