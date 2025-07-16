@@ -57,15 +57,17 @@ class n_to_n_dispatch(torch.autograd.Function):
         assert query_in.ndim == 2, "query_in is of shape (num_token, hidden_q)."
 
         hidden_q = query_in.shape[-1]
-        out_query_shape = (query_metadata.num_recv_tokens, hidden_q)
+        # FIXME: remove this GPU-CPU transfer to avoid sync.
+        out_query_shape = (query_metadata.num_recv_tokens[-1].item(), hidden_q)
         out_query = torch.empty(out_query_shape, device=query_in.device, dtype=query_in.dtype)
 
         num_token = query_in.shape[0]
 
         if key_value_in is not None:
-            assert num_token == key_value_metadata.seq_len
-            hidden_kv = out_key_value_shape[-1]
-            out_key_value_shape = (key_value_metadata.num_recv_tokens, hidden_kv)
+            assert num_token == key_value_in.shape[0]
+            hidden_kv = key_value_in.shape[-1]
+            # FIXME: remove this GPU-CPU transfer to avoid sync.
+            out_key_value_shape = (key_value_metadata.num_recv_tokens[-1].item(), hidden_kv)
             out_key_value = torch.empty(out_key_value_shape, device=key_value_in.device, dtype=key_value_in.dtype)
             key_value_dst_mask = (key_value_metadata.dst_rank != -1).to(torch.bool)
         else:
@@ -74,11 +76,11 @@ class n_to_n_dispatch(torch.autograd.Function):
             hidden_kv = 0
 
         if stream is not None:
-            ctx = torch.cuda.stream(stream)
+            stream_ctx = torch.cuda.stream(stream)
         else:
-            ctx = nullcontext()
+            stream_ctx = nullcontext()
 
-        with ctx:
+        with stream_ctx:
             if key_value_in is not None:
                 dispatch_qkv(
                     dispatcher=DispatcherWrapper.get_instance(),
@@ -99,15 +101,27 @@ class n_to_n_dispatch(torch.autograd.Function):
             if event is not None:
                 event.record(stream)
 
-        ctx.save_for_backward(query_in.shape)
-        ctx.save_for_backward(key_value_in.shape if key_value_in is not None else None)
+        ctx.query_in_shape = query_in.shape
+        ctx.key_value_in_shape = key_value_in.shape if key_value_in is not None else None
+        ctx.hidden_q = hidden_q
+        ctx.hidden_kv = hidden_kv
+        ctx.stream = stream
+        ctx.event = event
+        ctx.bwd_has_kv = key_value_in is not None
         ctx.save_for_backward(key_value_dst_mask)
-        ctx.save_for_backward(rev_query_metadata)
-        ctx.save_for_backward(rev_key_value_metadata)
-        ctx.save_for_backward(hidden_q)
-        ctx.save_for_backward(hidden_kv)
-        ctx.save_for_backward(stream)
-        ctx.save_for_backward(event)
+        # Unpack rev query metadata
+        ctx.save_for_backward(rev_query_metadata.dst_rank)
+        ctx.save_for_backward(rev_query_metadata.dst_offset)
+        ctx.save_for_backward(rev_query_metadata.seq_len)
+        ctx.save_for_backward(rev_query_metadata.num_recv_tokens)
+        # Unpack rev key value metadata
+        if rev_key_value_metadata is not None:
+            ctx.save_for_backward(rev_key_value_metadata.dst_rank)
+            ctx.save_for_backward(rev_key_value_metadata.dst_offset)
+            ctx.save_for_backward(rev_key_value_metadata.seq_len)
+            ctx.save_for_backward(rev_key_value_metadata.num_recv_tokens)
+            ctx.save_for_backward(rev_key_value_metadata.seq_recv_mask)
+            ctx.save_for_backward(rev_key_value_metadata.recv_seq_lens)
 
         return out_query, out_key_value
 
@@ -116,9 +130,34 @@ class n_to_n_dispatch(torch.autograd.Function):
         # NOTE(yonghao): in PP, the backward pass may not do the same thing
         # as the forward. In this case, the whole layer is wrapped with
         # a torch function and we do not run this part.
-        (query_in_shape, key_value_in_shape,
-         key_value_dst_mask, rev_query_metadata, rev_key_value_metadata,
-         hidden_q, hidden_kv, stream, event) = ctx.saved_tensors
+        key_value_dst_mask = ctx.saved_tensors[0]
+        rev_query_metadata = Metadata(
+            dst_rank=ctx.saved_tensors[1],
+            dst_offset=ctx.saved_tensors[2],
+            seq_len=ctx.saved_tensors[3],
+            num_recv_tokens=ctx.saved_tensors[4],
+        )
+
+        if out_key_value_grad is not None:
+            assert ctx.bwd_has_kv
+            rev_key_value_metadata = Metadata(
+                dst_rank=ctx.saved_tensors[5],
+                dst_offset=ctx.saved_tensors[6],
+                seq_len=ctx.saved_tensors[7],
+                num_recv_tokens=ctx.saved_tensors[8],
+                seq_recv_mask=ctx.saved_tensors[9],
+                recv_seq_lens=ctx.saved_tensors[10],
+            )
+        else:
+            assert not ctx.bwd_has_kv
+            rev_key_value_metadata = None
+
+        query_in_shape = ctx.query_in_shape
+        key_value_in_shape = ctx.key_value_in_shape
+        hidden_q = ctx.hidden_q
+        hidden_kv = ctx.hidden_kv
+        stream = ctx.stream
+        event = ctx.event
 
         query_in_grad = torch.empty(query_in_shape, device=out_query_grad.device, dtype=out_query_grad.dtype)
 
@@ -134,11 +173,11 @@ class n_to_n_dispatch(torch.autograd.Function):
             key_value_in_grad = None
 
         if stream is not None:
-            ctx = torch.cuda.stream(stream)
+            stream_ctx = torch.cuda.stream(stream)
         else:
-            ctx = nullcontext()
+            stream_ctx = nullcontext()
 
-        with ctx:
+        with stream_ctx:
             if out_key_value_grad is not None:
                 dispatch_reverse(
                     q_input_grad=query_in_grad,

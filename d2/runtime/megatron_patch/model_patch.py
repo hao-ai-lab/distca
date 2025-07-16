@@ -253,6 +253,8 @@ def get_gpt_config(
     hidden_dropout: float = 0.,
     attention_dropout: float = 0.,
     normalization: str = "RMSNorm",
+    fp16: bool = False,
+    bf16: bool = False,
     **kwargs,
 ):
     return TransformerConfig(
@@ -263,5 +265,7 @@ def get_gpt_config(
         hidden_dropout=hidden_dropout,
         attention_dropout=attention_dropout,
         normalization=normalization,
+        fp16=fp16,
+        bf16=bf16,
         **kwargs,
     )

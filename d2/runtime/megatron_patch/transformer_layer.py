@@ -22,7 +22,7 @@ from d2.runtime.megatron_patch.dispatcher_wrapper import n_to_n_dispatch
 def _split_tensor(x: Optional[torch.Tensor], num_splits: int):
     if x is None:
         return (None,) * num_splits
-    return x.split(num_splits, dim=0)
+    return x.split(x.shape[0] // num_splits, dim=0)
 
 def _repack_args(args: List[List[torch.Tensor]], num_splits: int):
     assert all(len(a) == num_splits for a in args)
@@ -72,18 +72,18 @@ class TransformerLayer(MegatronTransformerLayer):
         attn_out = attn_out.reshape(attn_out.shape[0], num_heads * head_dim)
         ####
 
-        attn_out_mlp_layout = n_to_n_dispatch.apply(
-            query_in=attn_out,
-            query_metadata=packed_seq_params.attn_to_mlp_metadata,
-            key_value_in=None,
-            key_value_metadata=None,
-            rev_query_metadata=packed_seq_params.mlp_to_attn_metadata,
-            rev_key_value_metadata=None,
-            stream=packed_seq_params.stream,
-            event=self.comm_event,
+        attn_out_mlp_layout, _ = n_to_n_dispatch.apply(
+            attn_out, # query_in
+            packed_seq_params.attn_to_mlp_metadata, # query_metadata
+            None, # key_value_in
+            None, # key_value_metadata
+            packed_seq_params.mlp_to_attn_metadata, # rev_query_metadata
+            None, # rev_key_value_metadata
+            packed_seq_params.stream, # stream
+            self.comm_event, # event
         )
         #### switch layout back
-        attn_out_mlp_layout = attn_out_mlp_layout.reshape(attn_out_mlp_layout.shape[0], num_heads, head_dim)
+        attn_out_mlp_layout = attn_out_mlp_layout.reshape(-1, num_heads, head_dim)
         ####
         return attn_out_mlp_layout
 
@@ -93,6 +93,7 @@ class TransformerLayer(MegatronTransformerLayer):
         ):
         # FIXME: current we do a walk around: merge head dimension into hidden dimension
         #### NOTE: this is a hack. We should fix this in the future.
+        assert query.dim() == 3, f"{query.shape=}, should be tnh layout"
         num_q_heads = query.shape[1]
         num_kv_heads = key.shape[1]
         q_head_dim = query.shape[2]
@@ -104,21 +105,21 @@ class TransformerLayer(MegatronTransformerLayer):
 
         key_value = torch.cat([key, value], dim=1)
         query_attn_layout, key_value_attn_layout = n_to_n_dispatch.apply(
-            query_in=query,
-            query_metadata=packed_seq_params.mlp_to_attn_metadata,
-            key_value_in=key_value,
-            key_value_metadata=packed_seq_params.mlp_to_attn_kv_metadata,
-            rev_query_metadata=packed_seq_params.attn_to_mlp_metadata,
-            rev_key_value_metadata=packed_seq_params.mlp_to_attn_kv_grad_metadata,
-            stream=packed_seq_params.stream,
-            event=self.comm_event,
+            query,  # query_in
+            packed_seq_params.mlp_to_attn_metadata, # query_metadata
+            key_value, # key_value_in
+            packed_seq_params.mlp_to_attn_kv_metadata, # key_value_metadata
+            packed_seq_params.attn_to_mlp_metadata, # rev_query_metadata
+            packed_seq_params.mlp_to_attn_kv_grad_metadata, # rev_key_value_metadata
+            packed_seq_params.stream, # stream
+            self.comm_event, # event
         )
-        key_attn_layout, value_attn_layout = key_value_attn_layout.split(2, dim=1)
+        key_attn_layout, value_attn_layout = key_value_attn_layout.split(key_value_attn_layout.shape[1] // 2, dim=1)
 
         #### switch layout back
-        query_attn_layout = query_attn_layout.reshape(query_attn_layout.shape[0], num_q_heads, q_head_dim)
-        key_attn_layout = key_attn_layout.reshape(key_attn_layout.shape[0], num_kv_heads, kv_head_dim)
-        value_attn_layout = value_attn_layout.reshape(value_attn_layout.shape[0], num_kv_heads, kv_head_dim)
+        query_attn_layout = query_attn_layout.reshape(-1, num_q_heads, q_head_dim)
+        key_attn_layout = key_attn_layout.reshape(-1, num_kv_heads, kv_head_dim)
+        value_attn_layout = value_attn_layout.reshape(-1, num_kv_heads, kv_head_dim)
 
         return query_attn_layout, key_attn_layout, value_attn_layout
 
@@ -358,7 +359,7 @@ class TransformerLayer(MegatronTransformerLayer):
 
         # TODO(yonghao): this core attention still has the CP communication.
         # Need to remove it since we can merge it with our all2all
-        if self.checkpoint_core_attention and self.training:
+        if self.self_attention.checkpoint_core_attention and self.training:
             core_attn_out = self.self_attention._checkpointed_attention_forward(
                 query,
                 key,

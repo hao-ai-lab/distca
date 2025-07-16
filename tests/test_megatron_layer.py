@@ -48,6 +48,7 @@ def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
                 "WORLD_SIZE": str(world_size),
                 "RANK": str(rank),
                 "LOCAL_RANK": str(i),
+                "NVTE_ALLOW_NONDETERMINISTIC_ALGO": "0",    # NOTE: this is for deterministic model in debug.
             }
             if rank > 0:
                 env_vars["MASTER_ADDR"] = master_addr
@@ -161,22 +162,25 @@ class MegatronLayerWorker(MegatronBaseWorker):
     def forward_normal(self, tensor_input: torch.Tensor, packed_seq_params: PackedSeqParams):
         packed_seq_params = PackedSeqParams(
             qkv_format=packed_seq_params.qkv_format,
-            cu_seqlens_q=packed_seq_params.cu_seqlens_q.cuda(),
-            cu_seqlens_kv=packed_seq_params.cu_seqlens_kv.cuda(),
-            max_seqlen_q=packed_seq_params.max_seqlen_q.cuda(),
-            max_seqlen_kv=packed_seq_params.max_seqlen_kv.cuda(),
+            cu_seqlens_q=packed_seq_params.cu_seqlens_q.cuda().to(torch.int32),
+            cu_seqlens_kv=packed_seq_params.cu_seqlens_kv.cuda().to(torch.int32),
+            max_seqlen_q=packed_seq_params.max_seqlen_q.cuda().to(torch.int32),
+            max_seqlen_kv=packed_seq_params.max_seqlen_kv.cuda().to(torch.int32),
         )
         tensor_input = tensor_input.cuda()
+        self.layer.train()
         return self.layer(tensor_input, packed_seq_params=packed_seq_params)
 
     def forward_ping_pang(self, tensor_input: torch.Tensor, packed_seq_params: PingPangPackedSeqParams):
         packed_seq_params = packed_seq_params.to_device()
         tensor_input = tensor_input.cuda()
+        self.layer.train()
         return self.layer.ping_pang_forward(tensor_input, packed_seq_params=packed_seq_params)
 
     def forward_ping_pang_one_stage(self, tensor_input: torch.Tensor, packed_seq_params: PingPangSingleStepPackedSeqParams):
         packed_seq_params = packed_seq_params.to_device()
         tensor_input = tensor_input.cuda()
+        self.layer.train()
         return self.layer.forward_one_stage(tensor_input, packed_seq_params=packed_seq_params)
 
 def get_seqlen_shard(cu_seqlens_q: torch.Tensor, cu_seqlens_kv: torch.Tensor,
@@ -215,7 +219,8 @@ def test_dp(workers, seed, num_tokens, max_cp_degree, num_seqs, hidden_size):
     ref_ans_handles = []
     ans_handles = []
     for rank in range(world_size):
-        tensor_input_local = tensor_input[rank]
+        # of shape (1, num_tokens, hidden_size)
+        tensor_input_local = tensor_input[rank].unsqueeze(1)
         fwd_q_metadata_0_local = fwd_q_metadata_0.get_slice(rank)
         rev_q_metadata_0_local = rev_q_metadata_0.get_slice(rank)
         fwd_kv_metadata_0_local = fwd_kv_metadata_0.get_slice(rank)
@@ -289,7 +294,7 @@ def test_dp(workers, seed, num_tokens, max_cp_degree, num_seqs, hidden_size):
     ref_ans = ray.get(ref_ans_handles)
     ans = ray.get(ans_handles)
     for r, a in zip(ref_ans, ans):
-        torch.testing.assert_close(ref_ans, ans)
+        torch.testing.assert_close(r, a)
 
 
 def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int, num_seqs: int, hidden_size: int):
@@ -304,13 +309,14 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
     (cu_seqlens_q_pp, cu_seqlens_kv_pp, max_seqlen_q_pp, max_seqlen_kv_pp, num_local_seqs_recv_pp) = compute_attn_layout_seqlens(
         sp_seq_lens, sp_dst_kv_len, sp_query_dst
     )
+    print(f"{seq_lens=}, {sp_seq_lens=}, {sp_query_dst=}, {sp_dst_kv_len=}")
 
     # Create tensor input
     tensor_input = torch.randn(world_size, num_tokens, hidden_size, dtype=torch.float16)
     ref_ans_handles = []
     ans_handles = []
     for rank in range(world_size):
-        tensor_input_local = tensor_input[rank]
+        tensor_input_local = tensor_input[rank].unsqueeze(1)
         fwd_q_metadata_local = fwd_q_metadata.get_slice(rank)
         rev_q_metadata_local = rev_q_metadata.get_slice(rank)
         fwd_kv_metadata_local = fwd_kv_metadata.get_slice(rank)
@@ -345,6 +351,7 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
             mlp_to_attn_kv_metadata=fwd_kv_metadata_local,
             mlp_to_attn_kv_grad_metadata=rev_kv_metadata_local,
         )
+        print(f"{rank=}, {packed_seq_params_normal=}, {packed_seq_params_stage_0=}")
 
         # Compute the reference answer and test result
         ref_ans_handle = workers[rank].forward_normal.remote(
@@ -358,6 +365,8 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
         ans_handles.append(ans_handle)
     ref_ans = ray.get(ref_ans_handles)
     ans = ray.get(ans_handles)
+    for r, a in zip(ref_ans, ans):
+        torch.testing.assert_close(r, a)
 
 
 def init_test(args):
@@ -381,8 +390,11 @@ def init_test(args):
     config = get_gpt_config(
         num_layers=1,
         hidden_size=args.hidden_size,
-        num_attention_heads=1,
+        num_attention_heads=2,
         ffn_hidden_size=args.hidden_size * 4,
+        fp16=True,
+        deterministic_mode=True,
+        params_dtype=torch.float16,
     )
     ray.get([
         worker.init_layer.remote(config, spec, seed) for worker in workers
