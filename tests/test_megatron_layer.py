@@ -116,7 +116,6 @@ class MegatronBaseWorker:
             local_rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", rank=self.rank, world_size=self.world_size)
         # NOTE: do not set to local_rank here because the cuda visible device is set by ray.
-        torch.cuda.set_device(0)
 
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=parallel_config.tensor_model_parallel_size,

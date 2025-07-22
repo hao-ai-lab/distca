@@ -32,7 +32,6 @@ from megatron.core.utils import is_te_min_version
 import apex  # pylint: disable=unused-import
 from megatron.core.fusions.fused_layer_norm import FusedLayerNorm
 from megatron.core.extensions.transformer_engine import (
-    TEDotProductAttention,
     TELayerNormColumnParallelLinear,
     TENorm,
     TERowParallelLinear,
@@ -40,6 +39,7 @@ from megatron.core.extensions.transformer_engine import (
 LNImpl = FusedLayerNorm
 
 from d2.runtime.megatron_patch.transformer_layer import TransformerLayer as PingPangTransformerLayer
+from d2.runtime.megatron_patch.per_doc_cp_attn import PerDocCPAttention
 
 
 def get_gpt_layer_with_transformer_engine_spec(
@@ -92,7 +92,7 @@ def get_gpt_layer_with_transformer_engine_spec(
                 params={"attn_mask_type": AttnMaskType.causal},
                 submodules=SelfAttentionSubmodules(
                     linear_qkv=TELayerNormColumnParallelLinear,
-                    core_attention=TEDotProductAttention,
+                    core_attention=PerDocCPAttention,
                     linear_proj=TERowParallelLinear,
                     q_layernorm=(
                         L2Norm if qk_l2_norm else (qk_norm if qk_layernorm else IdentityOp)
