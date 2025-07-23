@@ -17,7 +17,7 @@ from ray.util.placement_group import placement_group
 import torch
 
 from d2.runtime.attn_kernels.ops import nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, DispatcherWrapper
-from d2.runtime.inplace_metadata import compute_attn_layout_seqlens
+from d2.runtime.inplace_metadata import compute_attn_layout_seqlens, orchestrate_simulate, Metadata
 from d2.runtime.megatron_patch.model_patch import get_gpt_layer_with_transformer_engine_spec, get_gpt_config
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron_patch.transformer_layer import TransformerLayer as PingPangTransformerLayer
@@ -168,10 +168,10 @@ class MegatronLayerWorker(MegatronBaseWorker):
         )
         tensor_input = tensor_input.cuda()
         self.layer.train()
-        out = self.layer(tensor_input, packed_seq_params=packed_seq_params)
+        mlp_output, context, debug = self.layer.forward_no_switch(tensor_input, packed_seq_params=packed_seq_params)
         torch.cuda.synchronize()
         print(self.rank, "normal forward done")
-        return out
+        return (mlp_output, context), debug
 
     def forward_ping_pang(self, tensor_input: torch.Tensor, packed_seq_params: PingPangPackedSeqParams):
         packed_seq_params = packed_seq_params.to_device()
@@ -183,10 +183,11 @@ class MegatronLayerWorker(MegatronBaseWorker):
         packed_seq_params = packed_seq_params.to_device()
         tensor_input = tensor_input.cuda()
         self.layer.train()
-        out = self.layer.forward_one_stage(tensor_input, packed_seq_params=packed_seq_params)
+        mlp_output, context, debug_tensors = self.layer.forward_one_stage(tensor_input, packed_seq_params=packed_seq_params)
         torch.cuda.synchronize()
         print(self.rank, "ping-pong one stage forward done")
-        return out
+        return (mlp_output, context), debug_tensors
+
 
 def get_seqlen_shard(cu_seqlens_q: torch.Tensor, cu_seqlens_kv: torch.Tensor,
                      max_seqlen_q: torch.Tensor, max_seqlen_kv: torch.Tensor, num_local_seqs_recv: torch.Tensor, rank: int):
@@ -196,6 +197,34 @@ def get_seqlen_shard(cu_seqlens_q: torch.Tensor, cu_seqlens_kv: torch.Tensor,
     cu_seqlens_q = torch.cat([torch.zeros((1,), dtype=cu_seqlens_q.dtype), cu_seqlens_q[rank][:num_seq]])
     cu_seqlens_kv = torch.cat([torch.zeros((1,), dtype=cu_seqlens_kv.dtype), cu_seqlens_kv[rank][:num_seq]])
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_seq
+
+
+def simulate_communication(tensors: list[torch.Tensor], metadata: Metadata):
+    world_size = len(tensors)
+    assert world_size == metadata.world_size
+    output_seq_len = metadata.num_recv_tokens.max()
+    input_pad_len = max(tensor.shape[0] for tensor in tensors)
+    pad_tensors = [
+        torch.cat([
+            tensor,
+            torch.zeros(
+                (input_pad_len - tensor.shape[0], *tensor.shape[1:]),
+                dtype=tensor.dtype, device=tensor.device
+            )
+        ], dim=0).unsqueeze(0) for tensor in tensors
+    ]
+    input_tensor = torch.cat(pad_tensors, dim=0)
+    output_tensor = torch.zeros((world_size, output_seq_len, *input_tensor.shape[2:]), dtype=input_tensor.dtype, device=input_tensor.device)
+    output_tensor = orchestrate_simulate(
+        input_tensor.reshape(world_size, input_pad_len, -1),
+        output_tensor.reshape(world_size, output_seq_len, -1),
+        metadata
+    ).reshape(world_size, output_seq_len, *input_tensor.shape[2:])
+    output_tensors = torch.split(output_tensor, 1, dim=0)
+    output_tensors_split = [
+        t[0, :metadata.num_recv_tokens[rank].max()] for rank, t in enumerate(output_tensors)
+    ]
+    return output_tensors_split
 
 
 @torch.no_grad()
@@ -364,6 +393,8 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
         args.append([tensor_input_local, packed_seq_params_stage_0])
         ref_ans_handles.append(ref_ans_handle)
     ref_ans = ray.get(ref_ans_handles)
+    ref_debug = [ref[1] for ref in ref_ans]
+    ref_ans = [ref[0] for ref in ref_ans]
 
     for rank in range(world_size):
         ans_handle = workers[rank].forward_ping_pang_one_stage.remote(
@@ -371,8 +402,59 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
         )
         ans_handles.append(ans_handle)
     ans = ray.get(ans_handles)
-    for r, a in zip(ref_ans, ans):
-        torch.testing.assert_close(r, a)
+    ans_debug = [ans[1] for ans in ans]
+
+    # Debug intermediate tensors
+    ans_debug_qkvs_pre_transfer = [ans_debug[0] for ans_debug in ans_debug]
+    ans_debug_qkvs_post_transfer = [ans_debug[1] for ans_debug in ans_debug]
+    ans_debug_core_attn_out = [ans_debug[2] for ans_debug in ans_debug]
+    ans_debug_core_attn_out_post_transfer = [ans_debug[3] for ans_debug in ans_debug]
+    ans = [ans[0] for ans in ans]
+
+    ref_qkvs = [debug_tensor[0] for debug_tensor in ref_debug]
+    ref_attn_outs = [debug_tensor[1] for debug_tensor in ref_debug]
+    torch.testing.assert_close(ref_qkvs, ans_debug_qkvs_pre_transfer)
+    print("debug pre-layout-transfer qkv allclose")
+    ref_qs = [debug_tensor[0] for debug_tensor in ref_qkvs]
+    ref_ks = [debug_tensor[1] for debug_tensor in ref_qkvs]
+    ref_vs = [debug_tensor[2] for debug_tensor in ref_qkvs]
+    ref_qs_post_comm = simulate_communication(ref_qs, fwd_q_metadata)
+    ref_ks_post_comm = simulate_communication(ref_ks, fwd_kv_metadata)
+    ref_vs_post_comm = simulate_communication(ref_vs, fwd_kv_metadata)
+    ref_qkvs_post_comm = [
+        (ref_qs_post_comm[rank], ref_ks_post_comm[rank], ref_vs_post_comm[rank]) for rank in range(world_size)
+    ]
+    torch.testing.assert_close(
+        ans_debug_qkvs_post_transfer, ref_qkvs_post_comm
+    )
+    print("post transfer debug qkv allclose")
+
+    from flash_attn import flash_attn_varlen_func
+    ref_attn_outs_a_layout = []
+    for rank in range(world_size):
+        metadata = args[rank][1].to_device()
+        ref_attn_out = flash_attn_varlen_func(
+            ref_qs_post_comm[rank], ref_ks_post_comm[rank], ref_vs_post_comm[rank],
+            cu_seqlens_q = metadata.cu_seqlens_q,
+            cu_seqlens_k = metadata.cu_seqlens_kv,
+            max_seqlen_q = metadata.max_seqlen_q,
+            max_seqlen_k = metadata.max_seqlen_kv,
+            causal = True,
+            dropout_p = 0.0,
+        )
+        ref_attn_out = ref_attn_out.reshape(ref_attn_out.shape[0], 1, -1)
+        ref_attn_outs_a_layout.append(ref_attn_out)
+    ref_attn_outs_post_comm = simulate_communication(
+        ref_attn_outs_a_layout, rev_q_metadata
+    )
+    torch.testing.assert_close(ref_attn_outs, ref_attn_outs_post_comm)
+    print("simulated attn out allclose with expected value")
+    torch.testing.assert_close(ans_debug_core_attn_out, ref_attn_outs_a_layout)
+    print("core attn out allclose")
+    torch.testing.assert_close(ans_debug_core_attn_out_post_transfer, ref_attn_out)
+    print("post transfer debug attn out allclose")
+
+    torch.testing.assert_close(ref_ans, ans)
 
 
 def init_test(args):

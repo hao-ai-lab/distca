@@ -455,6 +455,60 @@ class TransformerLayer(MegatronTransformerLayer):
         mlp_output = self._forward_mlp(pre_mlp_layernorm_output, residual)
         return mlp_output, context
 
+    #### Debug use.
+    def forward_no_switch(
+        self,
+        hidden_states: Tensor,
+        attention_mask: Optional[Tensor] = None,
+        context: Optional[Tensor] = None,
+        context_mask: Optional[Tensor] = None,
+        rotary_pos_emb: Optional[Tensor] = None,
+        rotary_pos_cos: Optional[Tensor] = None,
+        rotary_pos_sin: Optional[Tensor] = None,
+        attention_bias: Optional[Tensor] = None,
+        inference_context: Optional[Any] = None,
+        packed_seq_params: Optional[PingPangSingleStepPackedSeqParams] = None,
+        sequence_len_offset: Optional[Tensor] = None,
+        *,
+        inference_params: Optional[Any] = None,
+    ):
+        """Debug use. normal forward with output hooked."""
+        assert inference_params is None, "inference not supported yet"
+        assert inference_context is None, "inference not supported yet"
+        assert context is None, "cross-attention not supported yet"
+        assert context_mask is None, "cross-attention not supported yet"
+
+        setattr(packed_seq_params, "stream", torch.cuda.current_stream())
+
+        query, key, value, residual, attn_mask_type = self._forward_pre_core_attn(
+            hidden_states,
+            rotary_pos_emb,
+            rotary_pos_cos,
+            rotary_pos_sin,
+            packed_seq_params,
+            sequence_len_offset,
+        )
+        debug_tensors = [(query, key, value),]
+
+        core_attn_out = self._forward_core_attn(
+            query,
+            key,
+            value,
+            attention_mask,
+            attention_bias,
+            attn_mask_type,
+            packed_seq_params,
+        )
+        debug_tensors.append(core_attn_out)
+        mlp_output, context = self._forward_post_core_attn(
+            core_attn_out,
+            residual,
+            context,
+            context_mask,
+        )
+
+        return mlp_output, context, debug_tensors
+
     def forward_one_stage(
         self,
         hidden_states: Tensor,
@@ -487,8 +541,10 @@ class TransformerLayer(MegatronTransformerLayer):
             packed_seq_params,
             sequence_len_offset,
         )
+        debug_tensors = [(query, key, value),]
 
         query, key, value = self._layout_mlp_to_attn(query, key, value, packed_seq_params)
+        debug_tensors.append((query, key, value))
 
         core_attn_out = self._forward_core_attn(
             query,
@@ -499,8 +555,10 @@ class TransformerLayer(MegatronTransformerLayer):
             attn_mask_type,
             packed_seq_params,
         )
+        debug_tensors.append(core_attn_out)
 
         core_attn_out = self._layout_attn_to_mlp(core_attn_out, packed_seq_params)
+        debug_tensors.append(core_attn_out)
 
         mlp_output, context = self._forward_post_core_attn(
             core_attn_out,
@@ -509,4 +567,4 @@ class TransformerLayer(MegatronTransformerLayer):
             context_mask,
         )
 
-        return mlp_output, context
+        return mlp_output, context, debug_tensors
