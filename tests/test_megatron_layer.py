@@ -338,7 +338,10 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
         fwd_q_metadata, rev_q_metadata,
         fwd_kv_metadata, rev_kv_metadata,
         sp_kv_dst, sp_seq_lens, sp_query_dst, sp_dst_kv_len, seq_lens,
-    ) = create_testcase_qkv(seed, world_size, num_tokens, max_cp_degree, num_seqs)
+    ) = create_testcase_qkv(
+        seed, world_size, num_tokens, max_cp_degree, num_seqs,
+        seqlen_scale_factor=64,
+    )
 
     (cu_seqlens_q_pp, cu_seqlens_kv_pp, max_seqlen_q_pp, max_seqlen_kv_pp, num_local_seqs_recv_pp) = compute_attn_layout_seqlens(
         sp_seq_lens, sp_dst_kv_len, sp_query_dst
@@ -451,7 +454,7 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
     print("simulated attn out allclose with expected value")
     torch.testing.assert_close(ans_debug_core_attn_out, ref_attn_outs_a_layout)
     print("core attn out allclose")
-    torch.testing.assert_close(ans_debug_core_attn_out_post_transfer, ref_attn_out)
+    torch.testing.assert_close(ans_debug_core_attn_out_post_transfer, ref_attn_outs)
     print("post transfer debug attn out allclose")
 
     torch.testing.assert_close(ref_ans, ans)

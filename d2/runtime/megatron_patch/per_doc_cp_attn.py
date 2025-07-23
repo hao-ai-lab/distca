@@ -662,12 +662,14 @@ def get_attention_backend(attention_params):
     )
 
     # Select FusedAttention for performance
-    if use_flash_attention and use_fused_attention and device_compute_capability >= (9, 0):
-        logger.debug(
-            "Disabling FlashAttention to give FusedAttention preference on Hopper+ "
-            "for performance reasons"
-        )
-        use_flash_attention = False
+    # TODO(yonghao): disable this perference because we found numerical error in this case.
+    # For the best performance, we should figure out how to solve this.
+    # if use_flash_attention and use_fused_attention and device_compute_capability >= (9, 0):
+    #     logger.debug(
+    #         "Disabling FlashAttention to give FusedAttention preference on Hopper+ "
+    #         "for performance reasons"
+    #     )
+    #     use_flash_attention = False
 
     # Selected backend
     if use_flash_attention:
