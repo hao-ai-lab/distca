@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from typing import Optional, Tuple
+
 import torch
 import torch.nn.functional as F
 
@@ -9,16 +11,24 @@ class Metadata:
     dst_offset: torch.Tensor
     seq_len: torch.Tensor
     num_recv_tokens: torch.Tensor
+    seq_recv_mask: Optional[torch.Tensor] = None
+    recv_seq_lens: Optional[torch.Tensor] = None
+    num_seqs: Optional[torch.Tensor] = None
     world_size: int = None
     normalized: bool = False
 
     def get_slice(self, rank: int):
         assert self.world_size is not None
+        assert self.num_seqs is not None
+
+        num_seqs = self.num_seqs[rank]
         return Metadata(
-            dst_rank=self.dst_rank[rank],
-            dst_offset=self.dst_offset[rank],
-            seq_len=self.seq_len[rank],
-            num_recv_tokens=self.num_recv_tokens[rank],
+            dst_rank=self.dst_rank[rank][:num_seqs],
+            dst_offset=self.dst_offset[rank][:num_seqs],
+            seq_len=self.seq_len[rank][:num_seqs],
+            num_recv_tokens=self.num_recv_tokens[rank], # this is of shape (world_size,)
+            seq_recv_mask=self.seq_recv_mask[rank] if self.seq_recv_mask is not None else None,
+            recv_seq_lens=self.recv_seq_lens[rank] if self.recv_seq_lens is not None else None,
             normalized=self.normalized,
         )
 
@@ -28,6 +38,8 @@ class Metadata:
             dst_offset=self.dst_offset.to(torch.uint32),
             seq_len=self.seq_len.to(torch.uint32),
             num_recv_tokens=self.num_recv_tokens.to(torch.uint64),
+            seq_recv_mask=self.seq_recv_mask.to(torch.uint32) if self.seq_recv_mask is not None else None,
+            recv_seq_lens=self.recv_seq_lens.to(torch.uint32) if self.recv_seq_lens is not None else None,
             world_size=self.world_size,
             normalized=True,
         )
@@ -38,6 +50,8 @@ class Metadata:
             dst_offset=self.dst_offset.cuda().contiguous(),
             seq_len=self.seq_len.cuda().contiguous(),
             num_recv_tokens=self.num_recv_tokens.cuda().contiguous(),
+            seq_recv_mask=self.seq_recv_mask.cuda().contiguous() if self.seq_recv_mask is not None else None,
+            recv_seq_lens=self.recv_seq_lens.cuda().contiguous() if self.recv_seq_lens is not None else None,
             world_size=self.world_size,
             normalized=self.normalized,
         )
@@ -47,16 +61,14 @@ class Metadata:
 def compute_metadata(
     seq_len: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
     global_dispatch: torch.Tensor,  # shape of (world_size, max_num_local_seqs, max_cp_degree)
-):
+) -> Tuple[Metadata, Metadata]:
     """
     Args:
-        length (Tensor): shape (world_size, max_num_local_seqs). The length of each sequence.
-        global_dispatch (Tensor): shape (world_size, max_num_local_seqs, max_cp_degree). value -1 is padding.
+        seq_len (Tensor): shape (world_size, max_num_local_seq_shards). The length of each sequence.
+        global_dispatch (Tensor): shape (world_size, max_num_local_seq_shards, max_cp_degree). value -1 is padding.
         The decision tensor. Recording the ranks that each sequence is dispatched to.
     Returns:
-        dst_offset (Tensor): dst begin offset of each sequence (send side).
-        rev_dst_rank (Tensor): dst ranks of each sequence (from recv side back to send side).
-        rev_dst_offset (Tensor): dst offsets of each sequence (from recv side back to send side).
+        fwd_metadata, rev_metadata: Metadata for forward and reverse communication.
     """
     world_size = global_dispatch.shape[0]
     max_num_local_seqs = global_dispatch.shape[1]
@@ -146,11 +158,19 @@ def compute_metadata(
     rev_num_received_tokens = tokens_to_dst_per_dispatch.reshape(world_size, -1, world_size).sum(dim=1)
     rev_num_received_tokens = torch.cat([rev_num_received_tokens, rev_num_received_tokens.sum(dim=1, keepdim=True)], dim=1)
 
+    # If this is kv (has cp degree), we add the sequence-cp mask to the reverse communication metadata.
+    seq_recv_mask = None
+    if len(dispatch_shape) == 3:
+        seq_recv_mask = global_dispatch.reshape(dispatch_shape) >= 0
+    num_seqs = (seq_len > 0).sum(dim=1)
+    num_seqs_rev = (rev_seq_len > 0).sum(dim=1)
+
     fwd_metadata = Metadata(
         dst_rank=global_dispatch.reshape(dispatch_shape),
         dst_offset=seq_begin_offset.reshape(dispatch_shape),
         seq_len=seq_len,
         num_recv_tokens=num_recv_tokens,
+        num_seqs=num_seqs,
         world_size=world_size,
     )
     rev_metadata = Metadata(
@@ -158,9 +178,62 @@ def compute_metadata(
         dst_offset=rev_dst_offset,
         seq_len=rev_seq_len,
         num_recv_tokens=rev_num_received_tokens,
+        seq_recv_mask=seq_recv_mask,
+        recv_seq_lens=seq_len if seq_recv_mask is not None else None,
+        num_seqs=num_seqs_rev,
         world_size=world_size,
     )
     return fwd_metadata, rev_metadata
+
+
+@torch.no_grad()
+def compute_attn_layout_seqlens(
+    seq_shard_len: torch.Tensor, seq_shard_cumsum: torch.Tensor,
+    dispatch: torch.Tensor,
+):
+    """
+    Compute the cu_seqlens_q and cu_seqlens_kv for the attention layout.
+    """
+    world_size = dispatch.shape[0]
+    max_num_local_seqs = dispatch.shape[1]
+    assert dispatch.dim() == 2
+    assert seq_shard_len.shape == (world_size, max_num_local_seqs)
+    assert seq_shard_cumsum.shape == (world_size, max_num_local_seqs)
+    assert dispatch.dtype == torch.int64
+    assert seq_shard_len.dtype == torch.int64
+    assert seq_shard_cumsum.dtype == torch.int64
+    # dispatch[i, j] = the rank that sequence [i,j] is dispatched to.
+    flatten_dispatch = dispatch.flatten()
+
+    flatten_dispatch_one_hot = F.one_hot(flatten_dispatch + 1, num_classes=world_size + 1)[:, 1:]
+    # shape: (world_size, seq_len, world_size)
+    local_indices_flat = (
+        # cumsum: the id of this sequence at the dst rank.
+        (flatten_dispatch_one_hot.cumsum(dim=0) - 1) * flatten_dispatch_one_hot
+    ).sum(dim=1).reshape(-1)
+    # if dispatch[i, j] = k, then local_indices_flat[i, j, k] = l means sequence [i,j] is at out_sequence [k,l]
+    # out_seqlens_q[k, l] = seq_shard_len[i, j]
+    max_num_seq = int(local_indices_flat.max().item() + 1)
+    scatter_index = (flatten_dispatch * (flatten_dispatch >= 0)) * max_num_seq + local_indices_flat
+
+    src_seqlens = seq_shard_len.flatten()
+    src_seq_lens_kv = seq_shard_cumsum.flatten()
+
+    out_seqlens_q = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
+    out_seqlens_kv = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
+    out_seqlens_q.scatter_(0, scatter_index, src_seqlens)
+    out_seqlens_kv.scatter_(0, scatter_index, src_seq_lens_kv)
+    out_seqlens_q = out_seqlens_q.reshape(world_size, max_num_local_seqs)
+    out_seqlens_kv = out_seqlens_kv.reshape(world_size, max_num_local_seqs)
+
+    num_local_seqs_recv = local_indices_flat.reshape(-1, world_size).max(dim=0)[0] + 1
+
+    cu_seqlens_q = out_seqlens_q.cumsum(dim=1)
+    cu_seqlens_kv = out_seqlens_kv.cumsum(dim=1)
+    max_seqlen_q = out_seqlens_q.max(dim=1)[0]
+    max_seqlen_kv = out_seqlens_kv.max(dim=1)[0]
+
+    return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_local_seqs_recv
 
 
 ######## Correctness testing tools ########
@@ -209,7 +282,7 @@ def test():
     NUM_SEQS = 3
     CP_DEGREE = 2
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-    HIDDEN_SIZE = 1
+    HIDDEN_SIZE = 4
     TOTAL_SEQ_LEN = 1024
     seq_len = gen_seq_lens(WORLD_SIZE, NUM_SEQS, TOTAL_SEQ_LEN).long()
     global_dispatch = torch.randint(-1, WORLD_SIZE, (WORLD_SIZE, NUM_SEQS, CP_DEGREE), device=DEVICE)

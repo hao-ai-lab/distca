@@ -1,5 +1,7 @@
 from setuptools import setup, find_packages
 
+# TODO(yonghao): compile csrc parts when setting up.
+
 setup(
     name="d2",
     version="0.1",

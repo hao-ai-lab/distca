@@ -51,7 +51,8 @@ target_link_libraries(dispatch_kernels PUBLIC
     CUDA::cudart
 )
 target_link_libraries(dispatch_kernels PUBLIC
-    nvshmem::nvshmem
+    nvshmem::nvshmem_device
+    nvshmem::nvshmem_host
 )
 set_cuda_compile_options(dispatch_kernels)
 
@@ -67,9 +68,9 @@ target_link_libraries(as_comm PUBLIC
     CUDA::cuda_driver
     CUDA::cudart
     nvshmem::nvshmem_host
-    nvshmem::nvshmem
+    nvshmem::nvshmem_device
 )
 set_target_properties(as_comm PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../src/attn_kernels
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../d2/runtime/attn_kernels
     CUDA_SEPARABLE_COMPILATION ON
 )

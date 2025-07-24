@@ -35,7 +35,7 @@ fptr_t create_dispatch_helper(
 }
 
 
-void dispatch(
+void dispatch_core(
   fptr_t fptr,
   //
   at::Tensor &send_tensor,
@@ -49,7 +49,10 @@ void dispatch(
   const std::optional<at::Tensor> &kv_recv_tensor,
   const std::optional<at::Tensor> &kv_dst_rank,
   const std::optional<at::Tensor> &kv_dst_offset,
-  const std::optional<at::Tensor> &kv_num_recv_tokens
+  const std::optional<at::Tensor> &kv_num_recv_tokens,
+  //
+  const std::optional<at::Tensor> &seq_recv_mask,
+  const std::optional<at::Tensor> &recv_seq_lens
 ) {
   cudaStream_t stream = c10::cuda::getCurrentCUDAStream().stream();
   auto* dispatch_helper = (DispatchHelper*)fptr;
@@ -91,13 +94,29 @@ void dispatch(
     TORCH_CHECK(kv_num_recv_tokens.value().size(0) == world_size + 1, "KV num recv tokens must be of dimension (world_size + 1)");
   }
 
+  if (seq_recv_mask.has_value()) {
+    TORCH_CHECK(seq_recv_mask.value().ndimension() == 2, "seq_recv_mask is of dimension (num_sequence, cp_degree)");
+    TORCH_CHECK(recv_seq_lens.has_value(), "recv_seq_lens must be provided.");
+    TORCH_CHECK(recv_seq_lens.value().ndimension() == 1, "recv_seq_lens is of dimension (num_sequence)");
+    TORCH_CHECK(recv_seq_lens.value().size(0) == seq_recv_mask.value().size(0), "recv_seq_lens dim 0 different from seq_recv_mask dim 0");
+    TORCH_CHECK(!kv_send_tensor.has_value(), "seq_recv_mask is used to send kv backward using the query-only-forward pattern");
+  }
   // Get max cp degree for KV communication
   size_t max_cp_degree;
   if (kv_send_tensor.has_value()) {
     max_cp_degree = kv_dst_rank.value().size(1);
     TORCH_CHECK(kv_dst_offset.value().size(1) == max_cp_degree, "KV cp degree must match");
+  } else if (seq_recv_mask.has_value()) {
+    max_cp_degree = seq_recv_mask.value().size(1);
   } else {
     max_cp_degree = 0;
+  }
+  // Get kv backward num receive tokens for receive KV backward gradient.
+  size_t kv_backward_num_tokens;
+  if (seq_recv_mask.has_value()) {
+    kv_backward_num_tokens = recv_tensor.size(0) / max_cp_degree;
+  } else {
+    kv_backward_num_tokens = 0;
   }
 
   // Get dtype for tensors to send
@@ -135,7 +154,11 @@ void dispatch(
     max_cp_degree,
     stride,
     kv_stride,
-    stream
+    stream,
+    // recv kv backward metadata
+    seq_recv_mask.has_value() ? seq_recv_mask.value().data_ptr<uint32_t>() : nullptr,
+    recv_seq_lens.has_value() ? recv_seq_lens.value().data_ptr<uint32_t>() : nullptr,
+    kv_backward_num_tokens
   );
 
 }
@@ -149,7 +172,7 @@ void destroy_dispatch_helper(fptr_t fptr) {
 
 namespace attn {
 void register_all_to_all_ops(torch::Library &m) {
-  m.def("dispatch", &dispatch);
+  m.def("dispatch_core", &dispatch_core);
   m.def("create_dispatch_helper", &create_dispatch_helper);
   m.def("destroy_dispatch_helper", &destroy_dispatch_helper);
 }

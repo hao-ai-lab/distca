@@ -6,8 +6,8 @@ import numpy as np
 import ray
 import torch
 
-from attn.src.attn_worker import AttentionWorker, ScheduleMetadata
-from attn.src.attn_kernels.ops import nvshmem_init
+from playground.attn_worker import AttentionWorker, ScheduleMetadata
+from d2.runtime.attn_kernels.ops import nvshmem_init
 
 class Requester:
     def __init__(self, requester_rank, num_heads, hidden_size):

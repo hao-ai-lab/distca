@@ -6,7 +6,7 @@ from typing import Dict, Optional, Tuple
 
 import torch
 
-from inplace_metadata import Metadata
+from d2.runtime.inplace_metadata import Metadata
 
 _lib_path = os.path.join(os.path.dirname(__file__), "libas_comm.so")
 torch.ops.load_library(_lib_path)
@@ -24,6 +24,8 @@ def nvshmem_alloc_empty_unique_id() -> torch.Tensor:
     return torch.zeros(nvshmem_unique_id_size(), dtype=torch.uint8, device="cpu")
 
 def nvshmem_init(uid: torch.Tensor, rank: int, world_size: int) -> int:
+    # NOTE: this is because we set device in python. Should move it to the cpp end.
+    torch.cuda.synchronize()
     status = _ops.nvshmem_init(uid, rank, world_size)
     torch.cuda.synchronize()
     return status
@@ -74,6 +76,9 @@ def destroy_dispatcher(dispatcher) -> None:
 
 
 class DispatcherWrapper:
+
+    instance: Optional["DispatcherWrapper"] = None
+
     """
     Python wrapper for the dispatcher.
     A dispatcher is responsible for the MLP<->ATTN communication. It stores nvshmem
@@ -121,73 +126,91 @@ class DispatcherWrapper:
 
     def __del__(self):
         destroy_dispatcher(self.dispatcher)
+        nvshmem_finalize()
 
-
-# TODO: remove this class because we only have one dispatcher.
-class DispatcherStorage:
-
-    def __init__(self):
-        self._dispatcher_dict: Dict[Tuple[int, int], DispatcherWrapper] = {}
-        self._current_dispatcher: Optional[DispatcherWrapper] = None
-        self.rank = None
-        self.world_size = None
-
-    def get_dispatcher(
-        self,
-        q_stride: int,
-        kv_stride: int,
-        max_tokens_query: int,
-        max_tokens_key_value: int,
+    
+    @staticmethod
+    def init(
+        q_stride: int, kv_stride: int, max_tokens_query: int, max_tokens_key_value: int,
+        rank: int, world_size: int, uid: torch.Tensor,
     ):
-        if self.rank is None:
-            self.rank = nvshmem_my_pe()
-        if self.world_size is None:
-            self.world_size = nvshmem_n_pes()
+        nvshmem_init(uid, rank, world_size)
+        DispatcherWrapper.instance = DispatcherWrapper(
+            q_stride, kv_stride, max_tokens_query, max_tokens_key_value,
+            rank, world_size
+        )
 
-        if self._current_dispatcher is None:
-            # avoid allocating a buffer of size 0
-            max_tokens_key_value = max(max_tokens_key_value, 1)
-            kv_stride = max(kv_stride, 1)
-            self._current_dispatcher = DispatcherWrapper(
-                q_stride, kv_stride, max_tokens_query, max_tokens_key_value,
-                self.rank, self.world_size
-            )
-        else:
-            self._current_dispatcher.maybe_update(
-                q_stride, kv_stride, max_tokens_query, max_tokens_key_value
-            )
-        return self._current_dispatcher
+    @staticmethod
+    def get_instance():
+        assert DispatcherWrapper.instance is not None, "DispatcherWrapper not initialized"
+        return DispatcherWrapper.instance
 
 
-_dispatcher_storage = DispatcherStorage()
 
-
-def dispatch(
+def dispatch_qkv(
     dispatcher: DispatcherWrapper,
     tensor: torch.Tensor,
     dst_tensor: torch.Tensor,
     metadata: Metadata,
-    kv_tensor: Optional[torch.Tensor],
-    kv_dst_tensor: Optional[torch.Tensor],
-    kv_metadata: Optional[Metadata],
+    kv_tensor: torch.Tensor,
+    kv_dst_tensor: torch.Tensor,
+    kv_metadata: Metadata,
 ):
     assert metadata.dst_rank.dtype == torch.int32
     assert metadata.dst_offset.dtype == torch.uint32
     assert metadata.num_recv_tokens.dtype == torch.uint64
     assert metadata.seq_len.dtype == torch.uint32
     assert tensor.dtype == dst_tensor.dtype
-    if kv_metadata is not None:
-        assert kv_metadata.dst_rank.dtype == torch.int32
-        assert kv_metadata.dst_offset.dtype == torch.uint32
-        assert kv_metadata.num_recv_tokens.dtype == torch.uint64
-        assert kv_metadata.seq_len.dtype == torch.uint32
-        assert kv_tensor.dtype == kv_dst_tensor.dtype
-    else:
-        kv_metadata = Metadata(None, None, None, None, None)
-    return _ops.dispatch(
+
+    assert kv_metadata.dst_rank.dtype == torch.int32
+    assert kv_metadata.dst_offset.dtype == torch.uint32
+    assert kv_metadata.num_recv_tokens.dtype == torch.uint64
+    assert kv_metadata.seq_len.dtype == torch.uint32
+    assert kv_tensor.dtype == kv_dst_tensor.dtype
+    return _ops.dispatch_core(
         dispatcher.dispatcher,
         tensor, dst_tensor,
         metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
         kv_tensor, kv_dst_tensor,
-        kv_metadata.dst_rank, kv_metadata.dst_offset, kv_metadata.num_recv_tokens
+        kv_metadata.dst_rank, kv_metadata.dst_offset, kv_metadata.num_recv_tokens,
+        None, None,
+    )
+
+def dispatch_no_cp_tensor(
+    dispatcher: DispatcherWrapper,
+    tensor: torch.Tensor,
+    dst_tensor: torch.Tensor,
+    metadata: Metadata,
+):
+    assert metadata.dst_rank.dtype == torch.int32
+    assert metadata.dst_offset.dtype == torch.uint32
+    assert metadata.num_recv_tokens.dtype == torch.uint64
+    assert metadata.seq_len.dtype == torch.uint32
+    assert tensor.dtype == dst_tensor.dtype
+    return _ops.dispatch_core(
+        dispatcher.dispatcher,
+        tensor, dst_tensor,
+        metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
+        None, None, None, None, None, None, None
+    )
+
+
+def dispatch_kv_backward(
+    dispatcher: DispatcherWrapper,
+    tensor: torch.Tensor,
+    dst_tensor: torch.Tensor,
+    metadata: Metadata,
+):
+    assert metadata.dst_rank.dtype == torch.int32
+    assert metadata.dst_offset.dtype == torch.uint32
+    assert metadata.num_recv_tokens.dtype == torch.uint64
+    assert metadata.seq_len.dtype == torch.uint32
+    assert tensor.dtype == dst_tensor.dtype
+    assert metadata.seq_recv_mask.dtype == torch.uint32
+    return _ops.dispatch_core(
+        dispatcher.dispatcher,
+        tensor, dst_tensor,
+        metadata.dst_rank, metadata.dst_offset, metadata.num_recv_tokens, metadata.seq_len,
+        None, None, None, None, None,
+        metadata.seq_recv_mask, metadata.recv_seq_lens
     )
