@@ -12,7 +12,7 @@ import torch
 # nvshmem reference:
 # https://github.com/ppl-ai/pplx-kernels/blob/master/csrc/all_to_all/internode_dispatch.cu
 
-from attn_kernels.ops import nvshmem_get_unique_id, nvshmem_init, nvshmem_finalize
+from d2.runtime.attn_kernels.ops import nvshmem_get_unique_id, nvshmem_init, nvshmem_finalize
 
 @dataclass
 class ScheduleMetadata:
