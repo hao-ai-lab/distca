@@ -7,10 +7,12 @@ from megatron.core.packed_seq_params import PackedSeqParams
 
 from d2.runtime.inplace_metadata import Metadata
 
+
 def _to_cuda_int32(tensor: Optional[torch.Tensor]):
     if tensor is None:
         return None
     return tensor.cuda().to(torch.int32).contiguous()
+
 
 @dataclass
 class PingPangSingleStepPackedSeqParams(PackedSeqParams):

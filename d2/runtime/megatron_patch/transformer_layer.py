@@ -1,22 +1,29 @@
-from typing import Any, List, Optional
+from contextlib import nullcontext
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 import torch.distributed
 from torch import Tensor
 
 from megatron.core import tensor_parallel
+from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.common.embeddings.rope_utils import (
     apply_rotary_pos_emb,
 )
 from megatron.core.transformer.enums import AttnMaskType
+from megatron.core.transformer.transformer_block import (
+    TransformerBlock as MegatronTransformerBlock
+)
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.transformer_layer import (
     TransformerLayer as MegatronTransformerLayer,
     TransformerLayerSubmodules,
 )
+from megatron.core.utils import WrappedTensor, make_viewless_tensor
 
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron_patch.dispatcher_wrapper import n_to_n_dispatch
+
 
 #### Tool functions for splitting and gathering args ####
 def _split_tensor(x: Optional[torch.Tensor], num_splits: int):
@@ -33,6 +40,10 @@ def _repack_args(args: List[List[torch.Tensor]], num_splits: int):
 
 def _splits_all(tensors: List[torch.Tensor], num_splits: int):
     splits = [_split_tensor(t, num_splits) for t in tensors]
+    return _repack_args(splits, num_splits)
+
+def _split_all_dict(tensors: Dict[str, torch.Tensor], num_splits: int):
+    splits = {k: _split_tensor(v, num_splits) for k, v in tensors.items()}
     return _repack_args(splits, num_splits)
 
 def _gather_tensor(tensors: List[torch.Tensor], num_splits: int):
@@ -64,7 +75,8 @@ class TransformerLayer(MegatronTransformerLayer):
 
     def _layout_attn_to_mlp(
         self, attn_out: torch.Tensor,
-        packed_seq_params: PingPangPackedSeqParams
+        packed_seq_params: PingPangPackedSeqParams,
+        comm_event: torch.cuda.Event=None,
     ):
         #### NOTE: this is a hack. We should fix this in the future.
         num_heads = attn_out.shape[1]
@@ -80,7 +92,7 @@ class TransformerLayer(MegatronTransformerLayer):
             None, # key_value_metadata
             None, # rev_key_value_metadata
             packed_seq_params.stream, # stream
-            self.comm_event, # event
+            comm_event or self.comm_event, # event
         )
         #### switch layout back
         attn_out_mlp_layout = attn_out_mlp_layout.reshape(-1, num_heads, head_dim)
@@ -89,7 +101,8 @@ class TransformerLayer(MegatronTransformerLayer):
 
     def _layout_mlp_to_attn(
         self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
-        packed_seq_params: PingPangPackedSeqParams
+        packed_seq_params: PingPangPackedSeqParams,
+        comm_event: torch.cuda.Event=None,
     ):
         # TODO(yonghao): current we do a walk around: merge head dimension
         # into hidden dimension. In this way, we need the TP degree being
@@ -113,7 +126,7 @@ class TransformerLayer(MegatronTransformerLayer):
             packed_seq_params.mlp_to_attn_kv_metadata, # key_value_metadata
             packed_seq_params.mlp_to_attn_kv_grad_metadata, # rev_key_value_metadata
             packed_seq_params.stream, # stream
-            self.comm_event, # event
+            comm_event or self.comm_event, # event
         )
         key_attn_layout, value_attn_layout = key_value_attn_layout.split(key_value_attn_layout.shape[1] // 2, dim=1)
 
@@ -561,3 +574,254 @@ class TransformerLayer(MegatronTransformerLayer):
         )
 
         return mlp_output, context, debug_tensors
+
+
+class PingPangTransformerBlock(MegatronTransformerBlock):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.comm_stream = torch.cuda.Stream()
+        self.comm_event = torch.cuda.Event()
+        self.layers: List[TransformerLayer]
+
+    def ping_pang_forward(
+        self,
+        hidden_states: Union[Tensor, WrappedTensor],
+        attention_mask: Optional[Tensor],
+        context: Optional[Tensor] = None,
+        context_mask: Optional[Tensor] = None,
+        rotary_pos_emb: Optional[Tensor] = None,
+        rotary_pos_cos: Optional[Tensor] = None,
+        rotary_pos_sin: Optional[Tensor] = None,
+        attention_bias: Optional[Tensor] = None,
+        inference_context: Optional[BaseInferenceContext] = None,
+        packed_seq_params: Optional[PingPangPackedSeqParams] = None,
+        sequence_len_offset: Optional[Tensor] = None,
+        *,
+        inference_params: Optional[BaseInferenceContext] = None,
+    ):
+        assert inference_context is None
+        assert inference_params is None
+        assert context is None
+        assert context_mask is None
+        assert sequence_len_offset is None
+        if self.config.fp8:
+            raise NotImplementedError("FP8 not supported yet")
+
+        if isinstance(hidden_states, WrappedTensor):
+            hidden_states = hidden_states.unwrap()
+
+        if not self.pre_process:
+            # See set_input_tensor()
+            hidden_states = self.input_tensor
+
+        hidden_states = make_viewless_tensor(inp=hidden_states, requires_grad=True, keep_graph=True)
+
+        if self.config.sequence_parallel:
+            rng_context = tensor_parallel.get_cuda_rng_tracker().fork()
+        else:
+            rng_context = nullcontext()
+
+        outer_fp8_context = nullcontext()
+
+        compute_stream = torch.cuda.current_stream()
+
+        with rng_context, outer_fp8_context:
+            # Forward pass.
+            if self.config.recompute_granularity == 'full' and self.training:
+                raise NotImplementedError("Full recompute not supported yet")
+                hidden_states = self._checkpointed_forward(
+                    hidden_states=hidden_states,
+                    attention_mask=attention_mask,
+                    context=context,
+                    context_mask=context_mask,
+                    rotary_pos_emb=rotary_pos_emb,
+                    attention_bias=attention_bias,
+                    packed_seq_params=packed_seq_params,
+                )
+            else:
+                arg_group = {
+                    "hidden_states": hidden_states,
+                    "attention_mask": attention_mask,
+                    "context": context,
+                    "context_mask": context_mask,
+                    "rotary_pos_emb": rotary_pos_emb,
+                    "rotary_pos_cos": rotary_pos_cos,
+                    "rotary_pos_sin": rotary_pos_sin,
+                    "attention_bias": attention_bias,
+                    "sequence_len_offset": sequence_len_offset,
+                }
+                arg_group_0, arg_group_1 = _split_all_dict(arg_group, 2)
+                arg_group_0["comm_event"] = self.comm_event
+                arg_group_1["comm_event"] = self.comm_event
+                del arg_group
+
+                packed_seq_params_0 = packed_seq_params.seq_params[0]
+                packed_seq_params_1 = packed_seq_params.seq_params[1]
+                setattr(packed_seq_params_0, "stream", self.comm_stream)
+                setattr(packed_seq_params_1, "stream", self.comm_stream)
+                arg_group_0["packed_seq_params"] = packed_seq_params_0
+                arg_group_1["packed_seq_params"] = packed_seq_params_1
+
+                for l_no in range(self.layers):
+                    inner_fp8_context = nullcontext()
+                    with self.offload_context, inner_fp8_context:
+                        arg_group_0, arg_group_1, hidden_states, context = self.forward_layers(
+                            l_no, arg_group_0, arg_group_1, compute_stream
+                        )
+
+                    if (
+                        torch.is_grad_enabled()
+                        and self.config.cpu_offloading
+                        and self.group_prefetch_offload_commit_async is not None
+                    ):
+                        hidden_states = self.group_prefetch_offload_commit_async(hidden_states)
+
+        # Final layer norm.
+        if self.final_layernorm is not None:
+            hidden_states = self.final_layernorm(hidden_states)
+            # TENorm produces a "viewed" tensor. This will result in schedule.py's
+            # deallocate_output_tensor() throwing an error, so a viewless tensor is
+            # created to prevent this.
+            hidden_states = make_viewless_tensor(
+                inp=hidden_states, requires_grad=True, keep_graph=True
+            )
+
+        return hidden_states
+
+    def _checkpointed_forward(self):
+        # TODO(yonghao): support this. Consider the PP case: attention recompute
+        # should follow the backward schedule's order.
+        raise NotImplementedError("Full recompute not supported yet")
+
+    def forward_layers(
+        self,
+        l_no: int,
+        arg_group_0: Dict[str, Any],
+        arg_group_1: Dict[str, Any],
+        compute_stream: torch.cuda.Stream,
+    ):
+        layer = self.layers[l_no]
+        prev_layer = self.layers[l_no - 1] if l_no > 0 else None
+        # tick 0, second half
+        arg_group_0 = self._forward_pre_core_attn(layer, arg_group_0)
+
+        # tick 1
+        # compute
+        self.comm_event.wait(compute_stream)
+        if l_no > 0:
+            arg_group_1 = self._forward_post_core_attn(prev_layer, arg_group_1)
+        arg_group_1 = self._forward_pre_core_attn(layer, arg_group_1)
+        # communication
+        arg_group_0 = self._layout_mlp_to_attn(layer, arg_group_0)
+
+        # tick 2
+        # compute
+        self.comm_event.wait(compute_stream)
+        arg_group_0 = self._forward_core_attn(layer, arg_group_0)
+        # communication
+        arg_group_1 = self._layout_mlp_to_attn(layer, arg_group_1)
+
+        # tick 3
+        # compute
+        self.comm_event.wait(compute_stream)
+        arg_group_1 = self._forward_core_attn(layer, arg_group_1)
+        # communication
+        arg_group_0 = self._layout_attn_to_mlp(layer, arg_group_0)
+
+        # tick 4, also the tick 0 of the next layer
+        # compute
+        self.comm_event.wait(compute_stream)
+        arg_group_0 = self._forward_post_core_attn(layer, arg_group_0)
+        # communication
+        arg_group_1 = self._layout_attn_to_mlp(layer, arg_group_1)
+
+        # if the last layer, do the other half of tick 4 and tick 5
+        if l_no == len(self.layers) - 1:
+            self.comm_event.wait(compute_stream)
+            arg_group_1 = self._forward_post_core_attn(layer, arg_group_1)
+            # gathering the result
+            hidden_states = _gather_tensor([
+                arg_group_0["hidden_states"],
+                arg_group_1["hidden_states"]
+            ], 2)
+            context = _gather_tensor([
+                arg_group_0["context"],
+                arg_group_1["context"]
+            ], 2)
+        else:
+            hidden_states = None
+            context = None
+        return arg_group_0, arg_group_1, hidden_states, context
+
+    @staticmethod
+    def _forward_pre_core_attn(layer: TransformerLayer, args: Dict[str, Any]):
+        hidden_states = args.pop("hidden_states")
+        query, key, value, residual, attn_mask_type = layer._forward_pre_core_attn(
+            hidden_states,
+            args["rotary_pos_emb"],
+            args["rotary_pos_cos"],
+            args["rotary_pos_sin"],
+            args["packed_seq_params"],
+            args["sequence_len_offset"],
+        )
+        args["query"] = query
+        args["key"] = key
+        args["value"] = value
+        args["residual"] = residual
+        args["attn_mask_type"] = attn_mask_type
+        return args
+
+    @staticmethod
+    def _layout_mlp_to_attn(layer: TransformerLayer, args: Dict[str, Any]):
+        query = args.pop("query")
+        key = args.pop("key")
+        value = args.pop("value")
+        query, key, value = layer._layout_mlp_to_attn(
+            query, key, value,
+            args["packed_seq_params"],
+            args["comm_event"],
+        )
+        args["query"] = query
+        args["key"] = key
+        args["value"] = value
+        return args
+
+    @staticmethod
+    def _forward_core_attn(layer: TransformerLayer, args: Dict[str, Any]):
+        # pop out to make sure the tensor is freed
+        query = args.pop("query")
+        key = args.pop("key")
+        value = args.pop("value")
+        core_attn_out = layer._forward_core_attn(
+            query,
+            key,
+            value,
+            args["attention_mask"],
+            args["attention_bias"],
+            args["attn_mask_type"],
+        )
+        args["core_attn_out"] = core_attn_out
+        return args
+    
+    @staticmethod
+    def _layout_attn_to_mlp(layer: TransformerLayer, args: Dict[str, Any]):
+        core_attn_out = args.pop("core_attn_out")
+        core_attn_out = layer._layout_attn_to_mlp(
+            core_attn_out, args["packed_seq_params"], args["comm_event"]
+        )
+        args["core_attn_out"] = core_attn_out
+        return args
+
+    @staticmethod
+    def _forward_post_core_attn(layer: TransformerLayer, args: Dict[str, Any]):
+        core_attn_out = args.pop("core_attn_out")
+        residual = args.pop("residual")
+        mlp_output, context = layer._forward_post_core_attn(
+            core_attn_out,
+            residual,
+            args["context"],
+            args["context_mask"],
+        )
+        args["hidden_states"] = mlp_output
+        args["context"] = context
+        return args
