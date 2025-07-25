@@ -27,7 +27,7 @@ class PingPangLayerWorker(MegatronLayerWorker):
 
 
 @torch.no_grad()
-def test_dp(workers, seed, num_tokens, max_cp_degree, num_seqs, hidden_size, debug=True):
+def test_dp(workers, seed, num_tokens, max_cp_degree, num_seqs, hidden_size, debug=False):
     world_size = len(workers)
     # Create two splits for ping-pong
     (
@@ -115,6 +115,7 @@ def test_dp(workers, seed, num_tokens, max_cp_degree, num_seqs, hidden_size, deb
         packed_seq_params_ping_pang = PingPangPackedSeqParams(
             debug=debug,
             seq_params=[packed_seq_params_stage_0, packed_seq_params_stage_1],
+            do_gather=True,
         )
 
         # Compute the reference answer and test result

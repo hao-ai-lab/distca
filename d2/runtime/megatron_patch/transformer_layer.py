@@ -151,7 +151,7 @@ class TransformerLayer(MegatronTransformerLayer):
         debug = packed_seq_params.debug
         # NOTE: transformer_block.py sets layer_number to 1 for the first layer
         needs_split = debug or self.layer_number == 1
-        needs_gather = debug    # NOTE: cannot infer if this is the last local layer or not.
+        needs_gather = debug or packed_seq_params.do_gather   # NOTE: cannot infer if this is the last local layer or not.
 
         packed_seq_params_0 = packed_seq_params.seq_params[0]
         packed_seq_params_1 = packed_seq_params.seq_params[1]
