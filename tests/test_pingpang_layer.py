@@ -20,6 +20,9 @@ class PingPangLayerWorker(MegatronLayerWorker):
         tensor_input = tensor_input.cuda()
         self.layer.train()
         # TODO: if not debug, add communication stream here.
+        if not packed_seq_params.debug:
+            for params in packed_seq_params.seq_params:
+                setattr(params, "stream", self.stream)
         return self.layer.ping_pang_forward(tensor_input, packed_seq_params=packed_seq_params)
 
 
