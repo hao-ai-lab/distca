@@ -5,6 +5,7 @@ import argparse
 
 from megatron.core import mpu
 from megatron.core.optimizer import get_megatron_optimizer
+from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
 from omegaconf import OmegaConf
 import ray
@@ -12,12 +13,14 @@ from tensordict import TensorDict
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
+from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda
+
 from test_util import MegatronBaseWorker
 from test_megatron_layer import init_test
 from test_megatron_utils import (
     get_megatron_optimizer_param_scheduler, get_model, get_torch_device, gptmodel_forward,
     hf_to_mcore_config, init_mcore_model, init_megatron_optim_config,
-    make_batch_generator, print_model_size, update_model_config,
+    make_batch_generator, print_model_size, update_model_config, unwrap_model,
 )
 
 
@@ -126,13 +129,21 @@ class MegatronE2eWorker(MegatronBaseWorker):
         self.hf_config = hf_config
         self.tf_config = tf_config
 
-    def forward_backward_batch(self, microbatches: list[TensorDict], forward_only: bool=False):
+    def forward_backward_batch(self, microbatches: list[dict], forward_only: bool=False, normal_forward_fn: bool=False):
         # TODO: for PP, since backward has a different attention layout dispatching order,
         # we should modify the forward_backward_func here.
+
+        microbatches = [{
+            k: arg_to_cuda(v) for k, v in microbatches[0].items()
+        }]
+        for module in self.train_module:
+            unwrap_model(module).set_debug(normal_forward_fn)
+        assert len(self.train_module) == 1, "only support one module"
+
         forward_backward_func = get_forward_backward_func()
         n_micro_batch = len(microbatches)
         # thd layout
-        total_seqlen = microbatches[0]['input_ids'].shape[1]
+        total_seqlen = microbatches[0]['input_ids'].shape[0]
 
         def loss_func(output):
             # NOTE: this is a dummy loss function.
@@ -159,7 +170,7 @@ class MegatronE2eWorker(MegatronBaseWorker):
                 data_iterator=batch_generator,
                 model=self.train_module,
                 num_microbatches=n_micro_batch,
-                seq_length=total_seqlen,  # no use when input_shapes was set
+                seq_length=total_seqlen,  # no use, since variable_seq_lengths=True
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
             )
@@ -246,7 +257,29 @@ def test(args):
     ray.get(refs)
     print("=" * 20 + "model init done")
 
-    # TODO: run forward_backward_batch
+    # run forward_backward_batch
+    seq_len = args.num_tokens
+    refs = []
+    for worker in workers:
+        ref = worker.forward_backward_batch.remote(
+            microbatches=[
+                {
+                    "input_ids": torch.randint(0, 100, (seq_len,)),
+                    "position_ids": torch.arange(seq_len),
+                    "packed_seq_params": PackedSeqParams(
+                        qkv_format="thd",
+                        cu_seqlens_q=torch.tensor([0, seq_len], dtype=torch.int32),
+                        cu_seqlens_kv=torch.tensor([0, seq_len], dtype=torch.int32),
+                        max_seqlen_q=torch.tensor([seq_len], dtype=torch.int32)[0],
+                        max_seqlen_kv=torch.tensor([seq_len], dtype=torch.int32)[0],
+                    ),
+                }
+            ],
+            normal_forward_fn=True,
+        )
+        refs.append(ref)
+    ray.get(refs)
+    print("=" * 20 + "forward_backward_batch normal, done")
 
 
 if __name__ == "__main__":

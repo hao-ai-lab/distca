@@ -51,3 +51,23 @@ class PingPangPackedSeqParams:
             debug=self.debug,
             do_gather=self.do_gather
         )
+
+
+def arg_to_cuda(v):
+    if isinstance(v, torch.Tensor):
+        return v.cuda()
+    elif isinstance(v, PingPangPackedSeqParams):
+        return v.to_device()
+    elif isinstance(v, PingPangSingleStepPackedSeqParams):
+        return v.to_device()
+    elif isinstance(v, PackedSeqParams):
+        return PackedSeqParams(
+            qkv_format=v.qkv_format,
+            cu_seqlens_q=arg_to_cuda(v.cu_seqlens_q),
+            cu_seqlens_kv=arg_to_cuda(v.cu_seqlens_kv),
+            max_seqlen_q=arg_to_cuda(v.max_seqlen_q),
+            max_seqlen_kv=arg_to_cuda(v.max_seqlen_kv),
+            cu_seqlens_q_padded=arg_to_cuda(v.cu_seqlens_q_padded),
+            cu_seqlens_kv_padded=arg_to_cuda(v.cu_seqlens_kv_padded),
+        )
+    return v

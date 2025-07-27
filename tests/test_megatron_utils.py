@@ -550,6 +550,8 @@ def gptmodel_forward(
     logits_processor=None, logits_processor_kwargs=None,
 ):
     pre_process = unwrap_model(model).pre_process
+    if pre_process:
+        input_ids = input_ids.unsqueeze(0)
     post_process = unwrap_model(model).post_process
     output_orig = model(
         input_ids=input_ids,
