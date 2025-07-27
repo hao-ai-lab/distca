@@ -13,10 +13,11 @@ from tensordict import TensorDict
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
-from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda
+from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams
+from d2.runtime.inplace_metadata import test_local_proj_metadata
 
-from test_util import MegatronBaseWorker
-from test_megatron_layer import init_test
+from test_util import MegatronBaseWorker, ParallelConfig
+from test_megatron_layer import create_pg
 from test_megatron_utils import (
     get_megatron_optimizer_param_scheduler, get_model, get_torch_device, gptmodel_forward,
     hf_to_mcore_config, init_mcore_model, init_megatron_optim_config,
@@ -46,6 +47,13 @@ class MegatronE2eWorker(MegatronBaseWorker):
         self.dtype = torch.bfloat16
         self.enable_gradient_checkpointing = False
         self.gradient_checkpointing_kwargs = {}
+
+    def init_comm(self, stride_q: int, stride_kv: int, max_tokens_query: int, max_tokens_key_value: int,
+                  parallel_config: ParallelConfig):
+        super().init_comm(
+            stride_q, stride_kv, max_tokens_query,
+            max_tokens_key_value, parallel_config
+        )
 
     def init_comm(self, *args, **kwargs):
         super().init_comm(*args, **kwargs)
@@ -245,9 +253,37 @@ class MegatronE2eWorker(MegatronBaseWorker):
         self.optim_config = optim_config
 
 
+def init_test(args, hidden_size_q, hidden_size_kv, worker_cls=MegatronE2eWorker):
+    ray.init()
+    workers = create_pg(args.num_nodes, args.num_gpus_per_node, worker_cls)
+    print("Workers created")
+    stride_q = hidden_size_q * torch.float16.itemsize // args.tp_size
+    stride_kv = hidden_size_kv * torch.float16.itemsize * 2 // args.tp_size
+    world_size = len(workers)
+    # NOTE: a reason very likely causing the hanging is that
+    # max_tokens_query and max_tokens_key_value are not large enough (nvshmem buffer not enough)
+    max_tokens_query = args.num_tokens * world_size
+    max_tokens_key_value = args.num_tokens * world_size
+    parallel_config = ParallelConfig(
+        tensor_model_parallel_size=args.tp_size
+    )
+    ray.get([worker.init_comm.remote(
+        stride_q, stride_kv, max_tokens_query, max_tokens_key_value, parallel_config
+    ) for worker in workers])
+    print("Communication groups initialized")
+    return workers
+
+
 def test(args):
-    workers = init_test(args, run_init_model=False, worker_cls=MegatronE2eWorker)
     model_path = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+    hf_config = AutoConfig.from_pretrained(model_path)
+    hidden_size_q = hf_config.hidden_size
+    hidden_size_kv = hidden_size_q * 2
+    if hasattr(hf_config, "num_key_value_heads"):
+        hidden_size_kv = (hidden_size_kv * hf_config.num_key_value_heads //
+                          hf_config.num_attention_heads)
+
+    workers = init_test(args, hidden_size_q, hidden_size_kv, worker_cls=MegatronE2eWorker)
     refs = []
     for worker in workers:
         # NOTE: gradient checkpointing is currently disabled
@@ -257,37 +293,57 @@ def test(args):
     ray.get(refs)
     print("=" * 20 + "model init done")
 
-    # run forward_backward_batch
     seq_len = args.num_tokens
     refs = []
-    for worker in workers:
-        ref = worker.forward_backward_batch.remote(
-            microbatches=[
-                {
-                    "input_ids": torch.randint(0, 100, (seq_len,)),
-                    "position_ids": torch.arange(seq_len),
-                    "packed_seq_params": PackedSeqParams(
+    # easiest case: all sequences run attention locally.
+    (mlp_to_attn_metadata, attn_to_mlp_metadata,
+     mlp_to_attn_kv_metadata, mlp_to_attn_kv_grad_metadata) = test_local_proj_metadata(
+        len(workers), seq_len, offset=0
+    )
+    for i, worker in enumerate(workers):
+        microbatch = {
+            "input_ids": torch.randint(0, 100, (seq_len * 2,)),
+            "position_ids": torch.arange(seq_len).repeat(2),
+            "packed_seq_params": PingPangPackedSeqParams(
+                seq_params=[
+                    PingPangSingleStepPackedSeqParams(
                         qkv_format="thd",
                         cu_seqlens_q=torch.tensor([0, seq_len], dtype=torch.int32),
                         cu_seqlens_kv=torch.tensor([0, seq_len], dtype=torch.int32),
                         max_seqlen_q=torch.tensor([seq_len], dtype=torch.int32)[0],
                         max_seqlen_kv=torch.tensor([seq_len], dtype=torch.int32)[0],
-                    ),
-                }
-            ],
-            normal_forward_fn=True,
+                        mlp_to_attn_metadata=mlp_to_attn_metadata.get_slice(i),
+                        attn_to_mlp_metadata=attn_to_mlp_metadata.get_slice(i),
+                        mlp_to_attn_kv_metadata=mlp_to_attn_kv_metadata.get_slice(i),
+                        mlp_to_attn_kv_grad_metadata=mlp_to_attn_kv_grad_metadata.get_slice(i),
+                    )
+                ] * 2,
+                debug=False,
+                do_gather=False,
+                # FIXME: this value is related to the arg "rotary_pos_emb",
+                # which is incorrectly halved when entering ping-pang part
+                # because we splits all args there.
+                # TODO: check the rotary_pos_emb value correctness.
+                max_seqlen_q=torch.tensor([seq_len * 2], dtype=torch.int32)[0],
+                max_seqlen_kv=torch.tensor([seq_len * 2], dtype=torch.int32)[0],
+            )
+        }
+        print(i, microbatch["packed_seq_params"])
+        microbatches = [microbatch]
+        ref = worker.forward_backward_batch.remote(
+            microbatches=microbatches,
+            normal_forward_fn=False,
+            forward_only=True,
         )
         refs.append(ref)
     ray.get(refs)
-    print("=" * 20 + "forward_backward_batch normal, done")
+    print("=" * 20 + "forward_backward_batch attention server, done")
 
 
 if __name__ == "__main__":
-    # TODO: read hidden size from model config
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=2)
-    parser.add_argument("--hidden-size", type=int, default=128)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)

@@ -40,13 +40,20 @@ def _repack_args(args: List[List[torch.Tensor]], num_splits: int):
         for i in range(num_splits)
     ]
 
+def _repack_dicts(args: Dict[str, List[torch.Tensor]], num_splits: int):
+    assert all(len(a) == num_splits for a in args.values())
+    return [
+        {k: a[i] for k, a in args.items()}
+        for i in range(num_splits)
+    ]
+
 def _splits_all(tensors: List[torch.Tensor], num_splits: int):
     splits = [_split_tensor(t, num_splits) for t in tensors]
     return _repack_args(splits, num_splits)
 
 def _split_all_dict(tensors: Dict[str, torch.Tensor], num_splits: int):
     splits = {k: _split_tensor(v, num_splits) for k, v in tensors.items()}
-    return _repack_args(splits, num_splits)
+    return _repack_dicts(splits, num_splits)
 
 def _gather_tensor(tensors: List[torch.Tensor], num_splits: int):
     assert len(tensors) == num_splits
@@ -621,7 +628,6 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
             rng_context = tensor_parallel.get_cuda_rng_tracker().fork()
         else:
             rng_context = nullcontext()
-
         outer_fp8_context = nullcontext()
 
         compute_stream = torch.cuda.current_stream()
@@ -663,7 +669,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
                 arg_group_0["packed_seq_params"] = packed_seq_params_0
                 arg_group_1["packed_seq_params"] = packed_seq_params_1
 
-                for l_no in range(self.layers):
+                for l_no in range(len(self.layers)):
                     inner_fp8_context = nullcontext()
                     with self.offload_context, inner_fp8_context:
                         arg_group_0, arg_group_1, hidden_states, context = self.forward_layers(
@@ -792,6 +798,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
             args["attention_mask"],
             args["attention_bias"],
             args["attn_mask_type"],
+            args["packed_seq_params"],
         )
         args["core_attn_out"] = core_attn_out
         return args

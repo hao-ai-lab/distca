@@ -44,12 +44,29 @@ class PingPangPackedSeqParams:
     seq_params: List[PingPangSingleStepPackedSeqParams]
     debug: bool = False
     do_gather: bool = False
+    # NOTE: These attributes are used for rotary seq len's max length.
+    # since we do rope in the MLP layout, it should be the max length
+    # at the MLP layout (i.e. the number of tokens).
+    max_seqlen_q: Optional[torch.Tensor] = None
+    max_seqlen_kv: Optional[torch.Tensor] = None
+    qkv_format: str = "qkv"
 
     def to_device(self):
+        # FIXME: this uses the local attention layout value, while it should
+        # be the MLP layout's value. Since Attention layout may have fewer
+        # tokens, this can be wrong.
+        max_seqlen_q = self.max_seqlen_q
+        if max_seqlen_q is None:
+            max_seqlen_q = max([p.max_seqlen_q for p in self.seq_params])
+        max_seqlen_kv = self.max_seqlen_kv
+        if max_seqlen_kv is None:
+            max_seqlen_kv = max([p.max_seqlen_kv for p in self.seq_params])
         return PingPangPackedSeqParams(
             seq_params=[seq_param.to_device() for seq_param in self.seq_params],
             debug=self.debug,
-            do_gather=self.do_gather
+            do_gather=self.do_gather,
+            max_seqlen_q=_to_cuda_int32(max_seqlen_q),
+            max_seqlen_kv=_to_cuda_int32(max_seqlen_kv),
         )
 
 
