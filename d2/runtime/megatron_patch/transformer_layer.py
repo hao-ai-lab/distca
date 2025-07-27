@@ -711,7 +711,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         # compute
         self.comm_event.wait(compute_stream)
         if l_no > 0:
-            arg_group_1 = self._forward_post_core_attn(prev_layer, arg_group_1)
+            arg_group_1 = _forward_post_core_attn(prev_layer, arg_group_1)
         arg_group_1 = _forward_pre_core_attn(layer, arg_group_1)
         # communication
         arg_group_0 = _layout_mlp_to_attn(layer, arg_group_0)
