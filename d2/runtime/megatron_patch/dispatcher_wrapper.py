@@ -165,9 +165,26 @@ class n_to_n_dispatch(torch.autograd.Function):
         if out_key_value_grad is not None:
             assert hidden_kv == out_key_value_grad.shape[-1]
             assert key_value_dst_mask is not None
-            key_value_in_grad = torch.empty(key_value_dst_mask.shape + (hidden_kv,),
+            # (num_repeats, seq_len, hidden_kv)
+            num_seqs = rev_key_value_metadata.recv_seq_lens.shape[0]
+            assert rev_key_value_metadata.recv_seq_lens.ndim == 1
+            assert rev_key_value_metadata.seq_recv_mask.shape[0] == num_seqs
+            assert rev_key_value_metadata.seq_recv_mask.ndim == 2
+            cp_degree = rev_key_value_metadata.seq_recv_mask.shape[1]
+            key_value_grad_in_shape = (
+                key_value_dst_mask.shape[1:] + key_value_in_shape
+            )
+            assert len(key_value_grad_in_shape) == 3
+            assert key_value_grad_in_shape == (cp_degree, query_in_shape[0], hidden_kv)
+            # NOTE: unlike the key grad, we have make sure it's zeros
+            # because some padding parts exists but are not written.
+            # TODO(yonghao): modify the communication receive kernel:
+            # do the summation before writing to the dst address.
+            # as it knows the mask, it can skip redundant summation. (although small)
+            key_value_in_grad = torch.zeros(key_value_grad_in_shape,
                                             device=out_key_value_grad.device,
                                             dtype=out_key_value_grad.dtype)
+            key_value_in_grad = key_value_in_grad.reshape(-1, hidden_kv)
         else:
             assert key_value_dst_mask is None
             assert hidden_kv == 0
@@ -200,11 +217,11 @@ class n_to_n_dispatch(torch.autograd.Function):
 
         if key_value_in_grad is not None:
             # gather gradients from all copies along the cp_degree dimension
-            key_value_in_grad = (key_value_in_grad * key_value_dst_mask).sum(dim=-1)
+            key_value_in_grad = (key_value_in_grad.reshape(key_value_grad_in_shape)).sum(dim=0)
             assert key_value_in_grad.shape == key_value_in_shape
 
         return (
-            query_in_grad, None, key_value_in_grad, None,
-            None, None, # metadata
+            query_in_grad, None, None,
+            key_value_in_grad, None, None,
             None, None, # stream and event
         )

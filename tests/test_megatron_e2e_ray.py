@@ -333,7 +333,7 @@ def test(args):
         ref = worker.forward_backward_batch.remote(
             microbatches=microbatches,
             normal_forward_fn=False,
-            forward_only=True,
+            forward_only=False,
         )
         refs.append(ref)
     ray.get(refs)

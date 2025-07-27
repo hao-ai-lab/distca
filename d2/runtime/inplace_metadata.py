@@ -304,8 +304,8 @@ def test_local_proj_metadata(world_size: int, seq_len: int, offset: int):
         num_total_recv_tokens=[seq_len] * world_size,
     )
     mlp_to_attn_kv_grad_metadata = Metadata(
-        dst_rank=attn_to_mlp_metadata.dst_rank.clone().unsqueeze(-1),
-        dst_offset=attn_to_mlp_metadata.dst_offset.clone().unsqueeze(-1),
+        dst_rank=attn_to_mlp_metadata.dst_rank.clone(),
+        dst_offset=attn_to_mlp_metadata.dst_offset.clone(),
         seq_len=attn_to_mlp_metadata.seq_len.clone(),
         num_recv_tokens=bwd_recv_tokens.clone(),
         num_seqs=attn_to_mlp_metadata.num_seqs.clone(),
