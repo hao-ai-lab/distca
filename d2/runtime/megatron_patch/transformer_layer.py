@@ -116,11 +116,11 @@ class TransformerLayer(MegatronTransformerLayer):
         # TODO(yonghao): current we do a walk around: merge head dimension
         # into hidden dimension. In this way, we need the TP degree being
         # kept for attention and other parts.
-        assert query.dim() == 3, f"{query.shape=}, should be tnh layout"
-        num_q_heads = query.shape[1]
-        num_kv_heads = key.shape[1]
-        q_head_dim = query.shape[2]
-        kv_head_dim = key.shape[2]
+        assert query.dim() in [3, 4], f"{query.shape=}, should be t1nh or tnh layout"
+        num_q_heads = query.shape[-2]
+        num_kv_heads = key.shape[-2]
+        q_head_dim = query.shape[-1]
+        kv_head_dim = key.shape[-1]
         query = query.reshape(query.shape[0], num_q_heads * q_head_dim)
         key = key.reshape(key.shape[0], num_kv_heads * kv_head_dim)
         value = value.reshape(value.shape[0], num_kv_heads * kv_head_dim)
