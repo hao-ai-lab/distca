@@ -22,7 +22,7 @@ from test_dispatch_qkv import create_testcase_qkv
 from test_util import MegatronBaseWorker, ParallelConfig
 
 
-def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
+def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls, nsys_profile:bool = False):
     gpu_nodes = [node for node in ray.nodes() if node.get("Resources", {}).get("GPU")]
     gpu_nodes.sort(key=lambda node: node["NodeManagerAddress"])
 
@@ -50,6 +50,10 @@ def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
             if rank > 0:
                 env_vars["MASTER_ADDR"] = master_addr
                 env_vars["MASTER_PORT"] = master_port
+            runtime_env = {"env_vars": env_vars}
+            if nsys_profile:
+                runtime_env["nsight"] = "default"
+                runtime_env["env_vars"]["NVSHMEM_NVTX"] = "common"
 
             worker = worker_cls.options(
                 # Target the placement group and a specific bundle within it
