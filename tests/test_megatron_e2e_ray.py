@@ -380,7 +380,6 @@ def test(args):
         }
         # print(rank, microbatch["packed_seq_params"])
         microbatches = [microbatch]
-        print(f"worker {rank} microbatch: {microbatch["packed_seq_params"]}")
         ref = worker.forward_backward_batch.remote(
             microbatches=microbatches,
             normal_forward_fn=False,

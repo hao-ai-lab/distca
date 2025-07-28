@@ -6,7 +6,7 @@ from typing import Optional
 
 import torch
 
-from d2.runtime.attn_kernels.ops import DispatcherWrapper, dispatch_kv_backward, dispatch_no_cp_tensor, dispatch_qkv
+from d2.runtime.attn_kernels.ops import DispatcherWrapper, dispatch_kv_backward, dispatch_no_cp_tensor, dispatch_qkv, nvshmem_barrier_all_on_current_stream
 from d2.runtime.inplace_metadata import Metadata
 
 
@@ -20,12 +20,20 @@ def dispatch_reverse(
 ):
     dispatcher = DispatcherWrapper.get_instance()
     # the input has two shapes, so we dispatch them separately.
+
+    # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
+    # TODO: check if there is a better way to do this.
+    nvshmem_barrier_all_on_current_stream()
     dispatch_no_cp_tensor(
         dispatcher, q_output_grad, q_input_grad, query_metadata,
     )
+    # print("dispatch q_grad layout done")
     # NOTE: In the reversed pass, each token of kv grad is only sent to one copy, so its behavior
     # is the same as query in forward.
     if kv_input_grad is not None:
+        # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
+        # TODO: check if there is a better way to do this.
+        nvshmem_barrier_all_on_current_stream()
         dispatch_kv_backward(dispatcher, kv_output_grad, kv_input_grad, key_value_metadata)
 
 
@@ -80,6 +88,10 @@ class n_to_n_dispatch(torch.autograd.Function):
 
         with stream_ctx:
             if key_value_in is not None:
+                # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
+                # TODO: check if there is a better way to do this.
+                nvshmem_barrier_all_on_current_stream()
+
                 dispatch_qkv(
                     dispatcher=DispatcherWrapper.get_instance(),
                     tensor=query_in,
@@ -90,6 +102,9 @@ class n_to_n_dispatch(torch.autograd.Function):
                     kv_metadata=key_value_metadata,
                 )
             else:
+                # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
+                # TODO: check if there is a better way to do this.
+                nvshmem_barrier_all_on_current_stream()
                 dispatch_no_cp_tensor(
                     dispatcher=DispatcherWrapper.get_instance(),
                     tensor=query_in,
@@ -206,6 +221,10 @@ class n_to_n_dispatch(torch.autograd.Function):
                     key_value_metadata=rev_key_value_metadata,
                 )
             else:
+                # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
+                # TODO: check if there is a better way to do this.
+                nvshmem_barrier_all_on_current_stream()
+
                 dispatch_no_cp_tensor(
                     dispatcher=DispatcherWrapper.get_instance(),
                     tensor=out_query_grad,
