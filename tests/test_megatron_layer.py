@@ -307,7 +307,7 @@ def init_test(args, worker_cls=MegatronLayerWorker, nsys_profile: bool=False):
     config = get_gpt_config(
         num_layers=1,
         hidden_size=args.hidden_size,
-        num_attention_heads=2,
+        num_attention_heads=args.num_heads,
         ffn_hidden_size=args.hidden_size * 4,
         fp16=True,
         deterministic_mode=True,
@@ -324,6 +324,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=2)
     parser.add_argument("--hidden-size", type=int, default=128)
+    parser.add_argument("--num-heads", type=int, default=2)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
