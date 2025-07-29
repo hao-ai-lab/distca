@@ -372,7 +372,7 @@ void DispatchHelper::dispatch(
   const uint32_t *recv_seq_lens,
   const size_t kv_backward_num_tokens
 ) {
-  const int numSMs = _numSMs || get_sm_count();
+  const int numSMs = (_numSMs > 0) ? _numSMs : get_sm_count();
   const bool has_key_value = kv_send_tensor != nullptr;
   const bool is_kv_backward = seq_recv_mask != nullptr;
   constexpr unsigned NUM_WARPS = 10;
