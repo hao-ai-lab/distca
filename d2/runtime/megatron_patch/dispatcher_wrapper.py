@@ -90,7 +90,7 @@ class n_to_n_dispatch(torch.autograd.Function):
         key_value_metadata: Optional[Metadata]=None,
         rev_key_value_metadata: Optional[Metadata]=None,
         stream: Optional[torch.cuda.Stream]=None,
-    ):
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
 
         # check key_value related tensors
         assert query_metadata.normalized
@@ -101,21 +101,15 @@ class n_to_n_dispatch(torch.autograd.Function):
         # The num_head is folded into num_token.
         assert query_in.ndim == 2, "query_in is of shape (num_token, hidden_q)."
 
+        num_token = query_in.shape[0]
         hidden_q = query_in.shape[-1]
         out_query_shape = (query_metadata.num_total_recv_tokens, hidden_q)
-        out_query = torch.empty(out_query_shape, device=query_in.device, dtype=query_in.dtype)
-
-        num_token = query_in.shape[0]
 
         if key_value_in is not None:
             assert num_token == key_value_in.shape[0]
             hidden_kv = key_value_in.shape[-1]
             out_key_value_shape = (key_value_metadata.num_total_recv_tokens, hidden_kv)
-            out_key_value = torch.empty(out_key_value_shape, device=key_value_in.device, dtype=key_value_in.dtype)
-            key_value_dst_mask = (key_value_metadata.dst_rank != -1).to(torch.bool)
         else:
-            out_key_value = None
-            key_value_dst_mask = None
             hidden_kv = 0
 
         if stream is not None:
@@ -124,7 +118,12 @@ class n_to_n_dispatch(torch.autograd.Function):
             stream_ctx = nullcontext()
 
         with stream_ctx:
+            out_query = torch.empty(out_query_shape, device=query_in.device, dtype=query_in.dtype)
+
             if key_value_in is not None:
+                out_key_value = torch.empty(out_key_value_shape, device=key_value_in.device, dtype=key_value_in.dtype)
+                key_value_dst_mask = (key_value_metadata.dst_rank != -1).to(torch.bool)
+
                 # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
                 # TODO: check if there is a better way to do this.
                 nvshmem_barrier_all_on_current_stream()
@@ -139,6 +138,9 @@ class n_to_n_dispatch(torch.autograd.Function):
                     kv_metadata=key_value_metadata,
                 )
             else:
+                out_key_value = None
+                key_value_dst_mask = None
+
                 # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
                 # TODO: check if there is a better way to do this.
                 nvshmem_barrier_all_on_current_stream()
@@ -186,6 +188,7 @@ class n_to_n_dispatch(torch.autograd.Function):
             dst_offset=saved_tensors[2],
             seq_len=saved_tensors[3],
             num_recv_tokens=saved_tensors[4],
+            normalized=True,
         )
 
         if out_key_value_grad is not None:
@@ -197,6 +200,7 @@ class n_to_n_dispatch(torch.autograd.Function):
                 num_recv_tokens=saved_tensors[8],
                 seq_recv_mask=saved_tensors[9],
                 recv_seq_lens=saved_tensors[10],
+                normalized=True,
             )
         else:
             assert not ctx.bwd_has_kv
@@ -224,19 +228,9 @@ class n_to_n_dispatch(torch.autograd.Function):
             )
             assert len(key_value_grad_in_shape) == 3
             assert key_value_grad_in_shape == (cp_degree, query_in_shape[0], hidden_kv)
-            # NOTE: unlike the key grad, we have make sure it's zeros
-            # because some padding parts exists but are not written.
-            # TODO(yonghao): modify the communication receive kernel:
-            # do the summation before writing to the dst address.
-            # as it knows the mask, it can skip redundant summation. (although small)
-            key_value_in_grad = torch.zeros(key_value_grad_in_shape,
-                                            device=out_key_value_grad.device,
-                                            dtype=out_key_value_grad.dtype)
-            key_value_in_grad = key_value_in_grad.reshape(-1, hidden_kv)
         else:
             assert key_value_dst_mask is None
             assert hidden_kv == 0
-            key_value_in_grad = None
 
         if stream is not None:
             stream_ctx = torch.cuda.stream(stream)
@@ -245,6 +239,15 @@ class n_to_n_dispatch(torch.autograd.Function):
 
         with stream_ctx:
             if out_key_value_grad is not None:
+                # NOTE: unlike the key grad, we have make sure it's zeros
+                # because some padding parts exists but are not written.
+                # TODO(yonghao): modify the communication receive kernel:
+                # do the summation before writing to the dst address.
+                # as it knows the mask, it can skip redundant summation. (although small)
+                key_value_in_grad = torch.zeros(key_value_grad_in_shape,
+                                                device=out_key_value_grad.device,
+                                                dtype=out_key_value_grad.dtype)
+                key_value_in_grad = key_value_in_grad.reshape(-1, hidden_kv)
                 dispatch_reverse(
                     q_input_grad=query_in_grad,
                     kv_input_grad=key_value_in_grad,
@@ -253,7 +256,12 @@ class n_to_n_dispatch(torch.autograd.Function):
                     query_metadata=rev_query_metadata,
                     key_value_metadata=rev_key_value_metadata,
                 )
+
+                # gather gradients from all copies along the cp_degree dimension
+                key_value_in_grad = (key_value_in_grad.reshape(key_value_grad_in_shape)).sum(dim=0)
+                assert key_value_in_grad.shape == key_value_in_shape
             else:
+                key_value_in_grad = None
                 # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
                 # TODO: check if there is a better way to do this.
                 nvshmem_barrier_all_on_current_stream()
@@ -264,10 +272,6 @@ class n_to_n_dispatch(torch.autograd.Function):
                     dst_tensor=query_in_grad,
                     metadata=rev_query_metadata,
                 )
-            if key_value_in_grad is not None:
-                # gather gradients from all copies along the cp_degree dimension
-                key_value_in_grad = (key_value_in_grad.reshape(key_value_grad_in_shape)).sum(dim=0)
-                assert key_value_in_grad.shape == key_value_in_shape
 
         return (
             query_in_grad, None, None,

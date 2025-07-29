@@ -89,24 +89,29 @@ class TransformerLayer(MegatronTransformerLayer):
         Communication between attention layout and mlp layout.
         This operation runs on the stream `packed_seq_params.stream`.
         """
-        #### NOTE: this is a hack. We should fix this in the future.
-        num_heads = attn_out.shape[1]
-        head_dim = attn_out.shape[2]
-        attn_out = attn_out.reshape(attn_out.shape[0], num_heads * head_dim)
-        ####
+        if packed_seq_params.stream is None:
+            context = nullcontext()
+        else:
+            context = torch.cuda.stream(packed_seq_params.stream)
 
-        attn_out_mlp_layout, _ = n_to_n_dispatch.apply(
-            attn_out, # query_in
-            packed_seq_params.attn_to_mlp_metadata, # query_metadata
-            packed_seq_params.mlp_to_attn_metadata, # rev_query_metadata
-            None, # key_value_in
-            None, # key_value_metadata
-            None, # rev_key_value_metadata
-            packed_seq_params.stream, # stream
-        )
-        #### switch layout back
-        attn_out_mlp_layout = attn_out_mlp_layout.reshape(-1, num_heads, head_dim)
-        ####
+        with context:
+            #### NOTE: this is a hack. We should fix this in the future.
+            num_heads = attn_out.shape[-2]
+            head_dim = attn_out.shape[-1]
+            attn_out = attn_out.view(attn_out.shape[0], num_heads * head_dim)
+            ####
+            attn_out_mlp_layout, _ = n_to_n_dispatch.apply(
+                attn_out, # query_in
+                packed_seq_params.attn_to_mlp_metadata, # query_metadata
+                packed_seq_params.mlp_to_attn_metadata, # rev_query_metadata
+                None, # key_value_in
+                None, # key_value_metadata
+                None, # rev_key_value_metadata
+                packed_seq_params.stream, # stream
+            )
+            #### switch layout back
+            attn_out_mlp_layout = attn_out_mlp_layout.view(-1, num_heads, head_dim)
+            ####
         return attn_out_mlp_layout
 
     def _layout_mlp_to_attn(
@@ -117,40 +122,41 @@ class TransformerLayer(MegatronTransformerLayer):
         Communication between attention layout and mlp layout.
         This operation runs on the stream `packed_seq_params.stream`.
         """
-        # TODO(yonghao): current we do a walk around: merge head dimension
-        # into hidden dimension. In this way, we need the TP degree being
-        # kept for attention and other parts.
-        assert query.dim() in [3, 4], f"{query.shape=}, should be t1nh or tnh layout"
-        num_q_heads = query.shape[-2]
-        num_kv_heads = key.shape[-2]
-        q_head_dim = query.shape[-1]
-        kv_head_dim = key.shape[-1]
-        query = query.reshape(query.shape[0], num_q_heads * q_head_dim)
-        key = key.reshape(key.shape[0], num_kv_heads * kv_head_dim)
-        value = value.reshape(value.shape[0], num_kv_heads * kv_head_dim)
-        ####
-
         if packed_seq_params.stream is not None:
             context = torch.cuda.stream(packed_seq_params.stream)
         else:
             context = nullcontext()
 
         with context:
+            # TODO(yonghao): current we do a walk around: merge head dimension
+            # into hidden dimension. In this way, we need the TP degree being
+            # kept for attention and other parts.
+            assert query.dim() in [3, 4], f"{query.shape=}, should be t1nh or tnh layout"
+            num_q_heads = query.shape[-2]
+            num_kv_heads = key.shape[-2]
+            q_head_dim = query.shape[-1]
+            kv_head_dim = key.shape[-1]
+            # NOTE: qkv used to be concatenated, so here they are not contiguous, and
+            # the reshape is an extra copy.
+            query = query.reshape(query.shape[0], num_q_heads * q_head_dim)
+            key = key.reshape(key.shape[0], num_kv_heads * kv_head_dim)
+            value = value.reshape(value.shape[0], num_kv_heads * kv_head_dim)
+            ####
+
             key_value = torch.cat([key, value], dim=-1).contiguous()
-        query_attn_layout, key_value_attn_layout = n_to_n_dispatch.apply(
-            query,  # query_in
-            packed_seq_params.mlp_to_attn_metadata, # query_metadata
-            packed_seq_params.attn_to_mlp_metadata, # rev_query_metadata
-            key_value, # key_value_in
-            packed_seq_params.mlp_to_attn_kv_metadata, # key_value_metadata
-            packed_seq_params.mlp_to_attn_kv_grad_metadata, # rev_key_value_metadata
-            packed_seq_params.stream, # stream
-        )
-        with context:
+            query_attn_layout, key_value_attn_layout = n_to_n_dispatch.apply(
+                query,  # query_in
+                packed_seq_params.mlp_to_attn_metadata, # query_metadata
+                packed_seq_params.attn_to_mlp_metadata, # rev_query_metadata
+                key_value, # key_value_in
+                packed_seq_params.mlp_to_attn_kv_metadata, # key_value_metadata
+                packed_seq_params.mlp_to_attn_kv_grad_metadata, # rev_key_value_metadata
+                packed_seq_params.stream, # stream
+            )
             key_attn_layout, value_attn_layout = key_value_attn_layout.split(key_value_attn_layout.shape[1] // 2, dim=1)
 
             #### switch layout back
-            query_attn_layout = query_attn_layout.reshape(-1, num_q_heads, q_head_dim).contiguous()
+            query_attn_layout = query_attn_layout.view(-1, num_q_heads, q_head_dim).contiguous()
             key_attn_layout = key_attn_layout.reshape(-1, num_kv_heads, kv_head_dim).contiguous()
             value_attn_layout = value_attn_layout.reshape(-1, num_kv_heads, kv_head_dim).contiguous()
 
