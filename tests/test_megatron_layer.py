@@ -22,7 +22,7 @@ from test_dispatch_qkv import create_testcase_qkv
 from test_util import MegatronBaseWorker, ParallelConfig
 
 
-def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
+def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls, nsys_profile:bool = False):
     gpu_nodes = [node for node in ray.nodes() if node.get("Resources", {}).get("GPU")]
     gpu_nodes.sort(key=lambda node: node["NodeManagerAddress"])
 
@@ -50,6 +50,10 @@ def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
             if rank > 0:
                 env_vars["MASTER_ADDR"] = master_addr
                 env_vars["MASTER_PORT"] = master_port
+            runtime_env = {"env_vars": env_vars}
+            if nsys_profile:
+                runtime_env["nsight"] = "default"
+                runtime_env["env_vars"]["NVSHMEM_NVTX"] = "common"
 
             worker = worker_cls.options(
                 # Target the placement group and a specific bundle within it
@@ -57,7 +61,7 @@ def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls):
                 placement_group_bundle_index=i,
                 num_gpus=1,
                 num_cpus=1,
-                runtime_env={"env_vars": env_vars},
+                runtime_env=runtime_env,
             ).remote(
                 world_size=world_size,
                 rank=n_id * num_gpus_per_node + i,
@@ -109,6 +113,10 @@ class MegatronLayerWorker(MegatronBaseWorker):
 
 def get_seqlen_shard(cu_seqlens_q: torch.Tensor, cu_seqlens_kv: torch.Tensor,
                      max_seqlen_q: torch.Tensor, max_seqlen_kv: torch.Tensor, num_local_seqs_recv: torch.Tensor, rank: int):
+    """
+    Get the seqlen related arguments for a specific rank.
+    This removes padding at the num_sequence dimension.
+    """
     num_seq = num_local_seqs_recv[rank].item()
     max_seqlen_q = max_seqlen_q[rank]
     max_seqlen_kv = max_seqlen_kv[rank]
@@ -275,9 +283,9 @@ def test_dp_single_split(workers, seed: int, num_tokens: int, max_cp_degree: int
     torch.testing.assert_close(ref_ans, ans)
 
 
-def init_test(args, worker_cls=MegatronLayerWorker):
+def init_test(args, worker_cls=MegatronLayerWorker, nsys_profile: bool=False):
     ray.init()
-    workers = create_pg(args.num_nodes, args.num_gpus_per_node, worker_cls)
+    workers = create_pg(args.num_nodes, args.num_gpus_per_node, worker_cls, nsys_profile=nsys_profile)
     print("Workers created")
     stride_q = args.hidden_size * torch.float16.itemsize
     stride_kv = args.hidden_size * torch.float16.itemsize * 2
@@ -299,7 +307,7 @@ def init_test(args, worker_cls=MegatronLayerWorker):
     config = get_gpt_config(
         num_layers=1,
         hidden_size=args.hidden_size,
-        num_attention_heads=2,
+        num_attention_heads=args.num_heads,
         ffn_hidden_size=args.hidden_size * 4,
         fp16=True,
         deterministic_mode=True,
@@ -316,6 +324,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=2)
     parser.add_argument("--hidden-size", type=int, default=128)
+    parser.add_argument("--num-heads", type=int, default=2)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
