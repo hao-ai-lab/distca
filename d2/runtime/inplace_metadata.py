@@ -15,17 +15,24 @@ For query, dispatch_id is 0.
 For query, Attention layout, the local order of the shards is determined by
 their global index.
 
-FIXME: current logic doesn't follow this:
 For key-value, Attention layout, the local order is determined by the query's
 order. Hence, it needs to know a Q-shard and KV-shard correlation.
 """
 
+def exclusive_cumsum(tensor: torch.Tensor, dim: int = 0) -> torch.Tensor:
+    """Cumsum but excluding itself."""
+    cumsum = tensor.cumsum(dim=dim)
+    zero = torch.zeros_like(tensor.select(dim, 0))
+    return torch.cat([zero.unsqueeze(dim), cumsum.narrow(dim, 0, cumsum.size(dim) - 1)], dim=dim)
+
 
 @dataclass
 class Metadata:
+    # Rank, offset, and length described local sequence index.
     dst_rank: torch.Tensor
     dst_offset: torch.Tensor
     seq_len: torch.Tensor
+    # num tokens received from each rank.
     num_recv_tokens: torch.Tensor
     # NOTE: used for kv gradient communication.
     # This is a sequence-scale mask, recording the number of sequences received
@@ -94,6 +101,7 @@ def compute_metadata(
     return_intermediate: bool = False,
 ) -> Tuple[Metadata, Metadata]:
     """
+    Given a dispatch plan, this function assigns the query tensor's attention layout.
     Args:
         seq_len (Tensor): shape (world_size, max_num_local_seq_shards). The length of each sequence.
         global_dispatch (Tensor): shape (world_size, max_num_local_seq_shards, max_cp_degree). value -1 is padding.
@@ -302,146 +310,3 @@ def mlp_layout_packed_params(seq_lens: torch.Tensor):
         max_seqlen_kv=max_seqlen,
     )
     return packed_seq_params
-
-
-######## Correctness testing tools ########
-def test_local_proj_metadata(world_size: int, seq_len: int, offset: int):
-    """
-    Test tool generating the easiest case: Each rank holds a sequence,
-    and is sent to a rank with an offset. (0 means sending to itself)
-    """
-    num_recv_tokens = torch.zeros((world_size, world_size + 1), dtype=torch.int64)
-    num_recv_tokens[:, -1] = seq_len
-    i_diag = torch.arange(world_size, dtype=torch.int64)
-    j_diag = (i_diag + offset) % world_size
-    # the diagonal of num_recv_tokens is the seq_len
-    fwd_recv_tokens = num_recv_tokens.clone()
-    fwd_recv_tokens[j_diag, i_diag] = seq_len
-
-    bwd_j_diag = (i_diag - offset) % world_size
-    bwd_recv_tokens = num_recv_tokens.clone()
-    bwd_recv_tokens[bwd_j_diag, i_diag] = seq_len
-
-    mlp_to_attn_metadata = Metadata(
-        dst_rank=torch.tensor(
-            [(i + offset) % world_size for i in range(world_size)]
-        ).reshape(world_size, 1),
-        dst_offset=torch.tensor(
-            [0] * world_size
-        ).reshape(world_size, 1),
-        seq_len=torch.tensor(
-            [seq_len] * world_size
-        ).reshape(world_size, 1),
-        num_recv_tokens=fwd_recv_tokens,
-        num_seqs=torch.tensor([1] * world_size).reshape(world_size, 1),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    attn_to_mlp_metadata = Metadata(
-        dst_rank=torch.tensor(
-            [(i - offset) % world_size for i in range(world_size)]
-        ).reshape(world_size, 1),
-        dst_offset=mlp_to_attn_metadata.dst_offset.clone(),
-        seq_len=mlp_to_attn_metadata.seq_len.clone(),
-        num_recv_tokens=bwd_recv_tokens,
-        num_seqs=mlp_to_attn_metadata.num_seqs.clone(),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    mlp_to_attn_kv_metadata = Metadata(
-        dst_rank=mlp_to_attn_metadata.dst_rank.clone().unsqueeze(-1),
-        dst_offset=mlp_to_attn_metadata.dst_offset.clone().unsqueeze(-1),
-        seq_len=mlp_to_attn_metadata.seq_len.clone(),
-        num_recv_tokens=fwd_recv_tokens.clone(),
-        num_seqs=mlp_to_attn_metadata.num_seqs.clone(),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    mlp_to_attn_kv_grad_metadata = Metadata(
-        dst_rank=attn_to_mlp_metadata.dst_rank.clone(),
-        dst_offset=attn_to_mlp_metadata.dst_offset.clone(),
-        seq_len=attn_to_mlp_metadata.seq_len.clone(),
-        num_recv_tokens=bwd_recv_tokens.clone(),
-        num_seqs=attn_to_mlp_metadata.num_seqs.clone(),
-        world_size=world_size,
-        seq_recv_mask=torch.ones(world_size, 1, 1),
-        recv_seq_lens=mlp_to_attn_metadata.seq_len.clone(),
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    return mlp_to_attn_metadata, attn_to_mlp_metadata, mlp_to_attn_kv_metadata, mlp_to_attn_kv_grad_metadata
-
-
-@torch.no_grad()
-def orchestrate_simulate(tensor: torch.Tensor, output_tensor: torch.Tensor, metadata: Metadata):
-    assert tensor.dim() == 3    # (world_size, num_tokens, hidden_dim)
-    world_size = tensor.shape[0]
-    # handle sending rank-by-rank:
-    for src_rank in range(world_size):
-        dst_rank = metadata.dst_rank[src_rank]
-        dst_offset = metadata.dst_offset[src_rank]
-        seq_lens = metadata.seq_len[src_rank]
-        acu_tokens = 0
-        for j, rs in enumerate(dst_rank):
-            seq_len = seq_lens[j]
-            seq = tensor[src_rank][acu_tokens:acu_tokens + seq_len]
-            if dst_rank.dim() == 1:
-                rank = rs
-                if rank >= 0:
-                    try:
-                        output_tensor[rank][dst_offset[j]: dst_offset[j] + seq_len] = seq
-                    except RuntimeError as e:
-                        print(f"{src_rank=}, {rank=}, {dst_offset[j]=}, {dst_offset[j] + seq_len=}, {seq_len=}, {output_tensor.shape, seq.shape, acu_tokens, tensor.shape}")
-                        raise e
-            else:
-                for k, rank in enumerate(rs):
-                    if rank >= 0:
-                        output_tensor[rank][dst_offset[j][k]: dst_offset[j][k] + seq_len] = seq
-            acu_tokens += seq_len
-    return output_tensor
-
-
-def gen_seq_lens(world_size: int, num_seqs: int, total_len: int) -> torch.Tensor:
-    ratio = torch.rand((world_size, num_seqs)) + 0.25 / num_seqs   # Use a min value to guarantee that the sequence is not too short (0 after rounding)
-    ratio = ratio / ratio.sum(dim=1, keepdim=True)
-    seq_len = (ratio * total_len).round().int()
-    seq_len_total = seq_len.sum(dim=1)
-    seq_len_total_error = seq_len_total - total_len
-    seq_len[:, -1] -= seq_len_total_error
-    return seq_len
-
-
-def test():
-    torch.manual_seed(0)
-    WORLD_SIZE = 2
-    NUM_SEQS = 3
-    CP_DEGREE = 2
-    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-    HIDDEN_SIZE = 4
-    TOTAL_SEQ_LEN = 1024
-    seq_len = gen_seq_lens(WORLD_SIZE, NUM_SEQS, TOTAL_SEQ_LEN).long()
-    global_dispatch = torch.randint(-1, WORLD_SIZE, (WORLD_SIZE, NUM_SEQS, CP_DEGREE), device=DEVICE)
-    global_dispatch_err = torch.max(global_dispatch, dim=2, keepdim=True)[0] < 0    # error means there is no receiver. We need to at least assign it one.
-    global_dispatch[:, :, -1:] += global_dispatch_err.int()
-
-    tensor = torch.rand((WORLD_SIZE, TOTAL_SEQ_LEN, HIDDEN_SIZE), device=DEVICE) + 0.1
-    fwd_metadata, rev_metadata = compute_metadata(seq_len, global_dispatch)
-
-    # forward
-    max_recv_tokens = fwd_metadata.num_recv_tokens.max()
-    output_tensor = torch.zeros((WORLD_SIZE, max_recv_tokens, HIDDEN_SIZE), device=DEVICE, dtype=tensor.dtype)
-    output_tensor = orchestrate_simulate(tensor, output_tensor, fwd_metadata)
-
-    # reverse
-    rev_metadata.num_recv_tokens.max()
-    rev_tensor = torch.zeros((WORLD_SIZE, TOTAL_SEQ_LEN * CP_DEGREE, HIDDEN_SIZE), device=DEVICE, dtype=output_tensor.dtype)
-    rev_tensor = orchestrate_simulate(output_tensor, rev_tensor, rev_metadata)
-    rev_tensor = rev_tensor.reshape(WORLD_SIZE, CP_DEGREE, TOTAL_SEQ_LEN, HIDDEN_SIZE)
-    rev_tensor_dedup = rev_tensor.sum(dim=1) / (rev_tensor != 0).sum(dim=1)
-
-    torch.testing.assert_close(rev_tensor_dedup.unsqueeze(1).repeat(1, CP_DEGREE, 1, 1) * (rev_tensor != 0), rev_tensor)
-    torch.testing.assert_close(tensor, rev_tensor_dedup)
-    print("test metadata passed")
-
-
-if __name__ == '__main__':
-    test()
