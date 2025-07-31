@@ -15,21 +15,49 @@ For query, dispatch_id is 0.
 For query, Attention layout, the local order of the shards is determined by
 their global index.
 
-FIXME: current logic doesn't follow this:
 For key-value, Attention layout, the local order is determined by the query's
 order. Hence, it needs to know a Q-shard and KV-shard correlation.
 """
 
+def exclusive_cumsum(tensor: torch.Tensor, dim: int = 0) -> torch.Tensor:
+    """Cumsum but excluding itself."""
+    cumsum = tensor.cumsum(dim=dim)
+    zero = torch.zeros_like(tensor.select(dim, 0))
+    return torch.cat([zero.unsqueeze(dim), cumsum.narrow(dim, 0, cumsum.size(dim) - 1)], dim=dim)
+
+
+def mask_by_neg(tensor: torch.Tensor, mask: torch.Tensor):
+    """Apply the mask with masking value -1."""
+    return tensor * mask.bool() + mask.int() - 1
+
+
+def index_put_with_neg_padding_1d(
+    tensor: torch.Tensor, src: torch.Tensor, index: torch.Tensor
+):
+    """
+    Handling the case that index value -1 means padding, which should not
+    write to the tensor.
+    """
+    tensor_shape = tensor.shape
+    tensor = tensor.flatten()
+    src = src.flatten()
+    index = index.flatten()
+    tensor = torch.concat([tensor, torch.zeros([1], device=tensor.device, dtype=tensor.dtype)], dim=0)
+    tensor.index_put_((index,), src, accumulate=False)
+    return tensor[:-1].reshape(tensor_shape)  # remove the padding value at the end
+
 
 @dataclass
 class Metadata:
+    # Rank, offset, and length described local sequence index.
     dst_rank: torch.Tensor
     dst_offset: torch.Tensor
     seq_len: torch.Tensor
+    # num tokens received from each rank.
     num_recv_tokens: torch.Tensor
     # NOTE: used for kv gradient communication.
-    # This is a sequence-scale mask, recording the number of sequences received
-    # from each rank.
+    # This is a sequence-scale mask, recording whether a sequence is received
+    # or should be skipped.
     seq_recv_mask: Optional[torch.Tensor] = None
     # NOTE: used for kv gradient communication.
     # This records the length of all sequences received to this rank.
@@ -94,6 +122,7 @@ def compute_metadata(
     return_intermediate: bool = False,
 ) -> Tuple[Metadata, Metadata]:
     """
+    Given a dispatch plan, this function assigns the query tensor's attention layout.
     Args:
         seq_len (Tensor): shape (world_size, max_num_local_seq_shards). The length of each sequence.
         global_dispatch (Tensor): shape (world_size, max_num_local_seq_shards, max_cp_degree). value -1 is padding.
@@ -271,8 +300,8 @@ def compute_attn_layout_seqlens(
     out_seqlens_kv = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
     out_seqlens_q.scatter_(0, scatter_index, src_seqlens)
     out_seqlens_kv.scatter_(0, scatter_index, src_seq_lens_kv)
-    out_seqlens_q = out_seqlens_q.reshape(world_size, max_num_local_seqs)
-    out_seqlens_kv = out_seqlens_kv.reshape(world_size, max_num_local_seqs)
+    out_seqlens_q = out_seqlens_q.reshape(world_size, max_num_seq)
+    out_seqlens_kv = out_seqlens_kv.reshape(world_size, max_num_seq)
 
     num_local_seqs_recv = local_indices_flat.reshape(-1, world_size).max(dim=0)[0] + 1
 
@@ -282,6 +311,154 @@ def compute_attn_layout_seqlens(
     max_seqlen_kv = out_seqlens_kv.max(dim=1)[0]
 
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_local_seqs_recv
+
+
+def compute_metadata_kv(
+    kv_to_q_mapping: torch.Tensor,
+    kv_to_q_rank: torch.Tensor,
+    kv_context_size: torch.Tensor,
+    q_to_num_kv_seq: torch.Tensor,
+    q_to_num_kv_token: torch.Tensor,
+    seq_len: torch.Tensor,
+    num_seqs: torch.Tensor,
+    # query metadata
+    q_dispatch: torch.Tensor,
+    q_seq_to_dst: torch.Tensor,
+    max_num_local_seqs: int,
+):
+    """
+    Given the query's dispatch plan and a mapping from key-value to query,
+    this function computes forward and reverse communication metadata for key-value.
+    Args:
+        kv_to_q_mapping (Tensor): shape (world_size, max_num_local_seqs, max_cp_degree, 2).
+            The mapping from this key-value dispatch to a query index. The value is -1 for padding.
+            The last dimension describes the query's world_size and local_index.
+        kv_to_q_rank (Tensor): shape (world_size, max_num_local_seqs, max_cp_degree).
+            The rank among all kvs that mapping to the same query. The value is -1 for padding.
+        kv_context_size (Tensor): shape (world_size, max_num_local_seqs).
+            The number of tokens in this document, before this key-value shard.
+            NOTE: this is like the token_wise kv_to_q_rank
+        q_to_num_kv_seq (Tensor): shape (world_size, max_num_local_seqs).
+            The number of key-value shards that map to the query.
+        q_to_num_kv_token (Tensor): shape (world_size, max_num_local_seqs).
+            The total number of key-value tokens that map to the query.
+            NOTE: this is like the token_wise q_to_num_kv_seq
+            NOTE: This is on q's perspective, while kv_context_size is on the KV's perspective. Are they always the same?
+        q_dispatch (Tensor): shape (world_size, max_num_local_seqs).
+            The query's dispatch plan. The value is -1 for padding.
+        q_seq_to_dst (Tensor): intermediate value, equals one_hot_remove_padding(q_dispatch)
+    """
+    world_size = kv_to_q_mapping.shape[0]
+    max_cp_degree = kv_to_q_mapping.shape[2]
+    assert kv_to_q_mapping.shape == (world_size, max_num_local_seqs, max_cp_degree, 2)
+    assert kv_to_q_rank.shape == (world_size, max_num_local_seqs, max_cp_degree)
+    assert kv_context_size.shape == (world_size, max_num_local_seqs)
+    assert q_to_num_kv_seq.shape == (world_size, max_num_local_seqs)
+    assert q_dispatch.shape == (world_size, max_num_local_seqs)
+    assert q_seq_to_dst.shape == (world_size, max_num_local_seqs, world_size)
+    assert seq_len.shape == (world_size, max_num_local_seqs)
+    assert num_seqs.shape == (world_size,)
+    ######## Forward
+    # 1. compute the dst rank for each kv dispatch, on the attention layout.
+    # kv_dst_rank[rank, s_id, c_id] = q_dispatch[kv_to_q_mapping[rank, s_id, c_id, 0], kv_to_q_mapping[rank, s_id, c_id, 1]]
+    kv_valid_mask = kv_to_q_mapping[..., 0] >= 0
+    kv_to_q_mapping_flatten = kv_to_q_mapping[..., 0] * max_num_local_seqs + kv_to_q_mapping[..., 1]
+
+    kv_dst_rank = (q_dispatch.flatten()[kv_to_q_mapping_flatten].reshape(kv_valid_mask.shape) * kv_valid_mask +
+                   # NOTE: this is to make sure all padding values get a rank -1.
+                   (kv_valid_mask.int() - 1))
+
+    # 2. compute the local sequence id for each kv dispatch, on the attention layout.
+    # shape (num_global_seqs, world_size): 0 if q not sending to that rank, else q_seq_to_dst[global_idx]
+    num_kv_seq_to_dst = (q_seq_to_dst * q_to_num_kv_seq.unsqueeze(-1)).reshape(-1, world_size)
+    # shape (num_global_seqs, world_size): 0 if q not sending to that rank, else the begin (sequence level) offset of the kv shard.
+    # On the dst layout, the first kv shard of **this query**'s sequence id
+    query_dst_kv_seq_id = exclusive_cumsum(num_kv_seq_to_dst, dim=0) * q_seq_to_dst.bool().reshape(-1, world_size)
+    query_dst_kv_seq_id = query_dst_kv_seq_id.sum(dim=-1).reshape(world_size, max_num_local_seqs)
+
+    kv_dst_seq_id = query_dst_kv_seq_id.flatten()[kv_to_q_mapping_flatten].reshape(kv_valid_mask.shape) * kv_valid_mask
+    kv_dst_seq_id = kv_dst_seq_id + kv_to_q_rank
+    # 3. compute the dst offset for each kv dispatch, on the attention layout.
+    num_token_to_dst = (q_seq_to_dst * q_to_num_kv_token.unsqueeze(-1)).reshape(-1, world_size)
+    # for each query shard, the number of tokens before it starts.
+    query_dst_kv_token_id = exclusive_cumsum(num_token_to_dst, dim=0) * q_seq_to_dst.bool().reshape(-1, world_size)
+    query_dst_kv_token_id = query_dst_kv_token_id.sum(dim=-1).reshape(world_size, max_num_local_seqs)
+
+    # get the inter-query-group offset for each kv shard.
+    kv_dst_token_offset = query_dst_kv_token_id.flatten()[kv_to_q_mapping_flatten].reshape(kv_valid_mask.shape)
+    # add the intra-query-group offset for each kv shard.
+    kv_dst_token_offset = (kv_dst_token_offset + kv_context_size.unsqueeze(-1)) * kv_valid_mask
+    # 4. compute the number of tokens received for kv shards.
+    num_send_tokens = num_token_to_dst.reshape(world_size, -1, world_size).sum(dim=1)
+    num_recv_tokens = num_send_tokens.transpose(0, 1)
+    num_total_recv_tokens = num_recv_tokens.sum(dim=1)
+    num_recv_tokens = torch.concat(
+        [num_recv_tokens, num_total_recv_tokens.unsqueeze(1)], dim=1
+    )
+    fwd_metadata = Metadata(
+        kv_dst_rank, kv_dst_token_offset, seq_len,
+        num_recv_tokens=num_recv_tokens, num_seqs=num_seqs,
+        world_size=world_size, num_total_recv_tokens=num_total_recv_tokens.tolist()
+    )
+    ######## Backward
+    num_seq_bwd = num_kv_seq_to_dst.sum(dim=0)
+    max_num_local_seqs_rev = int(num_seq_bwd.max().item())
+    rev_seq_valid_mask = (torch.arange(max_num_local_seqs_rev).view(1, -1).repeat(world_size, 1)
+                          < num_seq_bwd.unsqueeze(1))
+    # NOTE: we order metadata by their local seq id (kv_dst_seq_id).
+    # shape: (world_size, max_num_local_seqs, max_cp_degree)
+    # global sequence id for the kv_dst tensor.
+    kv_dst_global_seq_id = kv_dst_seq_id + kv_dst_rank * max_num_local_seqs_rev
+    src_rank_expand = torch.arange(world_size).view(-1, 1, 1).expand_as(kv_dst_global_seq_id)
+    kv_dst_global_seq_id = mask_by_neg(
+        kv_dst_global_seq_id, kv_valid_mask
+    )
+
+    rev_kv_dst_rank = torch.empty(
+        (world_size, max_num_local_seqs_rev), dtype=torch.int64, device=kv_dst_rank.device
+    )
+    rev_kv_dst_rank = index_put_with_neg_padding_1d(
+        rev_kv_dst_rank, src_rank_expand, kv_dst_global_seq_id
+    )
+    rev_kv_dst_rank = mask_by_neg(rev_kv_dst_rank, rev_seq_valid_mask)
+
+    # NOTE: this is the offset written to the global buffer.
+    # NOTE: we have use layout (cp_degree, num_token, hidden) for the gradient tensor,
+    # because it makes copying a cp repeat consecutive.
+    # shape (world_size, max_num_local_seqs, max_cp_degree)
+    inter_replica_offset = (
+        (torch.arange(max_cp_degree)).reshape(1, -1) *
+         seq_len.sum(1).reshape(-1, 1)
+    ).unsqueeze(1)
+    intra_replica_offset = exclusive_cumsum(seq_len, dim=1).unsqueeze(-1)
+    src_kv_offset = (
+        inter_replica_offset + intra_replica_offset
+    )
+
+    src_kv_grad_buffer_offset = torch.zeros_like(rev_kv_dst_rank)
+    src_kv_grad_buffer_offset = index_put_with_neg_padding_1d(
+        src_kv_grad_buffer_offset, src_kv_offset, kv_dst_global_seq_id
+    )
+    # sequence lengths
+    rev_kv_seqlen = torch.zeros_like(rev_kv_dst_rank)
+    src_kv_seqlen = fwd_metadata.seq_len.unsqueeze(-1).repeat(1, 1, max_cp_degree)
+    rev_kv_seqlen = index_put_with_neg_padding_1d(
+        rev_kv_seqlen, src_kv_seqlen, kv_dst_global_seq_id
+    )
+    # num_token_to_dst is the forward size tokens sent to the dst, which equals token received during backward.
+    rev_kv_num_recv_tokens = num_send_tokens
+
+    bwd_metadata = Metadata(
+        rev_kv_dst_rank,
+        src_kv_grad_buffer_offset,
+        rev_kv_seqlen,
+        rev_kv_num_recv_tokens,
+        seq_recv_mask=kv_valid_mask,
+        recv_seq_lens=fwd_metadata.seq_len,
+        num_seqs=num_seq_bwd,
+        world_size=world_size,
+    )
+    return fwd_metadata, bwd_metadata
 
 
 def mlp_layout_packed_params(seq_lens: torch.Tensor):
@@ -302,146 +479,3 @@ def mlp_layout_packed_params(seq_lens: torch.Tensor):
         max_seqlen_kv=max_seqlen,
     )
     return packed_seq_params
-
-
-######## Correctness testing tools ########
-def test_local_proj_metadata(world_size: int, seq_len: int, offset: int):
-    """
-    Test tool generating the easiest case: Each rank holds a sequence,
-    and is sent to a rank with an offset. (0 means sending to itself)
-    """
-    num_recv_tokens = torch.zeros((world_size, world_size + 1), dtype=torch.int64)
-    num_recv_tokens[:, -1] = seq_len
-    i_diag = torch.arange(world_size, dtype=torch.int64)
-    j_diag = (i_diag + offset) % world_size
-    # the diagonal of num_recv_tokens is the seq_len
-    fwd_recv_tokens = num_recv_tokens.clone()
-    fwd_recv_tokens[j_diag, i_diag] = seq_len
-
-    bwd_j_diag = (i_diag - offset) % world_size
-    bwd_recv_tokens = num_recv_tokens.clone()
-    bwd_recv_tokens[bwd_j_diag, i_diag] = seq_len
-
-    mlp_to_attn_metadata = Metadata(
-        dst_rank=torch.tensor(
-            [(i + offset) % world_size for i in range(world_size)]
-        ).reshape(world_size, 1),
-        dst_offset=torch.tensor(
-            [0] * world_size
-        ).reshape(world_size, 1),
-        seq_len=torch.tensor(
-            [seq_len] * world_size
-        ).reshape(world_size, 1),
-        num_recv_tokens=fwd_recv_tokens,
-        num_seqs=torch.tensor([1] * world_size).reshape(world_size, 1),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    attn_to_mlp_metadata = Metadata(
-        dst_rank=torch.tensor(
-            [(i - offset) % world_size for i in range(world_size)]
-        ).reshape(world_size, 1),
-        dst_offset=mlp_to_attn_metadata.dst_offset.clone(),
-        seq_len=mlp_to_attn_metadata.seq_len.clone(),
-        num_recv_tokens=bwd_recv_tokens,
-        num_seqs=mlp_to_attn_metadata.num_seqs.clone(),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    mlp_to_attn_kv_metadata = Metadata(
-        dst_rank=mlp_to_attn_metadata.dst_rank.clone().unsqueeze(-1),
-        dst_offset=mlp_to_attn_metadata.dst_offset.clone().unsqueeze(-1),
-        seq_len=mlp_to_attn_metadata.seq_len.clone(),
-        num_recv_tokens=fwd_recv_tokens.clone(),
-        num_seqs=mlp_to_attn_metadata.num_seqs.clone(),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    mlp_to_attn_kv_grad_metadata = Metadata(
-        dst_rank=attn_to_mlp_metadata.dst_rank.clone(),
-        dst_offset=attn_to_mlp_metadata.dst_offset.clone(),
-        seq_len=attn_to_mlp_metadata.seq_len.clone(),
-        num_recv_tokens=bwd_recv_tokens.clone(),
-        num_seqs=attn_to_mlp_metadata.num_seqs.clone(),
-        world_size=world_size,
-        seq_recv_mask=torch.ones(world_size, 1, 1),
-        recv_seq_lens=mlp_to_attn_metadata.seq_len.clone(),
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    return mlp_to_attn_metadata, attn_to_mlp_metadata, mlp_to_attn_kv_metadata, mlp_to_attn_kv_grad_metadata
-
-
-@torch.no_grad()
-def orchestrate_simulate(tensor: torch.Tensor, output_tensor: torch.Tensor, metadata: Metadata):
-    assert tensor.dim() == 3    # (world_size, num_tokens, hidden_dim)
-    world_size = tensor.shape[0]
-    # handle sending rank-by-rank:
-    for src_rank in range(world_size):
-        dst_rank = metadata.dst_rank[src_rank]
-        dst_offset = metadata.dst_offset[src_rank]
-        seq_lens = metadata.seq_len[src_rank]
-        acu_tokens = 0
-        for j, rs in enumerate(dst_rank):
-            seq_len = seq_lens[j]
-            seq = tensor[src_rank][acu_tokens:acu_tokens + seq_len]
-            if dst_rank.dim() == 1:
-                rank = rs
-                if rank >= 0:
-                    try:
-                        output_tensor[rank][dst_offset[j]: dst_offset[j] + seq_len] = seq
-                    except RuntimeError as e:
-                        print(f"{src_rank=}, {rank=}, {dst_offset[j]=}, {dst_offset[j] + seq_len=}, {seq_len=}, {output_tensor.shape, seq.shape, acu_tokens, tensor.shape}")
-                        raise e
-            else:
-                for k, rank in enumerate(rs):
-                    if rank >= 0:
-                        output_tensor[rank][dst_offset[j][k]: dst_offset[j][k] + seq_len] = seq
-            acu_tokens += seq_len
-    return output_tensor
-
-
-def gen_seq_lens(world_size: int, num_seqs: int, total_len: int) -> torch.Tensor:
-    ratio = torch.rand((world_size, num_seqs)) + 0.25 / num_seqs   # Use a min value to guarantee that the sequence is not too short (0 after rounding)
-    ratio = ratio / ratio.sum(dim=1, keepdim=True)
-    seq_len = (ratio * total_len).round().int()
-    seq_len_total = seq_len.sum(dim=1)
-    seq_len_total_error = seq_len_total - total_len
-    seq_len[:, -1] -= seq_len_total_error
-    return seq_len
-
-
-def test():
-    torch.manual_seed(0)
-    WORLD_SIZE = 2
-    NUM_SEQS = 3
-    CP_DEGREE = 2
-    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-    HIDDEN_SIZE = 4
-    TOTAL_SEQ_LEN = 1024
-    seq_len = gen_seq_lens(WORLD_SIZE, NUM_SEQS, TOTAL_SEQ_LEN).long()
-    global_dispatch = torch.randint(-1, WORLD_SIZE, (WORLD_SIZE, NUM_SEQS, CP_DEGREE), device=DEVICE)
-    global_dispatch_err = torch.max(global_dispatch, dim=2, keepdim=True)[0] < 0    # error means there is no receiver. We need to at least assign it one.
-    global_dispatch[:, :, -1:] += global_dispatch_err.int()
-
-    tensor = torch.rand((WORLD_SIZE, TOTAL_SEQ_LEN, HIDDEN_SIZE), device=DEVICE) + 0.1
-    fwd_metadata, rev_metadata = compute_metadata(seq_len, global_dispatch)
-
-    # forward
-    max_recv_tokens = fwd_metadata.num_recv_tokens.max()
-    output_tensor = torch.zeros((WORLD_SIZE, max_recv_tokens, HIDDEN_SIZE), device=DEVICE, dtype=tensor.dtype)
-    output_tensor = orchestrate_simulate(tensor, output_tensor, fwd_metadata)
-
-    # reverse
-    rev_metadata.num_recv_tokens.max()
-    rev_tensor = torch.zeros((WORLD_SIZE, TOTAL_SEQ_LEN * CP_DEGREE, HIDDEN_SIZE), device=DEVICE, dtype=output_tensor.dtype)
-    rev_tensor = orchestrate_simulate(output_tensor, rev_tensor, rev_metadata)
-    rev_tensor = rev_tensor.reshape(WORLD_SIZE, CP_DEGREE, TOTAL_SEQ_LEN, HIDDEN_SIZE)
-    rev_tensor_dedup = rev_tensor.sum(dim=1) / (rev_tensor != 0).sum(dim=1)
-
-    torch.testing.assert_close(rev_tensor_dedup.unsqueeze(1).repeat(1, CP_DEGREE, 1, 1) * (rev_tensor != 0), rev_tensor)
-    torch.testing.assert_close(tensor, rev_tensor_dedup)
-    print("test metadata passed")
-
-
-if __name__ == '__main__':
-    test()

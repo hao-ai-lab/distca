@@ -8,7 +8,10 @@ from d2.runtime.attn_kernels.ops import (
     dispatch_no_cp_tensor, dispatch_kv_backward, dispatch_qkv,
     nvshmem_barrier_all, nvshmem_get_unique_id, DispatcherWrapper,
 )
-from d2.runtime.inplace_metadata import compute_metadata, orchestrate_simulate, gen_seq_lens, Metadata
+from d2.runtime.inplace_metadata import compute_metadata, Metadata
+
+from test_util import gen_seq_lens
+from test_comm_metadata import orchestrate_simulate
 
 @ray.remote(num_gpus=1)
 class Worker:
