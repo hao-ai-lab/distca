@@ -89,24 +89,31 @@ class TransformerLayer(MegatronTransformerLayer):
         Communication between attention layout and mlp layout.
         This operation runs on the stream `packed_seq_params.stream`.
         """
-        #### NOTE: this is a hack. We should fix this in the future.
-        num_heads = attn_out.shape[1]
-        head_dim = attn_out.shape[2]
-        attn_out = attn_out.reshape(attn_out.shape[0], num_heads * head_dim)
-        ####
+        if packed_seq_params.stream is None:
+            context = nullcontext()
+        else:
+            context = torch.cuda.stream(packed_seq_params.stream)
 
-        attn_out_mlp_layout, _ = n_to_n_dispatch.apply(
-            attn_out, # query_in
-            packed_seq_params.attn_to_mlp_metadata, # query_metadata
-            packed_seq_params.mlp_to_attn_metadata, # rev_query_metadata
-            None, # key_value_in
-            None, # key_value_metadata
-            None, # rev_key_value_metadata
-            packed_seq_params.stream, # stream
-        )
-        #### switch layout back
-        attn_out_mlp_layout = attn_out_mlp_layout.reshape(-1, num_heads, head_dim)
-        ####
+        with context:
+            torch.cuda.nvtx.range_push("attn_to_mlp")
+            #### NOTE: this is a hack. We should fix this in the future.
+            num_heads = attn_out.shape[-2]
+            head_dim = attn_out.shape[-1]
+            attn_out = attn_out.view(attn_out.shape[0], num_heads * head_dim)
+            ####
+            attn_out_mlp_layout, _ = n_to_n_dispatch.apply(
+                attn_out, # query_in
+                packed_seq_params.attn_to_mlp_metadata, # query_metadata
+                packed_seq_params.mlp_to_attn_metadata, # rev_query_metadata
+                None, # key_value_in
+                None, # key_value_metadata
+                None, # rev_key_value_metadata
+                packed_seq_params.stream, # stream
+            )
+            #### switch layout back
+            attn_out_mlp_layout = attn_out_mlp_layout.view(-1, num_heads, head_dim)
+            ####
+            torch.cuda.nvtx.range_pop()
         return attn_out_mlp_layout
 
     def _layout_mlp_to_attn(
@@ -117,38 +124,45 @@ class TransformerLayer(MegatronTransformerLayer):
         Communication between attention layout and mlp layout.
         This operation runs on the stream `packed_seq_params.stream`.
         """
-        # TODO(yonghao): current we do a walk around: merge head dimension
-        # into hidden dimension. In this way, we need the TP degree being
-        # kept for attention and other parts.
-        assert query.dim() in [3, 4], f"{query.shape=}, should be t1nh or tnh layout"
-        num_q_heads = query.shape[-2]
-        num_kv_heads = key.shape[-2]
-        q_head_dim = query.shape[-1]
-        kv_head_dim = key.shape[-1]
-        query = query.reshape(query.shape[0], num_q_heads * q_head_dim)
-        key = key.reshape(key.shape[0], num_kv_heads * kv_head_dim)
-        value = value.reshape(value.shape[0], num_kv_heads * kv_head_dim)
-        ####
+        if packed_seq_params.stream is not None:
+            context = torch.cuda.stream(packed_seq_params.stream)
+        else:
+            context = nullcontext()
 
-        # FIXME(yonghao): I'd expect this to be wrong, because the concat and split are
-        # on the compute stream instead of the communication stream, but changing it
-        # will instead causing to an numerical error. Should fix it.
-        key_value = torch.cat([key, value], dim=-1).contiguous()
-        query_attn_layout, key_value_attn_layout = n_to_n_dispatch.apply(
-            query,  # query_in
-            packed_seq_params.mlp_to_attn_metadata, # query_metadata
-            packed_seq_params.attn_to_mlp_metadata, # rev_query_metadata
-            key_value, # key_value_in
-            packed_seq_params.mlp_to_attn_kv_metadata, # key_value_metadata
-            packed_seq_params.mlp_to_attn_kv_grad_metadata, # rev_key_value_metadata
-            packed_seq_params.stream, # stream
-        )
-        key_attn_layout, value_attn_layout = key_value_attn_layout.split(key_value_attn_layout.shape[1] // 2, dim=1)
+        with context:
+            torch.cuda.nvtx.range_push("mlp_to_attn")
+            # TODO(yonghao): current we do a walk around: merge head dimension
+            # into hidden dimension. In this way, we need the TP degree being
+            # kept for attention and other parts.
+            assert query.dim() in [3, 4], f"{query.shape=}, should be t1nh or tnh layout"
+            num_q_heads = query.shape[-2]
+            num_kv_heads = key.shape[-2]
+            q_head_dim = query.shape[-1]
+            kv_head_dim = key.shape[-1]
+            # NOTE: qkv used to be concatenated, so here they are not contiguous, and
+            # the reshape is an extra copy.
+            query = query.reshape(query.shape[0], num_q_heads * q_head_dim)
+            key = key.reshape(key.shape[0], num_kv_heads * kv_head_dim)
+            value = value.reshape(value.shape[0], num_kv_heads * kv_head_dim)
+            ####
 
-        #### switch layout back
-        query_attn_layout = query_attn_layout.reshape(-1, num_q_heads, q_head_dim)
-        key_attn_layout = key_attn_layout.reshape(-1, num_kv_heads, kv_head_dim)
-        value_attn_layout = value_attn_layout.reshape(-1, num_kv_heads, kv_head_dim)
+            key_value = torch.cat([key, value], dim=-1).contiguous()
+            query_attn_layout, key_value_attn_layout = n_to_n_dispatch.apply(
+                query,  # query_in
+                packed_seq_params.mlp_to_attn_metadata, # query_metadata
+                packed_seq_params.attn_to_mlp_metadata, # rev_query_metadata
+                key_value, # key_value_in
+                packed_seq_params.mlp_to_attn_kv_metadata, # key_value_metadata
+                packed_seq_params.mlp_to_attn_kv_grad_metadata, # rev_key_value_metadata
+                packed_seq_params.stream, # stream
+            )
+            key_attn_layout, value_attn_layout = key_value_attn_layout.split(key_value_attn_layout.shape[1] // 2, dim=1)
+
+            #### switch layout back
+            query_attn_layout = query_attn_layout.view(-1, num_q_heads, q_head_dim).contiguous()
+            key_attn_layout = key_attn_layout.reshape(-1, num_kv_heads, kv_head_dim).contiguous()
+            value_attn_layout = value_attn_layout.reshape(-1, num_kv_heads, kv_head_dim).contiguous()
+            torch.cuda.nvtx.range_pop()
 
         return query_attn_layout, key_attn_layout, value_attn_layout
 
@@ -185,10 +199,17 @@ class TransformerLayer(MegatronTransformerLayer):
         packed_seq_params_1 = packed_seq_params.seq_params[1]
         mlp_packed_seq_params_0 = packed_seq_params.mlp_layout_seq_params[0]
         mlp_packed_seq_params_1 = packed_seq_params.mlp_layout_seq_params[1]
+        compute_stream = torch.cuda.current_stream()
         if debug:
-            setattr(packed_seq_params_0, "stream", torch.cuda.current_stream())
-            setattr(packed_seq_params_1, "stream", torch.cuda.current_stream())
+            setattr(packed_seq_params_0, "stream", compute_stream)
+            setattr(packed_seq_params_1, "stream", compute_stream)
 
+
+        # NOTE: DO NOT REMOVE THIS DEBUG TENSOR! Torch seems to have some
+        # liveness issue, that deallocates the tensors too early before
+        # communication kernels on the customized stream is done.
+        # This list help increasing the tensor's liveness a bit.
+        debug_tensors = None
         # 1. split input into two microbatches
         args = [hidden_states, attention_mask, context, context_mask, rotary_pos_emb,
                 rotary_pos_cos, rotary_pos_sin, attention_bias, sequence_len_offset]
@@ -200,13 +221,13 @@ class TransformerLayer(MegatronTransformerLayer):
             rotary_pos_cos_0, rotary_pos_sin_0, attention_bias_0, sequence_len_offset_0) = args_0
         (hidden_states_1, attention_mask_1, context_1, context_mask_1, rotary_pos_emb_1,
             rotary_pos_cos_1, rotary_pos_sin_1, attention_bias_1, sequence_len_offset_1) = args_1
-        compute_stream = torch.cuda.current_stream()
         # TODO: confirm this is equal to the stream of packed_seq_params_1
         comm_stream = packed_seq_params_0.stream
 
         # 2. pre-self-attention forward microbatch 0.
         # Ideally, this part should merge to the previous layer's post-self-attention to maximize
         # the communication-computation overlap.
+        torch.cuda.nvtx.range_push("pre_core_attn.0")
         query_0, key_0, value_0, residual_0, attn_mask_type_0 = self._forward_pre_core_attn(
             hidden_states_0,
             rotary_pos_emb_0,
@@ -215,12 +236,17 @@ class TransformerLayer(MegatronTransformerLayer):
             mlp_packed_seq_params_0,
             sequence_len_offset_0,
         )
-        query_0, hidden_states_1 = TickSync.apply(
-            compute_stream, comm_stream, query_0, hidden_states_1
+        torch.cuda.nvtx.range_pop()
+        query_0, key_0, value_0, hidden_states_1 = TickSync.apply(
+            compute_stream, comm_stream, query_0, key_0, value_0, hidden_states_1
         )
 
         # 3. pre-attention forward of microbatch 1, mlp2attn all2all of microbatch 0
+        # NOTE: do not remove this debug tensor. see above.
+        debug_tensors = (query_0, key_0, value_0)
+
         query_0, key_0, value_0 = self._layout_mlp_to_attn(query_0, key_0, value_0, packed_seq_params_0)
+        torch.cuda.nvtx.range_push("pre_core_attn.1")
         query_1, key_1, value_1, residual_1, attn_mask_type_1 = self._forward_pre_core_attn(
             hidden_states_1,
             rotary_pos_emb_1,
@@ -229,12 +255,16 @@ class TransformerLayer(MegatronTransformerLayer):
             mlp_packed_seq_params_1,
             sequence_len_offset_1,
         )
-        query_0, key_0, value_0, query_1 = TickSync.apply(
-            compute_stream, comm_stream, query_0, key_0, value_0, query_1
+        torch.cuda.nvtx.range_pop()
+        query_0, key_0, value_0, query_1, key_1, value_1 = TickSync.apply(
+            compute_stream, comm_stream, query_0, key_0, value_0, query_1, key_1, value_1
         )
+        # NOTE: do not remove this debug tensor. see above.
+        debug_tensors = (query_1, key_1, value_1)
 
         # 4. self-attention forward of microbatch 0, mlp2attn all2all of microbatch 1
         query_1, key_1, value_1 = self._layout_mlp_to_attn(query_1, key_1, value_1, packed_seq_params_1)
+        torch.cuda.nvtx.range_push("core_attn.0")
         core_attn_out_0 = self._forward_core_attn(
             query_0,
             key_0,
@@ -244,12 +274,16 @@ class TransformerLayer(MegatronTransformerLayer):
             attn_mask_type_0,
             packed_seq_params_0,
         )
+        torch.cuda.nvtx.range_pop()
         query_1, key_1, value_1, core_attn_out_0 = TickSync.apply(
             compute_stream, comm_stream, query_1, key_1, value_1, core_attn_out_0
         )
+        # NOTE: do not remove this debug tensor. see above.
+        debug_tensors = core_attn_out_0
 
         # 5. post-self-attention forward of microbatch 0, mlp2attn all2all of microbatch 1
         core_attn_out_0 = self._layout_attn_to_mlp(core_attn_out_0, packed_seq_params_0)
+        torch.cuda.nvtx.range_push("core_attn.1")
         core_attn_out_1 = self._forward_core_attn(
             query_1,
             key_1,
@@ -259,24 +293,33 @@ class TransformerLayer(MegatronTransformerLayer):
             attn_mask_type_1,
             packed_seq_params_1,
         )
+        torch.cuda.nvtx.range_pop()
         core_attn_out_0, core_attn_out_1 = TickSync.apply(compute_stream, comm_stream, core_attn_out_0, core_attn_out_1)
+        # NOTE: do not remove this debug tensor. see above.
+        debug_tensors = core_attn_out_1
 
         # 6. mlp forward of microbatch 0, mlp2attn all2all of microbatch 1
         core_attn_out_1 = self._layout_attn_to_mlp(core_attn_out_1, packed_seq_params_1)
+        torch.cuda.nvtx.range_push("post_core_attn.0")
         mlp_output_0, context_0 = self._forward_post_core_attn(
             core_attn_out_0,
             residual_0,
             context_0,
             context_mask_0,
         )
+        torch.cuda.nvtx.range_pop()
         core_attn_out_1, mlp_output_0 = TickSync.apply(compute_stream, comm_stream, core_attn_out_1, mlp_output_0)
+        # NOTE: do not remove this debug tensor. see above.
+        debug_tensors = None
 
+        torch.cuda.nvtx.range_push("post_core_attn.1")
         mlp_output_1, context_1 = self._forward_post_core_attn(
             core_attn_out_1,
             residual_1,
             context_1,
             context_mask_1,
         )
+        torch.cuda.nvtx.range_pop()
         # concatenate the two microbatches to one.
         if needs_gather:
             output = _gather_tensor([mlp_output_0, mlp_output_1], num_splits=2)

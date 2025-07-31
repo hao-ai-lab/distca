@@ -1,10 +1,24 @@
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 
 from megatron.core.packed_seq_params import PackedSeqParams
+
+"""
+NOTE:
+There is an implicit global index for all sequence shards.
+The index is a flatten (rank, seq_shard_id, dispatch_id) on FFN layout.
+For query, dispatch_id is 0.
+
+For query, Attention layout, the local order of the shards is determined by
+their global index.
+
+FIXME: current logic doesn't follow this:
+For key-value, Attention layout, the local order is determined by the query's
+order. Hence, it needs to know a Q-shard and KV-shard correlation.
+"""
 
 
 @dataclass
@@ -26,7 +40,7 @@ class Metadata:
     num_seqs: Optional[torch.Tensor] = None
     world_size: int = None
     normalized: bool = False
-    num_total_recv_tokens: Union[int, list[int]] = None
+    num_total_recv_tokens: Union[int, tuple[int]] = None
 
     def get_slice(self, rank: int):
         assert self.world_size is not None
@@ -52,6 +66,7 @@ class Metadata:
             num_recv_tokens=self.num_recv_tokens.to(torch.uint64),
             seq_recv_mask=self.seq_recv_mask.to(torch.uint32) if self.seq_recv_mask is not None else None,
             recv_seq_lens=self.recv_seq_lens.to(torch.uint32) if self.recv_seq_lens is not None else None,
+            num_seqs=self.num_seqs.to(torch.int32) if self.num_seqs is not None else None,
             world_size=self.world_size,
             normalized=True,
             num_total_recv_tokens=self.num_total_recv_tokens,
@@ -65,6 +80,7 @@ class Metadata:
             num_recv_tokens=self.num_recv_tokens.cuda().contiguous(),
             seq_recv_mask=self.seq_recv_mask.cuda().contiguous() if self.seq_recv_mask is not None else None,
             recv_seq_lens=self.recv_seq_lens.cuda().contiguous() if self.recv_seq_lens is not None else None,
+            num_seqs=self.num_seqs.cuda().contiguous() if self.num_seqs is not None else None,
             world_size=self.world_size,
             normalized=self.normalized,
             num_total_recv_tokens=self.num_total_recv_tokens,
@@ -75,6 +91,7 @@ class Metadata:
 def compute_metadata(
     seq_len: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
     global_dispatch: torch.Tensor,  # shape of (world_size, max_num_local_seqs, max_cp_degree)
+    return_intermediate: bool = False,
 ) -> Tuple[Metadata, Metadata]:
     """
     Args:
@@ -199,6 +216,13 @@ def compute_metadata(
         world_size=world_size,
         num_total_recv_tokens=rev_num_received_tokens[:, -1].tolist(),
     )
+
+    # NOTE: use this for the fast alltoall dispatch layout.
+    intermediates = (
+        tokens_to_dst_per_dispatch, seq_to_dst, num_received_seqs
+    )
+    if return_intermediate:
+        return fwd_metadata, rev_metadata, intermediates
     return fwd_metadata, rev_metadata
 
 

@@ -19,7 +19,7 @@ class PingPangLayerWorker(MegatronLayerWorker):
         packed_seq_params = packed_seq_params.to_device()
         tensor_input = tensor_input.cuda()
         self.layer.train()
-        # TODO: if not debug, add communication stream here.
+        # if not debug, add communication stream here.
         if not packed_seq_params.debug:
             for params in packed_seq_params.seq_params:
                 setattr(params, "stream", self.stream)
@@ -54,7 +54,6 @@ def test_dp(workers, seed, num_tokens, max_cp_degree, num_seqs, hidden_size, deb
     tensor_input = torch.randn(world_size, num_tokens * 2, hidden_size, dtype=torch.float16)
     ref_ans_handles = []
     args = []
-    ans_handles = []
     for rank in range(world_size):
         # of shape (num_tokens, 1, hidden_size)
         tensor_input_local = tensor_input[rank].unsqueeze(1)
@@ -136,11 +135,21 @@ def test_dp(workers, seed, num_tokens, max_cp_degree, num_seqs, hidden_size, deb
     ref_debug = [ref[1] for ref in ref_output]
     ref_ans = [ref[0] for ref in ref_output]
 
-    for rank in range(world_size):
-        ans_handle = workers[rank].forward_ping_pang.remote(*args[rank])
-        ans_handles.append(ans_handle)
-    ans = ray.get(ans_handles)
-    torch.testing.assert_close(ref_ans, ans)
+    for _ in range(10):
+        # warmup
+        ans_handles = []
+        for rank in range(world_size):
+            ans_handle = workers[rank].forward_ping_pang.remote(*args[rank])
+            ans_handles.append(ans_handle)
+        ray.get(ans_handles)
+    for i in range(20):
+        ans_handles = []
+        for rank in range(world_size):
+            ans_handle = workers[rank].forward_ping_pang.remote(*args[rank])
+            ans_handles.append(ans_handle)
+        ans = ray.get(ans_handles)
+        torch.testing.assert_close(ref_ans, ans)
+        print(f"Iteration {i} passed.")
     print("test done.")
 
 
@@ -149,11 +158,12 @@ if __name__ == "__main__":
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=2)
     parser.add_argument("--hidden-size", type=int, default=128)
+    parser.add_argument("--num-heads", type=int, default=2)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
     parser.add_argument("--num-gpus-per-node", type=int, default=2)
     parser.add_argument("--tp-size", type=int, default=1)
     args = parser.parse_args()
-    workers = init_test(args, worker_cls=PingPangLayerWorker)
+    workers = init_test(args, worker_cls=PingPangLayerWorker, nsys_profile=False)
     test_dp(workers, args.seed, args.num_tokens, args.cp_degree, args.num_seqs, args.hidden_size)
