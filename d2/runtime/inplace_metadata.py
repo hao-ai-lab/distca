@@ -47,6 +47,11 @@ def index_put_with_neg_padding_1d(
     return tensor[:-1].reshape(tensor_shape)  # remove the padding value at the end
 
 
+def prepend_zero_fn(tensor: torch.Tensor):
+    zero = torch.zeros_like(tensor[0:1])
+    return torch.cat([zero, tensor], dim=0)
+
+
 @dataclass
 class Metadata:
     # Rank, offset, and length described local sequence index.
@@ -258,7 +263,7 @@ def compute_metadata(
 @torch.no_grad()
 def compute_attn_layout_seqlens(
     seq_shard_len: torch.Tensor, seq_shard_cumsum: torch.Tensor,
-    dispatch: torch.Tensor,
+    dispatch: torch.Tensor, prepend_zero: bool=True
 ):
     """
     Compute the cu_seqlens_q and cu_seqlens_kv for the attention layout.
@@ -309,6 +314,9 @@ def compute_attn_layout_seqlens(
     cu_seqlens_kv = out_seqlens_kv.cumsum(dim=1)
     max_seqlen_q = out_seqlens_q.max(dim=1)[0]
     max_seqlen_kv = out_seqlens_kv.max(dim=1)[0]
+    if prepend_zero:
+        cu_seqlens_q = prepend_zero_fn(cu_seqlens_q)
+        cu_seqlens_kv = prepend_zero_fn(cu_seqlens_kv)
 
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_local_seqs_recv
 
@@ -376,6 +384,7 @@ def compute_metadata_kv(
     query_dst_kv_seq_id = exclusive_cumsum(num_kv_seq_to_dst, dim=0) * q_seq_to_dst.bool().reshape(-1, world_size)
     query_dst_kv_seq_id = query_dst_kv_seq_id.sum(dim=-1).reshape(world_size, max_num_local_seqs)
 
+    # shape (world_size, max_num_local_seqs, max_cp_degree): the dst rank's seq idx for this src kv replica
     kv_dst_seq_id = query_dst_kv_seq_id.flatten()[kv_to_q_mapping_flatten].reshape(kv_valid_mask.shape) * kv_valid_mask
     kv_dst_seq_id = kv_dst_seq_id + kv_to_q_rank
     # 3. compute the dst offset for each kv dispatch, on the attention layout.
@@ -466,10 +475,7 @@ def mlp_layout_packed_params(seq_lens: torch.Tensor):
     Compute the MLP layout packed_seq_params. MLP layout guarantees seqlens_q == seqlens_kv.
     This is mainly for RoPE.
     """
-    cu_seqlens = torch.cat([
-        torch.zeros((1,), dtype=seq_lens.dtype, device=seq_lens.device),
-        seq_lens.cumsum(dim=0)
-    ])
+    cu_seqlens = prepend_zero_fn(seq_lens.cumsum(dim=0))
     max_seqlen = seq_lens.max()
     packed_seq_params = PackedSeqParams(
         qkv_format="thd",
