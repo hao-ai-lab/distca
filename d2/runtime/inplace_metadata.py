@@ -263,7 +263,7 @@ def compute_metadata(
 @torch.no_grad()
 def compute_attn_layout_seqlens(
     seq_shard_len: torch.Tensor, seq_shard_cumsum: torch.Tensor,
-    dispatch: torch.Tensor, prepend_zero: bool=True
+    dispatch: torch.Tensor, prepend_zero: bool=True, shard_to_tuple: bool=False
 ):
     """
     Compute the cu_seqlens_q and cu_seqlens_kv for the attention layout.
@@ -275,6 +275,9 @@ def compute_attn_layout_seqlens(
           for the sequence shard's context. This is to compute the KV seqlens of the shard.
         dispatch: shape (world_size, max_num_local_seqs). The rank that each sequence
           shard is dispatched to. The value is -1 for padding.
+        prepend_zero: bool, whether to prepend a zero to the cu_seqlens.
+          flash attention requires tha prefix zero.
+        shard_to_tuple: bool, whether to return the output as a tuple of tensors, and apply the actual receive length.
     """
     world_size = dispatch.shape[0]
     max_num_local_seqs = dispatch.shape[1]
@@ -317,6 +320,17 @@ def compute_attn_layout_seqlens(
     if prepend_zero:
         cu_seqlens_q = prepend_zero_fn(cu_seqlens_q)
         cu_seqlens_kv = prepend_zero_fn(cu_seqlens_kv)
+    if shard_to_tuple:
+        cu_seqlens_q = tuple(
+            cu_seqlens_q[i][:num_local_seqs_recv[i]]
+            for i in range(world_size)
+        )
+        cu_seqlens_kv = tuple(
+            cu_seqlens_kv[i][:num_local_seqs_recv[i]]
+            for i in range(world_size)
+        )
+        # NOTE: max_seqlen does not need to shard to tuples because
+        # they are of the same length (1,) for each rank.
 
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_local_seqs_recv
 
@@ -474,6 +488,7 @@ def mlp_layout_packed_params(seq_lens: torch.Tensor):
     """
     Compute the MLP layout packed_seq_params. MLP layout guarantees seqlens_q == seqlens_kv.
     This is mainly for RoPE.
+    NOTE: this is the seq lens on the local rank.
     """
     cu_seqlens = prepend_zero_fn(seq_lens.cumsum(dim=0))
     max_seqlen = seq_lens.max()
@@ -485,3 +500,39 @@ def mlp_layout_packed_params(seq_lens: torch.Tensor):
         max_seqlen_kv=max_seqlen,
     )
     return packed_seq_params
+
+
+def compute_e2e_metadata(
+    mlp_seq_len: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
+    mlp_num_seqs: torch.Tensor,
+    mlp_q_dispatch: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
+    kv_to_q_mapping: torch.Tensor,
+    kv_to_q_rank: torch.Tensor,
+    kv_context_size: torch.Tensor,
+    q_to_num_kv_seq: torch.Tensor,
+    q_to_num_kv_token: torch.Tensor,
+):
+    """
+    High level functions to compute all required metadata.
+    """
+    fwd_metadata_q, rev_metadata_q, intermediates = compute_metadata(
+        mlp_seq_len, mlp_q_dispatch, return_intermediate=True
+    )
+
+    max_num_local_seqs = mlp_q_dispatch.shape[1]
+    _, q_seq_to_dst, num_received_seqs_q = intermediates
+    fwd_metadata_kv, rev_metadata_kv = compute_metadata_kv(
+        kv_to_q_mapping, kv_to_q_rank, kv_context_size,
+        q_to_num_kv_seq, q_to_num_kv_token, mlp_seq_len, mlp_num_seqs,
+        mlp_q_dispatch, q_seq_to_dst, max_num_local_seqs
+    )
+
+    (
+        cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv,
+        num_local_seqs_recv
+    ) = compute_attn_layout_seqlens(
+        mlp_seq_len, q_to_num_kv_token, mlp_q_dispatch, shard_to_tuple=True
+    )
+    fa_params = (cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv)
+    return fwd_metadata_q, rev_metadata_q, fwd_metadata_kv, rev_metadata_kv, fa_params
+
