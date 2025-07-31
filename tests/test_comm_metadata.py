@@ -176,7 +176,9 @@ def create_qkv_dispatch(world_size: int, total_seq_len: int, num_seqs: int, max_
     attention_metadata = compute_attn_layout_seqlens(
         cp_seq_lens, num_total_kv_to_q, cp_query_dst
     )
-    return fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata, attention_metadata
+    return (
+        fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata, attention_metadata
+    )
 
 
 def test_qkv_dispatch(args):
@@ -191,6 +193,7 @@ def test_qkv_dispatch(args):
         world_size, total_seq_len, num_seqs, max_cp_degree
     )
 
+    # Test that Query is correctly sent.
     tensor = torch.rand((world_size, total_seq_len, hidden_size), device=device) + 1    # + 1 to avoid zeros
     # forward
     max_recv_tokens = fwd_q_metadata.num_recv_tokens.max()
@@ -215,16 +218,19 @@ def test_qkv_dispatch(args):
     # reverse
     rev_tensor = torch.zeros((world_size, total_seq_len * max_cp_degree, hidden_size), device=device)
     rev_tensor = orchestrate_simulate(output_tensor, rev_tensor, rev_k_metadata)
-    rev_tensor = rev_tensor.reshape(world_size, total_seq_len, max_cp_degree, hidden_size)
+    rev_tensor = rev_tensor.reshape(world_size, max_cp_degree, total_seq_len, hidden_size)
+
     rev_tensor_mask = rev_tensor != 0
-    rev_tensor_dedup = rev_tensor.sum(dim=2) // rev_tensor_mask.sum(dim=2)
+    rev_tensor_dedup = rev_tensor.sum(dim=1) / rev_tensor_mask.int().sum(dim=1)
+
+    torch.testing.assert_close(rev_tensor_mask * tensor.unsqueeze(1), rev_tensor)
     torch.testing.assert_close(tensor, rev_tensor_dedup)
-    torch.testing.assert_close(rev_tensor_mask * rev_tensor_dedup.unsqueeze(2), rev_tensor)
+
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description="Test metadata generation")
-    parser.add_argument('--world_size', type=int, default=4)
+    parser.add_argument('--world_size', type=int, default=2)
     parser.add_argument('--num_seqs', type=int, default=4, help='Number of sequences per rank')
     parser.add_argument('--max_seq_shard', type=int, default=2, help='Number of shards per sequence')
     parser.add_argument('--num_tokens', type=int, default=1024, help='Total number of tokens per rank')
