@@ -22,7 +22,7 @@ __global__ void memcpy_nvshmem_non_cp(
 
   for (size_t token_idx = blockIdx.x; token_idx < total_num_tokens;
        token_idx += gridDim.x) {
-    while (token_idx > cur_seq_end) {
+    while (token_idx >= cur_seq_end) {
       // Move to the next sequence
       cur_seq += 1;
       cur_seq_start_offset = __ldg(&seq_nvshmem_offset[cur_seq]);
