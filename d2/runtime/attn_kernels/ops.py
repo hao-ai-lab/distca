@@ -232,12 +232,12 @@ class FastDispatcherWrapper:
         self.local_rank = local_rank
         self.world_size = world_size
         self.buffer_size = buffer_size
-        self.handle = _ops.create_fast_dispatch_helper(
+        self.handle = _ops.create_fast_a2a_dispatch_helper(
             rank, local_rank, world_size, buffer_size
         )
 
     def __del__(self):
-        _ops.destroy_fast_dispatch_helper(self.handle)
+        _ops.destroy_fast_a2a_dispatch_helper(self.handle)
 
     def update_buffer_size(self, buffer_size):
         if self.buffer_size < buffer_size:

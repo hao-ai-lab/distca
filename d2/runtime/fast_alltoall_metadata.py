@@ -28,6 +28,12 @@ class SeqLens:
             self.send_seqlens[rank], self.recv_seqlens[rank],
         )
 
+    def normalize(self):
+        return SeqLens(
+            tuple(t.cuda().to(torch.int64).contiguous() for t in self.send_seqlens),
+            tuple(t.cuda().to(torch.int64).contiguous() for t in self.recv_seqlens)
+        )
+
     @staticmethod
     def get_seqlens(
         fwd_metadata: Metadata, rev_metadata: Metadata
@@ -123,6 +129,19 @@ class FastAlltoAllMetadata:
             self.my_rank_send_sz[rank],
             seq_lens,
             tensor_shape
+        )
+
+    def normalize(self):
+        """To device and transfer dtype."""
+        return FastAlltoAllMetadata(
+            tuple(t.cuda().to(torch.uint64).contiguous() for t in self.fa2a_metadata),
+            tuple(t.cuda().to(torch.int64).contiguous() for t in self.send_memcpy_metadata),
+            tuple(t.cuda().to(torch.int64).contiguous() for t in self.recv_memcpy_metadata),
+            self.my_rank_send_offset,
+            self.my_rank_recv_offset,
+            self.my_rank_send_sz,
+            tuple(t.normalize() for t in self.seq_lens),
+            self.tensor_shape,
         )
 
 
@@ -428,33 +447,20 @@ def compute_backward_attn_out_a2a_layout_metadata(
         bwd_fa2a_metadata, bwd_send_memcpy_metadata, bwd_recv_memcpy_metadata
         **my_rank_vals, seq_lens=seq_lens, tensor_shape=tensor_shape,
     )
+    
 
-
-def compute_e2e_fa2a_metadata(
-    mlp_seq_len: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
-    mlp_num_seqs: torch.Tensor,
-    mlp_q_dispatch: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
-    kv_to_q_mapping: torch.Tensor,
-    kv_to_q_rank: torch.Tensor,
-    kv_context_size: torch.Tensor,
-    q_to_num_kv_seq: torch.Tensor,
-    q_to_num_kv_token: torch.Tensor,
+def compute_fa2a_metadata_from_logical_metadata(
+    fwd_metadata_q: Metadata,
+    rev_metadata_q: Metadata,
+    fwd_metadata_kv: Metadata,
+    rev_metadata_kv: Metadata,
+    fa_params,
+    intermediates,
+    mlp_seq_len: torch.Tensor,
     hidden_size_q: int,
     hidden_size_k: int,
     element_size: int,  # dtype's size
 ):
-    (
-        fwd_metadata_q, rev_metadata_q, fwd_metadata_kv, rev_metadata_kv, fa_params, intermediates
-    ) = compute_e2e_metadata(
-        mlp_seq_len, mlp_num_seqs,
-        mlp_q_dispatch,
-        kv_to_q_mapping,
-        kv_to_q_rank,
-        kv_context_size,
-        q_to_num_kv_seq,
-        q_to_num_kv_token,
-        return_intermediate=True
-    )
     (
         tokens_to_dst_per_dispatch_q, q_seq_to_dst,
         num_received_seqs_q, kv_dst_global_seq_id
@@ -512,6 +518,40 @@ def compute_e2e_fa2a_metadata(
         qkv_rev_fa2a_metadata,
         attn_out_fwd_fa2a_metadata,
         attn_out_rev_fa2a_metadata,
+    )
+    return fa2a_metadata
+
+
+def compute_e2e_fa2a_metadata(
+    mlp_seq_len: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
+    mlp_num_seqs: torch.Tensor,
+    mlp_q_dispatch: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
+    kv_to_q_mapping: torch.Tensor,
+    kv_to_q_rank: torch.Tensor,
+    kv_context_size: torch.Tensor,
+    q_to_num_kv_seq: torch.Tensor,
+    q_to_num_kv_token: torch.Tensor,
+    hidden_size_q: int,
+    hidden_size_k: int,
+    element_size: int,  # dtype's size
+):
+    (
+        fwd_metadata_q, rev_metadata_q, fwd_metadata_kv, rev_metadata_kv, fa_params, intermediates
+    ) = compute_e2e_metadata(
+        mlp_seq_len, mlp_num_seqs,
+        mlp_q_dispatch,
+        kv_to_q_mapping,
+        kv_to_q_rank,
+        kv_context_size,
+        q_to_num_kv_seq,
+        q_to_num_kv_token,
+        return_intermediate=True
+    )
+    fa2a_metadata = compute_fa2a_metadata_from_logical_metadata(
+        fwd_metadata_q, rev_metadata_q, fwd_metadata_kv, rev_metadata_kv,
+        fa_params, intermediates,
+        mlp_seq_len, hidden_size_q, hidden_size_k,
+        element_size
     )
     return (
         fwd_metadata_q, rev_metadata_q, fwd_metadata_kv, rev_metadata_kv, fa_params, fa2a_metadata

@@ -186,7 +186,7 @@ void launch_memcpy_non_cp(
 }
 
 
-void launch_memcpy_cp_send(
+void launch_memcpy_cp(
   uint8_t *tensor,
   uint8_t *nvshmem_buffer,
   const int8_t *do_shard,

@@ -290,7 +290,7 @@ void _fast_a2a_memcpy_cp_core(
 
   at::cuda::OptionalCUDAGuard const device_guard(device_of(tensor));
   cudaStream_t stream = c10::cuda::getCurrentCUDAStream().stream();
-  launch_memcpy_cp_send(
+  launch_memcpy_cp(
     tensor_ptr, buffer_ptr,
     do_shard.const_data_ptr<int8_t>(),
     seq_nvshmem_offset.const_data_ptr<int64_t>(),
