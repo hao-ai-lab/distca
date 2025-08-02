@@ -226,7 +226,11 @@ def dispatch_kv_backward(
 
 #### Fast dispatch
 class FastDispatcherWrapper:
-    instance: Optional["FastDispatcherWrapper"] = None
+    instance: Tuple[
+        "FastDispatcherWrapper", "FastDispatcherWrapper"
+    ] = None
+    cur_instance: int = 0
+
     def __init__(self, rank, local_rank, world_size, buffer_size):
         self.rank = rank
         self.local_rank = local_rank
@@ -239,7 +243,7 @@ class FastDispatcherWrapper:
     def __del__(self):
         _ops.destroy_fast_a2a_dispatch_helper(self.handle)
 
-    def update_buffer_size(self, buffer_size):
+    def _update_buffer_size(self, buffer_size):
         if self.buffer_size < buffer_size:
             _ops.fast_a2a_update_buffer_size(self.handle, buffer_size)
             self.buffer_size = buffer_size
@@ -252,14 +256,25 @@ class FastDispatcherWrapper:
         # NOTE: local_rank here is currently disabled, because we don't
         # consider intra-rank communication here.
         nvshmem_init(uid, rank, world_size, local_rank)
-        FastDispatcherWrapper.instance = FastDispatcherWrapper(
+        FastDispatcherWrapper.instance = [FastDispatcherWrapper(
             rank, local_rank, world_size, buffer_size
-        )
+        ) for _ in range(2)]
 
     @staticmethod
     def get_instance():
         assert FastDispatcherWrapper.instance is not None, "DispatcherWrapper not initialized"
-        return FastDispatcherWrapper.instance
+        return FastDispatcherWrapper.instance[
+            FastDispatcherWrapper.cur_instance
+        ]
+
+    @staticmethod
+    def switch_buffer():
+        FastDispatcherWrapper.cur_instance = (FastDispatcherWrapper.cur_instance + 1) % 2
+
+    @staticmethod
+    def update_buffer_size(buffer_size: int):
+        for instance in FastDispatcherWrapper.instance:
+            instance._update_buffer_size(buffer_size)
 
 
 def fast_a2a_memcpy_non_cp(

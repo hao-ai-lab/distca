@@ -211,12 +211,8 @@ def create_answer(
     return tensor_q, tensor_kv, output_tensor_q, output_tensor_kv, back_tensor_q, back_tensor_kv
 
 
-@torch.no_grad()
-def test_qkv(
-    seed, world_size, total_seq_len, num_seqs, max_cp_degree,
-    worker: Worker, hidden_size_q: int, hidden_size_k: int,
-):
-    torch.manual_seed(seed)
+def create_test_case(world_size: int, total_seq_len: int, num_seqs: int,
+                     max_cp_degree: int, hidden_size_q: int, hidden_size_k: int):
     (fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
      _, intermediates
      ) = create_qkv_dispatch(
@@ -241,8 +237,34 @@ def test_qkv(
         intermediates, mlp_seq_len, hidden_size_q, hidden_size_k,
         element_size
     )
-    fa2a_metadata_fwd, fa2a_metadata_rev, _, _ = fa2a_metadata
+    (fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev,
+     fa2a_metadata_attn_out_fwd, fa2a_metadata_attn_out_rev) = fa2a_metadata
     print("metadata compute done.")
+    return (
+        tensor_q, tensor_kv, output_tensor_q, output_tensor_kv,
+        back_tensor_q, back_tensor_kv,
+        fwd_q_metadata, fwd_k_metadata,
+        fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev,
+        fa2a_metadata_attn_out_fwd, fa2a_metadata_attn_out_rev
+    )
+
+
+@torch.no_grad()
+def test_qkv(
+    seed, world_size, total_seq_len, num_seqs, max_cp_degree,
+    worker: Worker, hidden_size_q: int, hidden_size_k: int,
+):
+    torch.manual_seed(seed)
+    (
+        tensor_q, tensor_kv, output_tensor_q, output_tensor_kv,
+        back_tensor_q, back_tensor_kv,
+        fwd_q_metadata, fwd_k_metadata,
+        fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev,
+        fa2a_metadata_attn_out_fwd, fa2a_metadata_attn_out_rev
+    ) = create_test_case(
+        world_size, total_seq_len, num_seqs, max_cp_degree,
+        hidden_size_q, hidden_size_k
+    )
 
     rank = worker.rank
     q_slice = tensor_q[rank]
@@ -254,8 +276,8 @@ def test_qkv(
     dispatch_mask = (
         fwd_k_metadata.get_slice(rank).dst_rank >= 0
     ).to(torch.int8)
-    fa2a_metadata_fwd_slice = fa2a_metadata_fwd.get_slice(rank)
-    fa2a_metadata_rev_slice = fa2a_metadata_rev.get_slice(rank)
+    fa2a_metadata_fwd_slice = fa2a_metadata_qkv_fwd.get_slice(rank)
+    fa2a_metadata_rev_slice = fa2a_metadata_qkv_rev.get_slice(rank)
 
     # run this communication
     out_dict = worker.run_qkv(

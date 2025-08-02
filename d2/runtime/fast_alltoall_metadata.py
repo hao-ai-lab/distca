@@ -114,6 +114,10 @@ class FastAlltoAllMetadata:
     # This is to construct the recv buffer size.
     # NOTE: for Q/KV backward, this is just a placeholder and we don't use it.
     tensor_shape: Sequence[LogicalShape]
+    stream: torch.cuda.Stream = None
+    # Debug setting
+    single_stream: bool = False
+
     def get_slice(self, rank):
         """
         Returns the metadata for the given rank.
@@ -133,7 +137,9 @@ class FastAlltoAllMetadata:
             self.my_rank_recv_offset[rank],
             self.my_rank_send_sz[rank],
             seq_lens,
-            tensor_shape
+            tensor_shape,
+            stream=self.stream,
+            single_stream=self.single_stream,
         )
 
     def normalize(self):
@@ -147,6 +153,8 @@ class FastAlltoAllMetadata:
             self.my_rank_send_sz,
             tuple(t.normalize() for t in self.seq_lens),
             self.tensor_shape,
+            stream=self.stream,
+            single_stream=self.single_stream,
         )
 
 

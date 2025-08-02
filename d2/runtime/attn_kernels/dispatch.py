@@ -17,6 +17,7 @@ def fast_a2a_qkv(
     sender_recv_disp: Tensor, recver_transfer_sz: Tensor,
     my_rank_send_offset: int, my_rank_recv_offset: int, my_rank_send_sz: int,
     is_fwd: bool,
+    switch_buffer: bool = False,
 ):
     # copy in advance
     to_nvshmem = True
@@ -62,6 +63,8 @@ def fast_a2a_qkv(
         fast_a2a_memcpy_cp(
             recv_v, kv_dispatch_mask, v_recv_buffer_offset, k_recv_seq_tokens, to_nvshmem
         )
+    if switch_buffer:
+        FastDispatcherWrapper.switch_buffer()
     return recv_q, recv_k, recv_v
 
 
@@ -72,6 +75,7 @@ def fast_a2a_attn_out(
     sender_send_disp: torch.Tensor, sender_transfer_sz: torch.Tensor,
     sender_recv_disp: torch.Tensor, recver_transfer_sz: torch.Tensor,
     my_rank_send_offset: int, my_rank_recv_offset: int, my_rank_send_sz: int,
+    switch_buffer: bool = False,
 ):
     # copy in advance
     to_nvshmem = True
@@ -89,4 +93,6 @@ def fast_a2a_attn_out(
     fast_a2a_memcpy_non_cp(
         recv_q, q_recv_buffer_offset, q_recv_seq_tokens, to_nvshmem
     )
+    if switch_buffer:
+        FastDispatcherWrapper.switch_buffer()
     return recv_q
