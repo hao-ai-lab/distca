@@ -92,14 +92,19 @@ class MegatronBaseWorker(BaseWorker):
         )
 
 
-def init_worker_torch_distributed(world_size, buffer_size, worker_cls=BaseWorker):
+def init_worker_torch_distributed(
+    world_size, buffer_size, worker_cls=BaseWorker, parallel_config=None
+):
     assert world_size == int(os.environ.get("WORLD_SIZE"))
     rank = int(os.environ.get("RANK"))
     local_rank = int(os.environ.get("LOCAL_RANK"))
     worker = worker_cls(
         rank, world_size
     )
-    worker.init_comm(buffer_size, local_rank)
+    if parallel_config is not None:
+        worker.init_comm(buffer_size, parallel_config, local_rank)
+    else:
+        worker.init_comm(buffer_size, local_rank)
     return worker
 
 
@@ -182,7 +187,7 @@ def gen_seq_lens(world_size: int, num_seqs: int, total_len: int) -> torch.Tensor
 
 def create_qkv_dispatch(
     world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
-    return_intermediate: bool=False
+    return_intermediate: bool=False, return_mlp_no_shard_seq_lens: bool=False
 ):
     """NOTE: this is currently a dispatch tensor of not consider the 2CP optimization."""
     # init sequence
@@ -287,19 +292,20 @@ def create_qkv_dispatch(
         return_intermediate=True
     )
     attention_metadata = compute_attn_layout_seqlens(
-        cp_seq_lens, q_to_num_kv_tokens, cp_query_dst
+        cp_seq_lens, q_to_num_kv_tokens, cp_query_dst, shard_to_tuple=True
+    )
+    ret = (
+        fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata, attention_metadata
     )
     if return_intermediate:
         intermediates = q_intermediates + kv_intermediates
-        return (
-            fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
-            attention_metadata, intermediates
-        )
-    return (
-        fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata, attention_metadata
-    )
+        ret += (intermediates,)
+    if return_mlp_no_shard_seq_lens:
+        ret += (seq_lens,)
+    return ret
 
 
+# FIXME: remove this function.
 def create_fast_a2a_metadata_from_qkv_dispatch(
     fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata, intermediates, element_size: int, hidden_size_q: int, hidden_size_k: int, mlp_total_token: int,
     create_attn_outs: bool=False

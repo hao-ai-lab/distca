@@ -18,9 +18,8 @@ from d2.runtime.megatron_patch.model_patch import get_gpt_layer_with_transformer
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron_patch.transformer_layer import TransformerLayer as PingPangTransformerLayer
 
-from test_comm_metadata import orchestrate_simulate
 from deprecated.test_dispatch_qkv import create_testcase_qkv
-from test_util import MegatronBaseWorker, ParallelConfig
+from test_util import MegatronBaseWorker, ParallelConfig, simulate_communication
 
 
 def create_pg(num_nodes: int, num_gpus_per_node: int, worker_cls, nsys_profile:bool = False):
@@ -127,34 +126,6 @@ def get_seqlen_shard(cu_seqlens_q: torch.Tensor, cu_seqlens_kv: torch.Tensor,
         cu_seqlens_q = prepend_zero_fn(cu_seqlens_q)
         cu_seqlens_kv = prepend_zero_fn(cu_seqlens_kv)
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_seq
-
-
-def simulate_communication(tensors: list[torch.Tensor], metadata: Metadata):
-    world_size = len(tensors)
-    assert world_size == metadata.world_size
-    output_seq_len = metadata.num_recv_tokens.max()
-    input_pad_len = max(tensor.shape[0] for tensor in tensors)
-    pad_tensors = [
-        torch.cat([
-            tensor,
-            torch.zeros(
-                (input_pad_len - tensor.shape[0], *tensor.shape[1:]),
-                dtype=tensor.dtype, device=tensor.device
-            )
-        ], dim=0).unsqueeze(0) for tensor in tensors
-    ]
-    input_tensor = torch.cat(pad_tensors, dim=0)
-    output_tensor = torch.zeros((world_size, output_seq_len, *input_tensor.shape[2:]), dtype=input_tensor.dtype, device=input_tensor.device)
-    output_tensor = orchestrate_simulate(
-        input_tensor.reshape(world_size, input_pad_len, -1),
-        output_tensor.reshape(world_size, output_seq_len, -1),
-        metadata
-    ).reshape(world_size, output_seq_len, *input_tensor.shape[2:])
-    output_tensors = torch.split(output_tensor, 1, dim=0)
-    output_tensors_split = [
-        t[0, :metadata.num_recv_tokens[rank].max()] for rank, t in enumerate(output_tensors)
-    ]
-    return output_tensors_split
 
 
 @torch.no_grad()
