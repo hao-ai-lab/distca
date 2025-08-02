@@ -23,7 +23,7 @@ def dispatch_reverse(
 
     # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
     # TODO: check if there is a better way to do this.
-    nvshmem_barrier_all_on_current_stream()
+    # nvshmem_barrier_all_on_current_stream()
     dispatch_no_cp_tensor(
         dispatcher, q_output_grad, q_input_grad, query_metadata,
     )
@@ -33,7 +33,7 @@ def dispatch_reverse(
     if kv_input_grad is not None:
         # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
         # TODO: check if there is a better way to do this.
-        nvshmem_barrier_all_on_current_stream()
+        # nvshmem_barrier_all_on_current_stream()
         dispatch_kv_backward(dispatcher, kv_output_grad, kv_input_grad, key_value_metadata)
 
 
@@ -126,7 +126,7 @@ class n_to_n_dispatch(torch.autograd.Function):
 
                 # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
                 # TODO: check if there is a better way to do this.
-                nvshmem_barrier_all_on_current_stream()
+                # nvshmem_barrier_all_on_current_stream()
 
                 dispatch_qkv(
                     dispatcher=DispatcherWrapper.get_instance(),
@@ -143,7 +143,7 @@ class n_to_n_dispatch(torch.autograd.Function):
 
                 # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
                 # TODO: check if there is a better way to do this.
-                nvshmem_barrier_all_on_current_stream()
+                # nvshmem_barrier_all_on_current_stream()
                 dispatch_no_cp_tensor(
                     dispatcher=DispatcherWrapper.get_instance(),
                     tensor=query_in,
@@ -264,7 +264,7 @@ class n_to_n_dispatch(torch.autograd.Function):
                 key_value_in_grad = None
                 # NOTE: a barrier on stream operation to ensure all previous operations are done, and buffers are reset.
                 # TODO: check if there is a better way to do this.
-                nvshmem_barrier_all_on_current_stream()
+                # nvshmem_barrier_all_on_current_stream()
 
                 dispatch_no_cp_tensor(
                     dispatcher=DispatcherWrapper.get_instance(),

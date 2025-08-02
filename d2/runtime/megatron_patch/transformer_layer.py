@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+import functools
 from typing import Any, Dict, List, Optional, Union
 import types
 
@@ -6,7 +7,7 @@ import torch
 import torch.distributed
 from torch import Tensor
 
-from megatron.core import tensor_parallel
+from megatron.core import tensor_parallel, parallel_state
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.common.embeddings.rope_utils import (
     apply_rotary_pos_emb,
@@ -547,6 +548,11 @@ class TransformerLayer(MegatronTransformerLayer):
         *,
         inference_params: Optional[Any] = None,
     ):
+        if hidden_states.numel() == 0:
+            print(f'dummy input {parallel_state.get_pipeline_model_parallel_rank()}, {self.current_microbatch=}')
+            return hidden_states, context
+        else:
+            print(f'{parallel_state.get_pipeline_model_parallel_rank()}, {hidden_states.shape=}, {self.current_microbatch=}')
         """Debug use. normal forward with output hooked."""
         assert inference_params is None, "inference not supported yet"
         assert inference_context is None, "inference not supported yet"
@@ -582,7 +588,7 @@ class TransformerLayer(MegatronTransformerLayer):
             context_mask,
         )
 
-        return mlp_output, context, debug_tensors
+        return mlp_output, context #, debug_tensors
 
     def forward_one_stage(
         self,
@@ -600,6 +606,7 @@ class TransformerLayer(MegatronTransformerLayer):
         *,
         inference_params: Optional[Any] = None,
     ):
+        # print(f'{parallel_state.get_pipeline_model_parallel_rank()=}, {self.layer_number=}, {hidden_states.shape=}, {self.current_microbatch=}')
         """Debug use. Single stage of Ping-Pang parallel."""
         assert inference_params is None, "inference not supported yet"
         assert inference_context is None, "inference not supported yet"
@@ -609,7 +616,9 @@ class TransformerLayer(MegatronTransformerLayer):
         setattr(packed_seq_params, "stream", torch.cuda.current_stream())
 
         # FIXME: support RoPE
-        assert rotary_pos_emb is None, "RoPE needs the MLP layout packed seq params."
+        # TODO: double check: this seems supported unless inference_context is not None.
+        # assert rotary_pos_emb is None, "RoPE needs the MLP layout packed seq params."
+        rotary_pos_emb = None
         query, key, value, residual, attn_mask_type = self._forward_pre_core_attn(
             hidden_states,
             rotary_pos_emb,
@@ -618,10 +627,10 @@ class TransformerLayer(MegatronTransformerLayer):
             packed_seq_params,
             sequence_len_offset,
         )
-        debug_tensors = [(query, key, value),]
+        # debug_tensors = [(query, key, value),]
 
         query, key, value = self._layout_mlp_to_attn(query, key, value, packed_seq_params)
-        debug_tensors.append((query, key, value))
+        # debug_tensors.append((query, key, value))
 
         core_attn_out = self._forward_core_attn(
             query,
@@ -632,10 +641,10 @@ class TransformerLayer(MegatronTransformerLayer):
             attn_mask_type,
             packed_seq_params,
         )
-        debug_tensors.append(core_attn_out)
+        # debug_tensors.append(core_attn_out)
 
         core_attn_out = self._layout_attn_to_mlp(core_attn_out, packed_seq_params)
-        debug_tensors.append(core_attn_out)
+        # debug_tensors.append(core_attn_out)
 
         mlp_output, context = self._forward_post_core_attn(
             core_attn_out,
@@ -643,8 +652,11 @@ class TransformerLayer(MegatronTransformerLayer):
             context,
             context_mask,
         )
+        # breakpoint()
 
-        return mlp_output, context, debug_tensors
+        return mlp_output, context
+    
+    forward = forward_one_stage
 
 
 def add_ping_pang_forward(block: MegatronTransformerBlock):
@@ -927,8 +939,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
             arg_group_1[key] = out_tensor
 
     def forward(self, *args, **kwargs):
-        if self._ping_pang_debug:
-            return self._normal_forward(*args, **kwargs)
+        return self._normal_forward(*args, **kwargs)
         return self.ping_pang_forward(*args, **kwargs)
 
     block.forward_layers = types.MethodType(forward_layers, block)
@@ -944,6 +955,47 @@ class PingPangGPTModel(GPTModel):
         print("PingPangGPTModel init")
         super().__init__(*args, **kwargs)
         add_ping_pang_forward(self.decoder)
+        self.set_debug(True)
 
     def set_debug(self, debug: bool):
         self.decoder._ping_pang_debug = debug
+    
+    # very ugly hardcode here:
+    # If the forward is a dummy forward, then:
+    # 1. ensure to skip calculating the loss
+    # 2. ensure to have a dummy hidden_states with correct shape
+    #    - this prevents error in decoder.final_layernorm
+    #    - this make layer.forward easier
+    @functools.wraps(GPTModel.forward)
+    def forward(self, input_ids, *args, **kwargs):
+        # print(f'{len(self.decoder.layers)=}')
+        if getattr(self.decoder.layers[0], "current_microbatch", 0) < 0:
+            if not self.pre_process:
+                if self.decoder.final_layernorm is not None:
+                    if hasattr(self.decoder.final_layernorm, 'weight'):
+                        dtype = self.decoder.final_layernorm.weight.dtype
+                    else:
+                        dtype = torch.bfloat16
+                else:
+                    dtype = torch.bfloat16
+                sl = input_ids.shape[-1]
+                hs = self.config.hidden_size
+                kwargs['decoder_input'] = torch.zeros((sl, 1, hs), dtype=dtype, device='cuda')
+            if self.post_process:
+                post_process_flag = True
+                self.post_process = False
+            else:
+                post_process_flag = False
+            if not self.decoder.pre_process:
+                decoder_pre_process_flag = True
+                self.decoder.pre_process = True
+            else:
+                decoder_pre_process_flag = False
+        else:
+            post_process_flag = decoder_pre_process_flag = False
+        output = super().forward(input_ids, *args, **kwargs)
+        if post_process_flag:
+            self.post_process = True
+        if decoder_pre_process_flag:
+            self.decoder.pre_process = False
+        return output
