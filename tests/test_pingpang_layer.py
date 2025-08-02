@@ -6,7 +6,7 @@ import ray
 from d2.runtime.inplace_metadata import compute_attn_layout_seqlens
 from d2.runtime.megatron_patch.packed_seq_params import PackedSeqParams, PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 
-from test_dispatch_qkv import create_testcase_qkv
+from deprecated.test_dispatch_qkv import create_testcase_qkv
 from test_megatron_layer import init_test, MegatronLayerWorker, get_seqlen_shard
 
 

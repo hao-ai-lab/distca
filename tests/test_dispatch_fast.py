@@ -81,7 +81,7 @@ class Worker:
         dst_tensor_v = dst_tensor_k.clone()
         fast_a2a_qkv(
             tensor_q, tensor_k, tensor_v,
-            dispatch_mask,
+            fa2a_metadata_fwd.kv_replica_mask,
             dst_tensor_q, dst_tensor_k, dst_tensor_v,
             fa2a_metadata_fwd.seq_lens[0].send_seqlens,
             fa2a_metadata_fwd.seq_lens[1].send_seqlens,
@@ -115,7 +115,7 @@ class Worker:
 
         fast_a2a_qkv(
             dst_tensor_q, dst_tensor_k, dst_tensor_v,
-            dispatch_mask,
+            fa2a_metadata_rev.kv_replica_mask,
             back_tensor_q, back_tensor_k, back_tensor_v,
             fa2a_metadata_rev.seq_lens[0].send_seqlens,
             fa2a_metadata_rev.seq_lens[1].send_seqlens,

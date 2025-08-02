@@ -241,6 +241,13 @@ def simulate_qkv_a2a(
         kv_src_seqlen = get_seq_len_slice(fwd_kv_metadata, rank)
         torch.testing.assert_close(q_src_seqlen, metadata_slice.seq_lens[0].send_seqlens)
         torch.testing.assert_close(kv_src_seqlen, metadata_slice.seq_lens[1].send_seqlens)
+        # NOTE: fwd and rev in the arg is not the actual fwd/rev, but instead
+        # relative to this communication.
+        num_seqs_send = fwd_kv_metadata.num_seqs[rank] if is_fwd else rev_kv_metadata.num_seqs[rank]
+        torch.testing.assert_close(metadata_slice.kv_replica_mask,
+                                   (kv_comm_mask[rank][:num_seqs_send]).to(
+                                        metadata_slice.kv_replica_mask.dtype
+                                    ))
 
         args = (
             q[rank], k[rank], v[rank], src_buffer[rank],
@@ -295,6 +302,13 @@ def simulate_qkv_a2a(
         assert expected_shape_k == metadata_slice.tensor_shape[1].recv_shape, f"{rank} {expected_shape_k} != {metadata_slice.tensor_shape[1].recv_shape}"
         torch.testing.assert_close(rev_seqlen_q, metadata_slice.seq_lens[0].recv_seqlens)
         torch.testing.assert_close(rev_seqlen_kv, metadata_slice.seq_lens[1].recv_seqlens)
+        # NOTE: fwd and rev in the arg is not the actual fwd/rev, but instead
+        # relative to this communication.
+        num_seqs_send = fwd_kv_metadata.num_seqs[rank] if is_fwd else rev_kv_metadata.num_seqs[rank]
+        torch.testing.assert_close(metadata_slice.kv_replica_mask,
+                                   kv_comm_mask[rank][:num_seqs_send].to(
+                                       metadata_slice.kv_replica_mask.dtype
+                                   ))
 
         args = (
             dst_q[rank], dst_k[rank], dst_v[rank],
@@ -387,6 +401,11 @@ def test(args):
         LogicalShape.get_shape(fwd_q_metadata, hidden_size_q, total_seq_len),
         LogicalShape.get_shape(fwd_k_metadata, hidden_size_k, total_seq_len),
     ]
+    kv_replica_mask = fwd_k_metadata.dst_rank >= 0
+    kv_replica_mask = tuple(
+        kv_replica_mask[i][:num_seq].to(torch.int8)
+        for i, num_seq in enumerate(num_seqs_fwd)
+    )
 
     qkv_fwd_fa2a_metadata = compute_forward_qkv_a2a_layout_meatadata(
         q_tokens_to_dst_per_dispatch.squeeze(2), q_seq_to_dst,
@@ -394,7 +413,8 @@ def test(args):
         num_recv_seqs_q, num_recv_seqs_kv, num_seqs_fwd,
         fwd_k_metadata.dst_rank, fwd_k_metadata.seq_len,
         kv_dst_global_seq_id, num_send_tokens_kv,
-        bytes_q, bytes_k, seq_lens, tensor_shape
+        bytes_q, bytes_k,
+        seq_lens, tensor_shape, kv_replica_mask,
     )
 
     qkv_rev_fa2a_metadata = compute_reverse_a2a_layout_metadata(

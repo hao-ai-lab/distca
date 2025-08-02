@@ -19,7 +19,7 @@ from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams,
 from d2.runtime.megatron_patch.transformer_layer import TransformerLayer as PingPangTransformerLayer
 
 from test_comm_metadata import orchestrate_simulate
-from test_dispatch_qkv import create_testcase_qkv
+from deprecated.test_dispatch_qkv import create_testcase_qkv
 from test_util import MegatronBaseWorker, ParallelConfig
 
 

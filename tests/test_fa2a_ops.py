@@ -70,6 +70,11 @@ def test(args):
         LogicalShape.get_shape(fwd_q_metadata, hidden_size_q, total_seq_len),
         LogicalShape.get_shape(fwd_k_metadata, hidden_size_k, total_seq_len),
     ]
+    kv_replica_mask = fwd_k_metadata.dst_rank >= 0
+    kv_replica_mask = tuple(
+        kv_replica_mask[i][:num_seq].to(torch.int8)
+        for i, num_seq in enumerate(num_seqs_fwd)
+    )
 
     qkv_fwd_fa2a_metadata = compute_forward_qkv_a2a_layout_meatadata(
         q_tokens_to_dst_per_dispatch.squeeze(2), q_seq_to_dst,
@@ -77,7 +82,8 @@ def test(args):
         num_recv_seqs_q, num_recv_seqs_kv, num_seqs_fwd,
         fwd_k_metadata.dst_rank, fwd_k_metadata.seq_len,
         kv_dst_global_seq_id, num_send_tokens_kv,
-        bytes_q, bytes_k, seq_lens, tensor_shape
+        bytes_q, bytes_k,
+        seq_lens, tensor_shape, kv_replica_mask
     )
 
     qkv_rev_fa2a_metadata = compute_reverse_a2a_layout_metadata(

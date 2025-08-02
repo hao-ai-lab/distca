@@ -21,7 +21,7 @@ from d2.runtime.inplace_metadata import compute_attn_layout_seqlens
 from d2.runtime.megatron_patch.model_patch import get_gpt_layer_with_transformer_engine_spec, get_gpt_config
 from d2.runtime.megatron_patch.packed_seq_params import PackedSeqParams, PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 
-from test_dispatch_qkv import create_testcase_qkv
+from deprecated.test_dispatch_qkv import create_testcase_qkv
 from test_util import ParallelConfig
 from test_megatron_layer import MegatronLayerWorker, get_seqlen_shard
 
