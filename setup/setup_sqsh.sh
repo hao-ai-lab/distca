@@ -4,6 +4,7 @@ awk '/^transformer_engine/ {print "#" $0; next} 1' /etc/pip/constraint.txt > tem
 pip uninstall transformer_engine
 cd TransformerEngine
 NVTE_FRAMEWORK=pytorch MAX_JOBS=64 NVTE_BUILD_THREADS_PER_JOB=64 pip install --no-build-isolation -v -v -v '.[pytorch]'
+cd ..
 
 cd Megatron-LM
 pip install -e .
