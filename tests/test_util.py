@@ -387,3 +387,203 @@ def simulate_communication(tensors: list[torch.Tensor], metadata: Metadata):
         t[0, :metadata.num_recv_tokens[rank].max()] for rank, t in enumerate(output_tensors)
     ]
     return output_tensors_split
+
+# This function can be merged with gen_seq_lens later. Seperate for now to avoid DP test.
+# Output:[cp_group][cp_degree * seq]. Sequence should be equally divided in CP group.
+def gen_cp_seq_lens(world_size: int, num_seqs: int, total_len: int, cp_degree: int=1) -> torch.Tensor:
+    if world_size % cp_degree != 0:
+        raise ValueError("cp_degree must divide world_size")
+    num_cp_group = world_size // cp_degree
+    # For one sequence, each cp group has similar length of the sequence. For cp_degree=1, this also works.
+    ratio = torch.rand((num_cp_group, num_seqs)) + 0.25 / num_seqs   # Use a min value to guarantee that the sequence is not too short (0 after rounding)
+    ratio = ratio / ratio.sum(dim=1, keepdim=True)
+    seq_lens = (ratio * total_len).round().int()
+    seq_len_total = seq_lens.sum(dim=1)
+    seq_len_total_error = seq_len_total - total_len
+    seq_lens[:, -1] -= seq_len_total_error
+    seq_lens = seq_lens.repeat_interleave(cp_degree, dim=0)  # [num_cp_group * cp_degree, num_seqs]
+
+    # seq_lens = seq_lens.view(num_cp_group * cp_degree, num_seqs)   # [num_cp_group, cp_degree, num_seqs]
+    return seq_lens
+
+
+
+# TODO(Pb): Solved
+# Do we need max_cp_degree for CP dispatch? Solved. For this test, we use max_cp_degree = cp_degree.
+# We will create another test when extreme long sequences dispatch across max_cp_degree.
+def create_cp_qkv_dispatch(
+    world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int, cp_degree: int, shards_per_cp: int=2,
+    return_intermediate: bool=False
+):
+    # init sequence. On default, each cp core own 2 shards. ([0]th and [2*CP-1]th). Can we hardcode shards_per_cp = 2! Yes.
+    assert total_seq_len % (max_cp_degree * shards_per_cp) == 0
+    assert max_cp_degree == cp_degree
+    assert shards_per_cp == 2   # Only support head-tail CP.
+
+    _num_tokens_shard = total_seq_len // (max_cp_degree * shards_per_cp)
+    num_cp_group = world_size // cp_degree
+    seq_lens = gen_cp_seq_lens(world_size, num_seqs, _num_tokens_shard, cp_degree).long()   #[cp_group_size, cp_degree, num_seqs]
+    seq_lens *= max_cp_degree * shards_per_cp
+
+    # CP degree. All Sequences should own the same CP_Degree.(Different from DP, where we random the CP degree for each sequence.)
+    # Currently, each sequence use cp = cp_degree.
+    # TODO(Pb): Confirm each sequence use [cp = cp_degree] or [cp = max_cp_degree].
+    # Tradeoff:
+    #   cp = cp_degree. Less communication(Q stay still). But unbalanced flops cross cp_group.
+    #   cp = cp_max. Balanced flops. But more communication.(Dispatch Q.)
+    
+    
+    # log_cp_num = torch.randint(0, int(math.log2(max_cp_degree)) + 1, (world_size, num_seqs))
+    # cp_num = torch.pow(2, log_cp_num)
+
+    seq_cp_degree = torch.ones((num_cp_group, cp_degree, num_seqs)) * cp_degree   # TODO(pb): Maybe we don't need this. Delete later.
+    cp_num = seq_cp_degree.reshape(num_cp_group * cp_degree, num_seqs)
+    # init cp send destination. Shards all computed on current cp_core.
+    rank_ids = torch.arange(num_cp_group * cp_degree).reshape(num_cp_group, cp_degree)
+    breakpoint()
+    cp_dst = rank_ids.unsqueeze(-1).unsqueeze(-1).expand(num_cp_group, cp_degree, num_seqs, shards_per_cp)  # which rank, this shard go to.
+    cp_dst = cp_dst.view(num_cp_group * cp_degree, num_seqs, shards_per_cp)
+    
+    # cp_dst_helper = torch.rand((world_size, num_seqs, world_size)).argsort(dim=2)
+    # cp_dst = cp_dst_helper[:, :, :max_cp_degree]
+    # mask = torch.arange(max_cp_degree).expand(world_size, num_seqs, max_cp_degree)
+    # cp_num_expanded = cp_num.unsqueeze(-1)
+    # mask = mask >= cp_num_expanded
+    # cp_dst[mask] = -1
+
+
+    num_cp_shards = cp_num.sum(dim=1)
+
+
+
+    # q_global_dispatch tensor:
+    num_cp_shards = cp_num.sum(dim=1)       # cp_shards number for each rank. Should be: num_seq * cp_degree * shards_per_cp
+    breakpoint()
+    pad_len = int(torch.max(num_cp_shards))      # We don' t need this for cp. Because all rank has the same number of shards.
+
+    cp_seq_lens = torch.zeros(world_size, pad_len, dtype=torch.int64)       # Sequence length for each shards.
+    cp_query_dst = torch.ones(world_size, pad_len, dtype=torch.int64) * -1  # destination for each shards.
+    # kv to q for each shards.
+    kv_to_q_mapping = torch.ones((world_size, pad_len * shards_per_cp, max_cp_degree * shards_per_cp, 2), dtype=torch.int64) * -1
+    kv_to_q_rank = torch.ones((world_size, pad_len * shards_per_cp, max_cp_degree * shards_per_cp ), dtype=torch.int64) * -1
+    kv_context_size = torch.zeros((world_size, pad_len), dtype=torch.int64)
+    q_to_num_kv_seq = torch.zeros((world_size, pad_len), dtype=torch.int64)
+
+    # cumulative number of cp shards before this one.
+    num_cul_cp_shards = exclusive_cumsum(cp_num, dim=1)
+
+    for i in range(num_cp_group):   # Dispatch happen inside CP group.
+        cp_seq_lens_local = []
+        cp_query_dst_local = []
+        kv_to_q_mapping_local = []
+        kv_to_q_rank_local = []
+        kv_context_size_local = []
+        q_to_num_kv_seq_local = []
+
+        for j in range(num_seqs):
+            
+            num_cp = int((cp_num[i, j]).item())         # cp degree for current sequence.
+
+            seq_len = sum(seq_lens[:cp_degree, j])       # sum sequence length for current sequence. 
+            seq_shard_len = seq_len // num_cp            # shard length for current sequence.
+
+            #### Compute cp_seq_lens.       
+            cp_seq_lens_local.append(seq_shard_len.reshape(1,).repeat(num_cp))      # shape: [num_cp]
+            cp_query_dst_local.append(cp_dst[i*cp_degree:(i+1)*cp_degree, j][shards_per_cp].flatten())    # [num_cp_group * cp_degree, num_seqs, shards_per_cp] = [ws, num_seqs, shards]
+            # cp_query_dst_local.append(cp_dst[i, j, :num_cp].flatten())  #  [ws, seq_len, shards]
+            breakpoint()
+            
+            #### Compute kv_to_q_mapping.
+            row_indices = torch.arange(num_cp * shards_per_cp).view(-1, 1)
+            col_indices = torch.arange(max_cp_degree * shards_per_cp).view(1, -1)   
+            mask = col_indices < (num_cp * shards_per_cp - row_indices)
+            kv_to_q_mapping_seq = torch.empty((num_cp * shards_per_cp, max_cp_degree * shards_per_cp, 2), dtype=torch.int64)
+            # All q shards are on this node (TODO: we are testing MLP-DP. For MLP-CP, this is different).
+            breakpoint()
+            even_indices = torch.arange(0, max_cp_degree * shards_per_cp, 2)        # [0,2,4,6] => [0,1,2,3]
+            odd_indices = torch.arange(1, max_cp_degree * shards_per_cp + 1, 2)     # [1,3,5,7] => [7,6,5,4]
+
+            kv_to_q_mapping_seq[even_indices, :, 0] = torch.where(mask[:num_cp][:], i, -1)  # [0,1,2,3]
+            kv_to_q_mapping_seq[odd_indices, :, 0] = torch.where(mask[num_cp:][:], i, -1).flip(0)   #[7,6,5,4]
+            #kv_to_q_mapping_seq[..., 0] = torch.where(mask, i, -1)
+
+            vals_ch1 = row_indices + col_indices + num_cul_cp_shards[i, j].int()    # convert float to int
+            
+            #kv_to_q_mapping_seq[..., 1] = torch.where(mask, vals_ch1, -1)
+            kv_to_q_mapping_seq[even_indices, :, 1] = torch.where(mask, vals_ch1, -1)[:num_cp]  # [0,1,2,3]
+            kv_to_q_mapping_seq[odd_indices, :, 1] = torch.where(mask, vals_ch1, -1)[num_cp:].flip(0)   #[7,6,5,4]
+            kv_to_q_mapping_local.append(kv_to_q_mapping_seq)
+            
+            #### Compute kv_to_q_rank (Index of this KV to the query's dst).
+            kv_to_q_rank_seq = torch.arange(num_cp * shards_per_cp).view(-1, 1).repeat(1, max_cp_degree * shards_per_cp) * mask + (mask.int() - 1)
+            kv_to_q_rank_seq[even_indices, :] = kv_to_q_rank_seq[:num_cp].clone()
+            kv_to_q_rank_seq[odd_indices, :] = kv_to_q_rank_seq[num_cp:].flip(0).clone()
+            kv_to_q_rank_local.append(kv_to_q_rank_seq)
+            #### Compute kv context size (For this kv, how many tokens are in the context).
+            kv_context_size_seq = torch.arange(num_cp * shards_per_cp) * seq_shard_len
+            kv_context_size_local.append(kv_context_size_seq)
+            #### Compute q_to_num_kv_seq (For this kv, how many shards are in the context).
+            q_to_num_kv_seq_seq = torch.arange(num_cp * shards_per_cp) + 1
+            q_to_num_kv_seq_local.append(q_to_num_kv_seq_seq)
+
+        cp_seq_lens_local = torch.cat(cp_seq_lens_local, dim=0)
+        cp_query_dst_local = torch.cat(cp_query_dst_local, dim=0)
+        kv_to_q_mapping_local = torch.cat(kv_to_q_mapping_local, dim=0)
+        kv_to_q_rank_local = torch.cat(kv_to_q_rank_local, dim=0)
+        kv_context_size_local = torch.cat(kv_context_size_local, dim=0)
+        q_to_num_kv_seq_local = torch.cat(q_to_num_kv_seq_local, dim=0)
+        # shape check:
+        seq_shards = cp_seq_lens_local.shape[0]
+        assert cp_seq_lens_local.shape == (seq_shards,)
+        assert cp_query_dst_local.shape == (seq_shards,)
+        assert kv_to_q_mapping_local.shape == (seq_shards, max_cp_degree, 2)
+        assert kv_to_q_rank_local.shape == (seq_shards, max_cp_degree)
+        assert kv_context_size_local.shape == (seq_shards,)
+        assert q_to_num_kv_seq_local.shape == (seq_shards,)
+
+        cp_seq_lens[i, :seq_shards] = cp_seq_lens_local
+        cp_query_dst[i, :seq_shards] = cp_query_dst_local
+        kv_to_q_mapping[i, :seq_shards] = kv_to_q_mapping_local
+        kv_to_q_rank[i, :seq_shards] = kv_to_q_rank_local
+        kv_context_size[i, :seq_shards] = kv_context_size_local
+        q_to_num_kv_seq[i, :seq_shards] = q_to_num_kv_seq_local
+
+    q_to_num_kv_tokens = kv_context_size + cp_seq_lens
+
+    fwd_q_metadata, rev_q_metadata, q_intermediates = compute_metadata(
+        cp_seq_lens, cp_query_dst, return_intermediate=True
+    )
+    _, q_seq_to_dst, _ = q_intermediates
+    fwd_k_metadata, rev_k_metadata, kv_intermediates = compute_metadata_kv(
+        kv_to_q_mapping, kv_to_q_rank, kv_context_size, q_to_num_kv_seq,
+        q_to_num_kv_tokens, cp_seq_lens, num_cp_shards, cp_query_dst,
+        q_seq_to_dst.squeeze(2), pad_len,
+        return_intermediate=True
+    )
+    attention_metadata = compute_attn_layout_seqlens(
+        cp_seq_lens, q_to_num_kv_tokens, cp_query_dst
+    )
+    if return_intermediate:
+        intermediates = q_intermediates + kv_intermediates
+        return (
+            fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
+            attention_metadata, intermediates
+        )
+    return (
+        fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata, attention_metadata
+    )
+
+
+def test_gen_cp_seq_lens():
+    # Example test for gen_cp_seq_lens
+    world_size = 8
+    num_seqs = 4
+    total_len = 64
+    cp_degree = 4
+    max_cp_degree = 4
+    # total token 64; shard length : 64/(2*4) = 8; cp_group has 4 cores, each core has 2 shards.
+    create_cp_qkv_dispatch(world_size, total_len, num_seqs, max_cp_degree, cp_degree)
+    #result = gen_seq_lens(world_size, num_seqs, total_len, cp_degree)
+    
+if __name__ == "__main__":
+    test_gen_cp_seq_lens()
