@@ -52,7 +52,7 @@ class PingPangPackedSeqParams:
     # at the MLP layout (i.e. the number of tokens).
     max_seqlen_q: Optional[torch.Tensor] = None
     max_seqlen_kv: Optional[torch.Tensor] = None
-    qkv_format: str = "qkv"
+    qkv_format: str = "thd"
 
     def to_device(self):
         # FIXME: this uses the local attention layout value, while it should

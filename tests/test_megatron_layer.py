@@ -188,36 +188,56 @@ def test_forward(
         print("pass final result")
 
 
-def test(args):
-    # only test multi-head-attention. For GQA, update get_gpt_config
-    token_bytes_q = args.hidden_size * torch.float16.itemsize
-    token_bytes_kv = args.hidden_size * torch.float16.itemsize
-    world_size = args.world_size
-    max_tokens_query = args.num_tokens * world_size
-    max_tokens_key_value = args.num_tokens * world_size
-    max_cp_degree = args.max_cp_degree
-
+def init_megatron_test(
+    world_size, hidden_size, num_heads, dtype,
+    max_tokens_query, max_tokens_key_value, max_cp_degree, tp_size, seed,
+    worker_cls=MegatronLayerWorker
+):
+    assert hidden_size // num_heads <= 256, "FA requires head_dim <= 256"
+    assert dtype == torch.float16
+    token_bytes_q = hidden_size * dtype.itemsize
+    token_bytes_kv = hidden_size * dtype.itemsize
     buffer_size = (
         token_bytes_q * max_tokens_query +
         token_bytes_kv * max_tokens_key_value * max_cp_degree * 2
     )
     parallel_config = ParallelConfig(
-        tensor_model_parallel_size=args.tp_size
+        tensor_model_parallel_size=tp_size
     )
-    worker: MegatronLayerWorker = init_worker_torch_distributed(
-        world_size, buffer_size, MegatronLayerWorker, parallel_config
+    worker = init_worker_torch_distributed(
+        world_size, buffer_size, worker_cls, parallel_config
     )
     spec = get_gpt_layer_with_transformer_engine_spec()
     config = get_gpt_config(
         num_layers=1,
-        hidden_size=args.hidden_size,
-        num_attention_heads=args.num_heads,
-        ffn_hidden_size=args.hidden_size * 4,
+        hidden_size=hidden_size,
+        num_attention_heads=num_heads,
+        ffn_hidden_size=hidden_size * 4,
         fp16=True,
         deterministic_mode=True,
-        params_dtype=torch.float16,
+        params_dtype=dtype,
     )
-    worker.init_layer(config, spec, seed=args.seed)
+    worker.init_layer(config, spec, seed=seed)
+    return worker
+
+
+def test(args):
+    # only test multi-head-attention. For GQA, update get_gpt_config
+    world_size = args.world_size
+    max_tokens_query = args.num_tokens * world_size
+    max_tokens_key_value = args.num_tokens * world_size
+    hidden_size = args.hidden_size
+    max_cp_degree = args.max_cp_degree
+    seed = args.seed
+    tp_size = args.tp_size
+    num_heads = args.num_heads
+    dtype = torch.float16
+
+    worker = init_megatron_test(
+        world_size, hidden_size, num_heads, dtype,
+        max_tokens_query, max_tokens_key_value, max_cp_degree, tp_size, seed,
+    )
+
     test_forward(
         args.seed, world_size, args.num_tokens, args.num_seqs,
         max_cp_degree, worker, args.hidden_size, args.hidden_size
