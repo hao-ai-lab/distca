@@ -340,11 +340,25 @@ def test(args):
     }
     # print(rank, microbatch["packed_seq_params"])
     microbatches = [microbatch]
-    ref = worker.forward_backward_batch(
-        microbatches=microbatches,
-        normal_forward_fn=False,
-        forward_only=False,
-    )
+    import time
+    for _ in range(3):
+        ref = worker.forward_backward_batch(
+            microbatches=microbatches,
+            normal_forward_fn=False,
+            forward_only=False,
+        )
+    time.sleep(1)
+    torch.cuda.synchronize()
+    torch.distributed.barrier()
+    print("warmup done")
+    for _ in range(5):
+        ref = worker.forward_backward_batch(
+            microbatches=microbatches,
+            normal_forward_fn=False,
+            forward_only=False,
+        )
+    torch.cuda.synchronize()
+    torch.distributed.barrier()
     print("=" * 20 + "forward_backward_batch attention server, done")
 
 
