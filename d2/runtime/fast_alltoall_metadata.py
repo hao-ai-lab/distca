@@ -94,7 +94,7 @@ class LogicalShape:
 class FastAlltoAllMetadata:
     """
     NOTE: FastAlltoAllMetadata has some duplicated fields with Metadata.
-    With FastAlltoAll enabled, the original Metadata is not used. Instead, we use FastAlltoAll so that 
+    With FastAlltoAll enabled, the original Metadata is not used.
     """
     fa2a_metadata: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
     # List of (world_size,) tensors, each of shape (num_sequences,). If a slice, no world_size dimension.
