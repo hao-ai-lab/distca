@@ -79,7 +79,7 @@ class qkv_dispatch(torch.autograd.Function):
             grad_k_shape = ctx.k_grad_shape
             grad_q = torch.empty(grad_q_shape, dtype=grad_recv_q.dtype, device=grad_recv_q.device)
             grad_k = torch.empty(grad_k_shape, dtype=grad_recv_k.dtype, device=grad_recv_k.device)
-            grad_v = torch.empty_like(grad_recv_v)
+            grad_v = torch.empty_like(grad_k)
             fast_a2a_qkv(
                 grad_recv_q, grad_recv_k, grad_recv_v, ctx.saved_tensors[0],
                 grad_q, grad_k, grad_v,

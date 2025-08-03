@@ -1,5 +1,8 @@
 """
-Instantiating Megatron with ray so that we can easily create a single worker to do the scheduling.
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+nsys profile -o pingpang_layer.nsys-rep -t cuda,nvtx \
+torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e.py \
+    --num-nodes=1 --num-gpus-per-node=2
 """
 import argparse
 
@@ -222,7 +225,6 @@ class MegatronE2eWorker(MegatronBaseWorker):
             )
 
         train_module = make_model(wrap_with_ddp=True)
-        print(f"train_module: {len(train_module)}")
         # load_megatron_gptmodel_weights
 
         if self.rank == 0:
