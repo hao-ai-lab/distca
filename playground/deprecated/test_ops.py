@@ -4,7 +4,10 @@ import ray
 import torch
 
 from d2.runtime.attn_kernels.ops import dispatch_no_cp_tensor, nvshmem_init, nvshmem_barrier_all, nvshmem_get_unique_id, DispatcherWrapper
-from d2.runtime.inplace_metadata import compute_metadata, orchestrate_simulate, gen_seq_lens, Metadata
+from d2.runtime.inplace_metadata import compute_metadata, Metadata
+
+from test_util import gen_seq_lens, orchestrate_simulate
+
 
 @ray.remote(num_gpus=1)
 class Worker:

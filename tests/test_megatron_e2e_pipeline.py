@@ -20,9 +20,7 @@ from d2.runtime.inplace_metadata import (
 )
 from d2.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
 
-from test_util import MegatronBaseWorker, ParallelConfig
-from test_dispatch_qkv import create_testcase_qkv
-from test_megatron_layer import create_pg, get_seqlen_shard
+from test_util import MegatronBaseWorker, ParallelConfig, create_qkv_dispatch, create_fast_a2a_metadata_from_qkv_dispatch
 from test_megatron_utils import (
     get_megatron_optimizer_param_scheduler, get_model, get_torch_device, gptmodel_forward,
     hf_to_mcore_config, init_mcore_model, init_megatron_optim_config,
