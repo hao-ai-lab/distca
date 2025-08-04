@@ -41,6 +41,8 @@ class PingPangLayerWorker(MegatronLayerWorker):
         if not packed_seq_params.debug:
             for params in packed_seq_params.seq_params:
                 setattr(params, "stream", self.stream)
+            setattr(packed_seq_params.seq_params[0], "dispatcher_id", 0)
+            setattr(packed_seq_params.seq_params[0], "dispatcher_id", 1)
         else:
             for params in packed_seq_params.seq_params:
                 setattr(params, "stream", torch.cuda.current_stream())

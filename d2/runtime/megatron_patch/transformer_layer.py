@@ -227,6 +227,9 @@ class TransformerLayer(BaseTransformerLayer):
         if debug:
             setattr(packed_seq_params_0, "stream", compute_stream)
             setattr(packed_seq_params_1, "stream", compute_stream)
+        else:
+            setattr(packed_seq_params_0, "dispatcher_id", 0)
+            setattr(packed_seq_params_1, "dispatcher_id", 1)
 
 
         # NOTE: DO NOT REMOVE THIS DEBUG TENSOR! Torch seems to have some
@@ -249,8 +252,7 @@ class TransformerLayer(BaseTransformerLayer):
         comm_stream = packed_seq_params_0.stream
 
         # 2. pre-self-attention forward microbatch 0.
-        # Ideally, this part should merge to the previous layer's post-self-attention to maximize
-        # the communication-computation overlap.
+        ## compute,0
         torch.cuda.nvtx.range_push("pre_core_attn.0")
         query_0, key_0, value_0, residual_0, attn_mask_type_0 = self._forward_pre_core_attn(
             hidden_states_0,
@@ -261,15 +263,22 @@ class TransformerLayer(BaseTransformerLayer):
             sequence_len_offset_0,
         )
         torch.cuda.nvtx.range_pop()
-        query_0, key_0, value_0, hidden_states_1 = TickSync.apply(
-            compute_stream, comm_stream, query_0, key_0, value_0, hidden_states_1
+        # pre-communicate,0
+        signal_0 = self._pre_mlp_to_attn(
+            query_0, key_0, value_0, packed_seq_params_0
+        )
+        signal_0, hidden_states_1 = TickSync.apply(
+            compute_stream, comm_stream, signal_0, hidden_states_1
         )
 
         # 3. pre-attention forward of microbatch 1, mlp2attn all2all of microbatch 0
         # NOTE: do not remove this debug tensor. see above.
         debug_tensors = (query_0, key_0, value_0)
-
-        query_0, key_0, value_0 = _layout_mlp_to_attn(query_0, key_0, value_0, packed_seq_params_0)
+        ## communicate,0
+        signal_0 = self._all_to_all(
+            signal_0, packed_seq_params_0, is_qkv=True,
+        )
+        ## compute,1
         torch.cuda.nvtx.range_push("pre_core_attn.1")
         query_1, key_1, value_1, residual_1, attn_mask_type_1 = self._forward_pre_core_attn(
             hidden_states_1,
@@ -280,14 +289,26 @@ class TransformerLayer(BaseTransformerLayer):
             sequence_len_offset_1,
         )
         torch.cuda.nvtx.range_pop()
-        query_0, key_0, value_0, query_1, key_1, value_1 = TickSync.apply(
-            compute_stream, comm_stream, query_0, key_0, value_0, query_1, key_1, value_1
+        # pre-communicate,1
+        signal_1 = self._pre_mlp_to_attn(
+            query_1, key_1, value_1, packed_seq_params_1
+        )
+        signal_0, signal_1 = TickSync.apply(
+            compute_stream, comm_stream, signal_0, signal_1
         )
         # NOTE: do not remove this debug tensor. see above.
         debug_tensors = (query_1, key_1, value_1)
 
         # 4. self-attention forward of microbatch 0, mlp2attn all2all of microbatch 1
-        query_1, key_1, value_1 = _layout_mlp_to_attn(query_1, key_1, value_1, packed_seq_params_1)
+        ## communicate,1
+        signal_1 = self._all_to_all(
+            signal_1, packed_seq_params_1, is_qkv=True,
+        )
+        ## compute
+        # post-communicate,0
+        query_0, key_0, value_0 = self._post_mlp_to_attn(
+            signal_0, packed_seq_params_0
+        )
         torch.cuda.nvtx.range_push("core_attn.0")
         core_attn_out_0 = self._forward_core_attn(
             query_0,
@@ -299,14 +320,22 @@ class TransformerLayer(BaseTransformerLayer):
             packed_seq_params_0,
         )
         torch.cuda.nvtx.range_pop()
-        query_1, key_1, value_1, core_attn_out_0 = TickSync.apply(
-            compute_stream, comm_stream, query_1, key_1, value_1, core_attn_out_0
+        # pre-communicate,0
+        signal_0 = self._pre_attn_to_mlp(core_attn_out_0, packed_seq_params_0)
+        signal_1, signal_0 = TickSync.apply(
+            compute_stream, comm_stream, signal_1, signal_0
         )
         # NOTE: do not remove this debug tensor. see above.
         debug_tensors = core_attn_out_0
 
         # 5. post-self-attention forward of microbatch 0, mlp2attn all2all of microbatch 1
-        core_attn_out_0 = _layout_attn_to_mlp(core_attn_out_0, packed_seq_params_0)
+        ## communicate,0
+        signal_0 = self._all_to_all(
+            signal_0, packed_seq_params_0, is_qkv=False,
+        )
+        ## compute,1
+        # post-communicate,1
+        query_1, key_1, value_1 = self._post_mlp_to_attn(signal_1, packed_seq_params_1)
         torch.cuda.nvtx.range_push("core_attn.1")
         core_attn_out_1 = self._forward_core_attn(
             query_1,
@@ -318,12 +347,18 @@ class TransformerLayer(BaseTransformerLayer):
             packed_seq_params_1,
         )
         torch.cuda.nvtx.range_pop()
-        core_attn_out_0, core_attn_out_1 = TickSync.apply(compute_stream, comm_stream, core_attn_out_0, core_attn_out_1)
+        # pre-communicate,1
+        signal_1 = self._pre_attn_to_mlp(core_attn_out_1, packed_seq_params_1)
+        signal_0, signal_1 = TickSync.apply(compute_stream, comm_stream, signal_0, signal_1)
         # NOTE: do not remove this debug tensor. see above.
         debug_tensors = core_attn_out_1
 
         # 6. mlp forward of microbatch 0, mlp2attn all2all of microbatch 1
-        core_attn_out_1 = _layout_attn_to_mlp(core_attn_out_1, packed_seq_params_1)
+        # communicate,1
+        signal_1 = self._all_to_all(signal_1, packed_seq_params_1, is_qkv=False,)
+        ## compute,0
+        # post-communicate,0
+        core_attn_out_0 = self._post_attn_to_mlp(signal_0, packed_seq_params_0)
         torch.cuda.nvtx.range_push("post_core_attn.0")
         mlp_output_0, context_0 = self._forward_post_core_attn(
             core_attn_out_0,
@@ -332,11 +367,14 @@ class TransformerLayer(BaseTransformerLayer):
             context_mask_0,
         )
         torch.cuda.nvtx.range_pop()
-        core_attn_out_1, mlp_output_0 = TickSync.apply(compute_stream, comm_stream, core_attn_out_1, mlp_output_0)
+        # no pre-communicate for 0 now.
+        signal_1, mlp_output_0 = TickSync.apply(compute_stream, comm_stream, signal_1, mlp_output_0)
         # NOTE: do not remove this debug tensor. see above.
         debug_tensors = None
 
         torch.cuda.nvtx.range_push("post_core_attn.1")
+        # post-communicate,1
+        core_attn_out_1 = self._post_attn_to_mlp(signal_1, packed_seq_params_1)
         mlp_output_1, context_1 = self._forward_post_core_attn(
             core_attn_out_1,
             residual_1,
@@ -406,9 +444,7 @@ class TransformerLayer(BaseTransformerLayer):
         )
         debug_tensors.append(core_attn_out)
 
-        signal = self._pre_attn_to_mlp(
-            core_attn_out, packed_seq_params
-        )
+        signal = self._pre_attn_to_mlp(core_attn_out, packed_seq_params)
         signal = self._all_to_all(signal, packed_seq_params, is_qkv=False)
         core_attn_out = self._post_attn_to_mlp(signal, packed_seq_params)
         debug_tensors.append(core_attn_out)
