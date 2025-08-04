@@ -52,15 +52,16 @@ class pre_all2all_layout_transfer(torch.autograd.Function):
             save_tensors.append(metadata.kv_replica_mask)
         else:
             q = q.contiguous()
+            assert k is None and v is None
             pre_fast_a2a_attn_out(
                 q, metadata.seq_lens[0].send_seqlens,
                 *metadata.send_memcpy_metadata, instance_id=dispatcher_id
             )
         save_tensors.extend([
             # q seq_lens and k seq_lens for the backward receiver.
-            *(sl.recv_seqlens for sl in bwd_metadata.seq_lens)
+            *(sl.recv_seqlens for sl in bwd_metadata.seq_lens),
             # TODO: send memcpy metadata at fwd is the recv memcpy metadata at bwd
-            # we directly reuse it and can thus merge the two metadata together.
+            # we should directly reuse it and can thus merge the two metadata together.
             *bwd_metadata.recv_memcpy_metadata,
         ])
         ctx.dispatcher_id = dispatcher_id
@@ -179,16 +180,22 @@ class post_all2all_layout_transfer(torch.autograd.Function):
             *bwd_metadata.send_memcpy_metadata,
         ])
         ctx.save_for_backward(*saved_tensors)
-        return recv_q, recv_k, recv_v
+
+        if is_qkv:
+            return recv_q, recv_k, recv_v
+        else:
+            return recv_attn_out
 
     @staticmethod
-    def backward(ctx, grad_q: torch.Tensor, grad_k: torch.Tensor, grad_v: torch.Tensor):
+    def backward(ctx, *grads):
         if ctx.is_qkv:
+            grad_q, grad_k, grad_v = grads
             pre_fast_a2a_qkv(
                 grad_q, grad_k, grad_v, *ctx.saved_tensors,
                 is_fwd=False, instance_id=ctx.dispatcher_id,
             )
         else:
+            grad_q, = grads
             pre_fast_a2a_attn_out(grad_q, *ctx.saved_tensors,
                                   instance_id=ctx.dispatcher_id,)
         signal_grad = torch.empty((1,), dtype=grad_q.dtype, device=grad_q.device)
