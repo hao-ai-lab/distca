@@ -248,8 +248,9 @@ class TransformerLayer(BaseTransformerLayer):
             rotary_pos_cos_0, rotary_pos_sin_0, attention_bias_0, sequence_len_offset_0) = args_0
         (hidden_states_1, attention_mask_1, context_1, context_mask_1, rotary_pos_emb_1,
             rotary_pos_cos_1, rotary_pos_sin_1, attention_bias_1, sequence_len_offset_1) = args_1
-        # TODO: confirm this is equal to the stream of packed_seq_params_1
+
         comm_stream = packed_seq_params_0.stream
+        assert comm_stream.stream_id == packed_seq_params_1.stream.stream_id
 
         # 2. pre-self-attention forward microbatch 0.
         ## compute,0
@@ -416,7 +417,7 @@ class TransformerLayer(BaseTransformerLayer):
 
         setattr(packed_seq_params, "stream", torch.cuda.current_stream())
 
-        # FIXME: support RoPE
+        # FIXME: support RoPE in this test.
         assert rotary_pos_emb is None, "RoPE needs the MLP layout packed seq params."
         query, key, value, residual, attn_mask_type = self._forward_pre_core_attn(
             hidden_states,
@@ -461,7 +462,7 @@ class TransformerLayer(BaseTransformerLayer):
 
 def add_ping_pang_forward(block: MegatronTransformerBlock):
     def init_ping_pang_communication_ctx(self):
-        self.comm_stream = torch.cuda.Stream()
+        self.comm_stream = torch.cuda.Stream(priority=-1)
         self._ping_pang_debug = True
 
     def ping_pang_forward(

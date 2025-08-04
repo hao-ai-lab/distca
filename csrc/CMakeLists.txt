@@ -44,17 +44,6 @@ function(set_cuda_compile_options target)
 endfunction()
 
 # Add CUDA kernel library
-add_library(dispatch_kernels STATIC
-    core/in_place_attn_switch.cu
-)
-target_link_libraries(dispatch_kernels PUBLIC
-    CUDA::cudart
-)
-target_link_libraries(dispatch_kernels PUBLIC
-    nvshmem::nvshmem_device
-    nvshmem::nvshmem_host
-)
-set_cuda_compile_options(dispatch_kernels)
 
 add_library(fast_a2a_kernels STATIC
     core/fastalltoall.cu
@@ -75,7 +64,6 @@ add_library(as_comm SHARED
     bindings/all_to_all.cpp
 )
 target_link_libraries(as_comm PUBLIC
-    dispatch_kernels
     fast_a2a_kernels
     torch::py_limited
     Python::Module
