@@ -31,7 +31,8 @@ from test_megatron_layer import MegatronLayerWorker, init_megatron_test
 class PingPangLayerWorker(MegatronLayerWorker):
     def __init__(self, rank: int, world_size: int):
         super().__init__(rank, world_size)
-        self.stream = torch.cuda.Stream()
+        # get a higher priority than the torch default stream
+        self.stream = torch.cuda.Stream(priority=-1)
 
     def forward_ping_pang(self, tensor_input: torch.Tensor, packed_seq_params: PingPangPackedSeqParams):
         packed_seq_params = packed_seq_params.to_device()

@@ -114,14 +114,6 @@ int launch_alltoallv(
     &inter_params->recver_transfer_sz,
   };
   dim3 inter_grid(1, 1, 1), inter_block(THREAD_N_PER_2WARP, 1, 1);
-  // The local communication
-  CUDACHECK(cudaMemcpyAsync(
-    buf->recv_buffer + my_rank_recv_offset,
-    buf->send_buffer + my_rank_send_offset,
-    my_rank_send_sz,
-    cudaMemcpyDeviceToDevice,
-    stream
-  ));
   CUDACHECK(cudaLaunchKernel(
     (void *)&spreadout_alltoallv_internode_kernel,
       inter_grid,
@@ -130,6 +122,14 @@ int launch_alltoallv(
       0,
       stream
     ));
+  // The local communication
+  CUDACHECK(cudaMemcpyAsync(
+    buf->recv_buffer + my_rank_recv_offset,
+    buf->send_buffer + my_rank_send_offset,
+    my_rank_send_sz,
+    cudaMemcpyDeviceToDevice,
+    stream
+  ));
   // CUDACHECK(cudaStreamSynchronize(stream1));
   return NVSHMEMX_SUCCESS;
 }

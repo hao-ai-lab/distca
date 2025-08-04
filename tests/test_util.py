@@ -71,8 +71,11 @@ class BaseWorker:
         os.environ["MASTER_ADDR"] = master_addr
         os.environ["MASTER_PORT"] = master_port
 
-    def __del__(self):
+    def shutdown(self):
         torch.distributed.destroy_process_group()
+
+    def __del__(self):
+        self.shutdown()
 
 
 class MegatronBaseWorker(BaseWorker):

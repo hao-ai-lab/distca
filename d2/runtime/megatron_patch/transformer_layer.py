@@ -461,7 +461,7 @@ class TransformerLayer(BaseTransformerLayer):
 
 def add_ping_pang_forward(block: MegatronTransformerBlock):
     def init_ping_pang_communication_ctx(self):
-        self.comm_stream = torch.cuda.Stream()
+        self.comm_stream = torch.cuda.Stream(priority=-1)
         self._ping_pang_debug = True
 
     def ping_pang_forward(
