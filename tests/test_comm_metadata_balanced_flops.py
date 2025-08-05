@@ -138,6 +138,163 @@ def test_create_qkv_dispatch_balanced_flops_2(
         plan_relocation,
         item_to_intermediate_tensors,
     )
+    # items_after_planning = [
+    #     {'q': 8192, 'kv': 8192, 'gpuid': 1, 'seqid': 0, 'src_gpuid': 1, 'is_original': True},
+    #     {'q': 8192, 'kv': 8192, 'gpuid': 1, 'seqid': 1, 'src_gpuid': 1, 'is_original': True},
+    #     {'q': 4096, 'kv': 4096, 'gpuid': 2, 'seqid': 0, 'src_gpuid': 2, 'is_original': True},
+    #     {'q': 4096, 'kv': 4096, 'gpuid': 2, 'seqid': 1, 'src_gpuid': 2, 'is_original': True},
+    #     {'q': 4096, 'kv': 4096, 'gpuid': 2, 'seqid': 2, 'src_gpuid': 2, 'is_original': True},
+    #     {'q': 4096, 'kv': 4096, 'gpuid': 2, 'seqid': 3, 'src_gpuid': 2, 'is_original': True},
+    #     {'q': 2048, 'kv': 2048, 'gpuid': 3, 'seqid': 0, 'src_gpuid': 3, 'is_original': True},
+    #     {'q': 2048, 'kv': 2048, 'gpuid': 3, 'seqid': 1, 'src_gpuid': 3, 'is_original': True},
+    #     {'q': 2048, 'kv': 2048, 'gpuid': 3, 'seqid': 2, 'src_gpuid': 3, 'is_original': True},
+    #     {'q': 2048, 'kv': 2048, 'gpuid': 3, 'seqid': 3, 'src_gpuid': 3, 'is_original': True},
+    #     {'q': 2048, 'kv': 2048, 'gpuid': 3, 'seqid': 4, 'src_gpuid': 3, 'is_original': True},
+    #     {'q': 2048, 'kv': 2048, 'gpuid': 3, 'seqid': 5, 'src_gpuid': 3, 'is_original': True},
+    #     {'q': 2048, 'kv': 2048, 'gpuid': 3, 'seqid': 6, 'src_gpuid': 3, 'is_original': True},
+    #     {'q': 2048, 'kv': 2048, 'gpuid': 3, 'seqid': 7, 'src_gpuid': 3, 'is_original': True},
+    #     {'q': 3754, 'kv': 3754, 'gpuid': 0, 'seqid': 0, 'src_gpuid': 0, 'is_original': False},
+    #     {'q': 3754, 'kv': 16384, 'gpuid': 0, 'seqid': 0, 'src_gpuid': 0, 'is_original': False},
+    #     {'q': 1706, 'kv': 5460, 'gpuid': 2, 'seqid': 0, 'src_gpuid': 0, 'is_original': False},
+    #     {'q': 1706, 'kv': 12630, 'gpuid': 2, 'seqid': 0, 'src_gpuid': 0, 'is_original': False},
+    #     {'q': 2730, 'kv': 8190, 'gpuid': 3, 'seqid': 0, 'src_gpuid': 0, 'is_original': False},
+    #     {'q': 2730, 'kv': 10924, 'gpuid': 3, 'seqid': 0, 'src_gpuid': 0, 'is_original': False}
+    # ]
+
+    
+    # {'world_size': 4, 'num_seqs': 8, 'max_cp_degree': 6}
+
+    world_size = 4
+    num_seqs = 8
+    max_cp_degree = 6
+
+    seq_lens = torch.tensor([
+        [16384,     0,     0,     0,     0,     0,     0,     0],
+        [ 8192,  8192,     0,     0,     0,     0,     0,     0],
+        [ 4096,  4096,  4096,  4096,     0,     0,     0,     0],
+        [ 2048,  2048,  2048,  2048,  2048,  2048,  2048,  2048]
+    ])
+
+    cp_num = torch.tensor([
+        [6, 0, 0, 0, 0, 0, 0, 0],
+        [1, 1, 0, 0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1]
+    ])
+
+    cp_dst = torch.tensor([
+        [[ 0,  2,  3,  3,  2,  0],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1]],
+
+        [[ 1, -1, -1, -1, -1, -1],
+         [ 1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1]],
+
+        [[ 2, -1, -1, -1, -1, -1],
+         [ 2, -1, -1, -1, -1, -1],
+         [ 2, -1, -1, -1, -1, -1],
+         [ 2, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1],
+         [-1, -1, -1, -1, -1, -1]],
+
+        [[ 3, -1, -1, -1, -1, -1],
+         [ 3, -1, -1, -1, -1, -1],
+         [ 3, -1, -1, -1, -1, -1],
+         [ 3, -1, -1, -1, -1, -1],
+         [ 3, -1, -1, -1, -1, -1],
+         [ 3, -1, -1, -1, -1, -1],
+         [ 3, -1, -1, -1, -1, -1],
+         [ 3, -1, -1, -1, -1, -1]]
+    ])
+
+    seq_shard_lens = torch.tensor([
+        [[3754, 1706, 2732, 2732, 1706, 3754],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0]],
+
+        [[8192,    0,    0,    0,    0,    0],
+         [8192,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0]],
+
+        [[4096,    0,    0,    0,    0,    0],
+         [4096,    0,    0,    0,    0,    0],
+         [4096,    0,    0,    0,    0,    0],
+         [4096,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0],
+         [   0,    0,    0,    0,    0,    0]],
+
+        [[2048,    0,    0,    0,    0,    0],
+         [2048,    0,    0,    0,    0,    0],
+         [2048,    0,    0,    0,    0,    0],
+         [2048,    0,    0,    0,    0,    0],
+         [2048,    0,    0,    0,    0,    0],
+         [2048,    0,    0,    0,    0,    0],
+         [2048,    0,    0,    0,    0,    0],
+         [2048,    0,    0,    0,    0,    0]]
+    ])
+
+    
+    ret = create_qkv_dispatch_balanced_flops(
+        world_size, 
+        seq_lens,
+        cp_num,
+        cp_dst,
+        seq_shard_lens,
+        verbose=verbose,
+    )
+    return ret
+
+
+def test_create_qkv_dispatch_balanced_flops_3(
+    world_size_, total_seq_len_, num_seqs_, max_cp_degree_, 
+    verbose=False,
+):
+
+    K = 1024
+    
+    world_size = 4
+    assert world_size == world_size_, f"This test forces world_size = 4"
+    
+    total_seq_len = 16 * K
+    assert total_seq_len == total_seq_len_, f"This test forces total_seq_len = 16K"
+
+    num_seqs = 8
+    assert num_seqs == num_seqs_, f"This test forces num_seqs = 8"
+
+    max_cp_degree = 8
+    assert max_cp_degree == max_cp_degree_, f"This test forces max_cp_degree = 8"
+    
+
+    from d2.planner.equal_flops import (
+        batch_to_items, 
+        plan_relocation,
+        item_to_intermediate_tensors,
+    )
 
     items = batch_to_items([
         [16 * K] * 1,
@@ -215,7 +372,7 @@ def test_qkv_dispatch(args, test_fn):
     max_cp_degree: int = args.max_seq_shard
     torch.manual_seed(args.seed)
 
-    rich.print("⚪ Testing qkv dispatch")
+    rich.print("⚪ Testing qkv dispatch with test_fn =", test_fn.__name__)
 
     # TODO: Make sure the metadata is correctly defined via the interface.
     (fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata, _) = test_fn(
@@ -275,13 +432,34 @@ if __name__ == '__main__':
 
     test_query_dispatch(args)
 
-    for test_fn in test_fn_list:
-        test_fn(
-            world_size_=args.world_size,
-            total_seq_len_=args.num_tokens,
-            num_seqs_=args.num_seqs,
-            max_cp_degree_=args.max_seq_shard,
-            verbose=True,
-        )
-    
-        test_qkv_dispatch(args, test_fn=test_fn)
+
+    test_create_qkv_dispatch_balanced_flops_1(
+        world_size_=args.world_size,
+        total_seq_len_=args.num_tokens,
+        num_seqs_=args.num_seqs,
+        max_cp_degree_=args.max_seq_shard,
+        verbose=True,
+    )
+
+    test_qkv_dispatch(args, test_fn=test_create_qkv_dispatch_balanced_flops_1)
+
+    test_create_qkv_dispatch_balanced_flops_2(
+        world_size_=args.world_size,
+        total_seq_len_=args.num_tokens,
+        num_seqs_=args.num_seqs,
+        max_cp_degree_=args.max_seq_shard,
+        verbose=True,
+    )
+
+    test_qkv_dispatch(args, test_fn=test_create_qkv_dispatch_balanced_flops_2)
+
+    test_create_qkv_dispatch_balanced_flops_3(
+        world_size_=args.world_size,
+        total_seq_len_=args.num_tokens,
+        num_seqs_=args.num_seqs,
+        max_cp_degree_=args.max_seq_shard,
+        verbose=True,
+    )
+
+    test_qkv_dispatch(args, test_fn=test_create_qkv_dispatch_balanced_flops_3)
+

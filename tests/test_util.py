@@ -489,8 +489,6 @@ def create_qkv_dispatch_balanced_flops(
     num_seqs = seq_lens.shape[1]
     max_cp_degree = cp_dst.shape[2]
     
-    assert max_cp_degree == world_size * 2, "2CP is only supported for max_cp_degree = world_size * 2"
-
     assert seq_lens.shape == (world_size, num_seqs)
     assert seq_lens.min() >= 0
     assert cp_num.shape == (world_size, num_seqs)

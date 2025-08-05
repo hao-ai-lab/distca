@@ -166,6 +166,13 @@ def plot_flops(items, plan_flops_per_gpu, title=None):
 
 
 def plan_relocation(items_, verbose=False, plot=True):
+    """
+    Relocate q/kv(s) across GPUs such that the flops are balanced.
+    
+    TODO:
+    - Remainder balancing logic is not very elegant.
+    - Locality awareness is not optimal, but so far so good.
+    """
     items = deepcopy(items_)
     ngpu = max(item["gpuid"] for item in items) + 1
 
@@ -334,6 +341,8 @@ def plan_relocation(items_, verbose=False, plot=True):
     rplot(items, f"Work assignment - Before", plot_type='batch')
 
     rlog(f"outstanding_seq = {outstanding_seq}")
+
+    extended_items = []
     for idx, gpu_id in enumerate(filling_gpu_ids):
         rlog(f"[Round {idx}] gpu_id = {gpu_id}")
         flops_to_fill = plan_to_move_flops[gpu_id]
@@ -347,15 +356,27 @@ def plan_relocation(items_, verbose=False, plot=True):
         works = get_next_work(flops_to_fill, gpu_id)
         rlog(f"[Round {idx}] works = {works}")
         if works:
-            items.extend(works)
-        rplot(items, f"Work assignment - Round {idx}", plot_type='batch')
-
+            extended_items.extend(works)
+            
+        rplot(items + extended_items, f"Work assignment - Round {idx}", plot_type='batch')
+    
     # Handle remainder
+    # - Essentially realign the extended_items to ensure there are no gaps.
+    extended_items.sort(key=lambda x: x["kv"])
+    cum_qlen = extended_items[0]["q"]
+    for i in range(1, len(extended_items)):
+        x, y = extended_items[i-1], extended_items[i]
+        assert y['q'] + cum_qlen <= y['kv']
+        if y['q'] + cum_qlen < y['kv']:
+            y['q'] = y['kv'] - cum_qlen
+            pass
+        cum_qlen += y['q']
+        pass
+    items.extend(extended_items)
 
     rplot(items, f"Result", plot_type='batch')
     rlog(items)
     return items
-
 
 def postprocess_items(items) -> list[dict]:
     """

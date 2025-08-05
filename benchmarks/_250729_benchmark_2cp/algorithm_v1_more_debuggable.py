@@ -333,6 +333,8 @@ def plan_relocation(items_, verbose=False, plot=True):
     rplot(items, f"Work assignment - Before", plot_type='batch')
 
     rlog(f"outstanding_seq = {outstanding_seq}")
+
+    extended_items = []
     for idx, gpu_id in enumerate(filling_gpu_ids):
         rlog(f"[Round {idx}] gpu_id = {gpu_id}")
         flops_to_fill = plan_to_move_flops[gpu_id]
@@ -346,10 +348,23 @@ def plan_relocation(items_, verbose=False, plot=True):
         works = get_next_work(flops_to_fill, gpu_id)
         rlog(f"[Round {idx}] works = {works}")
         if works:
-            items.extend(works)
-        rplot(items, f"Work assignment - Round {idx}", plot_type='batch')
-
+            extended_items.extend(works)
+            
+        rplot(items + extended_items, f"Work assignment - Round {idx}", plot_type='batch')
+    
     # Handle remainder
+    # - Essentially realign the extended_items to ensure there are no gaps.
+    extended_items.sort(key=lambda x: x["kv"])
+    cum_qlen = extended_items[0]["q"]
+    for i in range(1, len(extended_items)):
+        x, y = extended_items[i-1], extended_items[i]
+        assert y['q'] + cum_qlen <= y['kv']
+        if y['q'] + cum_qlen < y['kv']:
+            y['q'] = y['kv'] - cum_qlen
+            pass
+        cum_qlen += y['q']
+        pass
+    items.extend(extended_items)
 
     rplot(items, f"Result", plot_type='batch')
     rlog(items)
@@ -376,12 +391,18 @@ def test_create_batch_and_relocation():
     return 
 
 # %%
+# items = batch_to_items([
+#     [16 * K] * 4,
+#     # [64 * K], 
+#     [32 * K] * 2, 
+#     [8 * K] * 8,
+#     [4 * K] * 16,
+# ])
 items = batch_to_items([
-    [16 * K] * 4,
-    # [64 * K], 
-    [32 * K] * 2, 
-    [8 * K] * 8,
-    [4 * K] * 16,
+    [16 * K] * 1,
+    [8 * K] * 2,
+    [4 * K] * 4,
+    [2 * K] * 8, 
 ])
 rich.print(items)
 
@@ -433,7 +454,7 @@ cp_num = torch.zeros((world_size, num_seqs), dtype=torch.int64)
 for i in range(world_size):
     for j in range(num_seqs):
         cp_num[i, j] = len(info_mapping[(i, j)])
-rich.print(cp_num)
+rich.print("cp_num = torch.", cp_num)
 # %%
 cp_dst = torch.ones((world_size, num_seqs, max_cp_degree), dtype=torch.int64) * -1
 for i in range(world_size):
@@ -444,7 +465,7 @@ for i in range(world_size):
                 cp_dst[i, j, k] = info_mapping[(i, j)][k]["gpuid"]
             else:
                 cp_dst[i, j, k] = -1
-rich.print(cp_dst)
+rich.print("cp_dst = torch.", cp_dst)
 # %%
 seq_shard_lens = torch.zeros((world_size, num_seqs, max_cp_degree), dtype=torch.int64)
 for i in range(world_size):
@@ -455,9 +476,9 @@ for i in range(world_size):
                 seq_shard_lens[i, j, k] = info_mapping[(i, j)][k]["q"]
             else:
                 seq_shard_lens[i, j, k] = 0
-rich.print(seq_shard_lens)
+rich.print("seq_shard_lens = torch.", seq_shard_lens)
 
-
+# %%
 
 def item_to_intermediate_tensors(items, verbose=False):
     def print_if_verbose(message):
