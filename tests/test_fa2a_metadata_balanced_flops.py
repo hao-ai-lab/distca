@@ -311,15 +311,9 @@ def test_create_qkv_dispatch_balanced_flops(
     world_size_, total_seq_len_, num_seqs_, max_cp_degree_, 
     verbose=False, return_intermediate=False,
 ):
-
     K = 1024
-    
-
-    
     total_seq_len = 16 * K
     assert total_seq_len == total_seq_len_, f"This test forces total_seq_len = 16K"
-
-    
 
     from d2.planner.equal_flops import (
         batch_to_items, 
@@ -346,7 +340,6 @@ def test_create_qkv_dispatch_balanced_flops(
     assert max_cp_degree == max_cp_degree_, f"This test forces max_cp_degree = {max_cp_degree}"
     
 
-    
     ret = create_qkv_dispatch_with_custom_mapping(
         world_size, 
         seq_lens,

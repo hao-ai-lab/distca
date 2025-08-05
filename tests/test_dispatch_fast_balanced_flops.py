@@ -194,30 +194,32 @@ def create_qkv_dispatch_balanced_flops(
 
     K = 1024
     
-    # world_size = 4
-    # assert world_size == world_size_, f"This test forces world_size = 4"
-
-    world_size = 2
-    assert world_size == world_size_, f"This test forces world_size = {world_size}"
-
-
     total_seq_len = 16 * K
     assert total_seq_len == total_seq_len_, f"This test forces total_seq_len = 16K"
     
     
-
     from d2.planner.equal_flops import (
         batch_to_items, 
         plan_relocation,
         item_to_intermediate_tensors,
     )
 
-    items = batch_to_items([
+    batches = [
         [16 * K] * 1,
         [8 * K] * 2,
-        # [4 * K] * 4,
-        # [2 * K] * 8, 
-    ])
+        [4 * K] * 4,
+        [2 * K] * 8,
+
+        [8 * K] * 2,
+        [4 * K] * 4,
+        [2 * K] * 8,
+        [2 * K] * 8,
+
+    ]
+
+    batches = batches[:world_size_]
+
+    items = batch_to_items(batches)
     items = plan_relocation(items, verbose=False, plot=False)
 
     world_info, (items, info_mapping, info_list), (seq_lens, cp_num, cp_dst, seq_shard_lens) = item_to_intermediate_tensors(items)    
@@ -229,8 +231,6 @@ def create_qkv_dispatch_balanced_flops(
     
     assert num_seqs == num_seqs_, f"This test forces num_seqs = {num_seqs}"
     assert max_cp_degree == max_cp_degree_, f"This test forces max_cp_degree = {max_cp_degree}"
-    
-
     
     ret = create_qkv_dispatch_with_custom_mapping(
         world_size, 
@@ -325,6 +325,14 @@ def test_qkv(
             rich.print(f"[Rank {rank}] dispatch_mask =", dispatch_mask)
             rich.print(f"[Rank {rank}] fa2a_metadata_fwd_slice =", fa2a_metadata_fwd_slice)
             rich.print(f"[Rank {rank}] fa2a_metadata_rev_slice =", fa2a_metadata_rev_slice)
+            # send_side_offset[i][j], send_size[i][j], recv_side_offset[j][i], recv_size[i][j]
+            fa2a_metadata = fa2a_metadata_fwd_slice.fa2a_metadata
+            send_side_offset, send_size, recv_side_offset, recv_size = fa2a_metadata
+            rich.print(f"[Rank {rank}] send_side_offset =", send_side_offset)
+            rich.print(f"[Rank {rank}] send_size =", send_size)
+            rich.print(f"[Rank {rank}] recv_side_offset =", recv_side_offset)
+            rich.print(f"[Rank {rank}] recv_size =", recv_size)
+
         # barrier
         nvshmem_barrier_all()
 
@@ -385,6 +393,5 @@ if __name__ == "__main__":
 
     rich.print(f"Testing {__file__} with args =", args)
     rich.print(f"[red]This test currently deadlocked...[/red]")
-
 
     test(args)
