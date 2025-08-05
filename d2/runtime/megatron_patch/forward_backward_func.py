@@ -1,6 +1,4 @@
 import contextlib
-import time
-from tkinter import TRUE
 from typing import Union, Iterator, List
 
 import torch
@@ -391,9 +389,9 @@ def forward_backward_pipelining_without_interleaving(
                 input_tensor = input_tensors[0]
                 output_tensor = output_tensors[0]
                 output_tensor_grad = [torch.zeros_like(t) for t in output_tensor]
-                # _ = backward_step(
-                #     input_tensor, output_tensor, output_tensor_grad, model_type, config, retain_graph=True
-                # )
+                _ = backward_step(
+                    input_tensor, output_tensor, output_tensor_grad, model_type, config, retain_graph=True
+                )
 
             else:
                 print(f'backward {send_tensor_shapes=}, {rank=}, {i=}, {num_microbatches_remaining=}')
