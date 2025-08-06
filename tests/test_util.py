@@ -40,10 +40,13 @@ class BaseWorker:
     def __init__(self, rank: int, world_size: int):
         self.rank = rank
         self.world_size = world_size
+        self.device = None
 
     def init_torch_distributed(self,):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", rank=self.rank, world_size=self.world_size)
+            local_rank = int(os.environ.get("LOCAL_RANK"))
+            self.device = torch.device(f"cuda:{local_rank}")
 
     def init_nvshmem(self, buffer_size: int, local_rank: int = None):
         if self.rank == 0:
