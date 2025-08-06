@@ -5,17 +5,18 @@ torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_2cp.py \
     --num-nodes=1 --num-gpus-per-node=2 --cp-degree=4
 
 
+# Not Stuck
+SYNC_ALL=1 \
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
-torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_2cp.py \
-    --num-nodes=1 --num-gpus-per-node=2 --cp-degree=4
-
+torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_2cp.py \
+    --num-nodes=1 --num-gpus-per-node=4 --cp-degree=8
 
 # Stuck?
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_2cp.py \
     --num-nodes=1 --num-gpus-per-node=4 --cp-degree=8
 
-
+# Stuck?
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes 1 --nproc_per_node 8 test_megatron_e2e_2cp.py \
     --num-nodes=1 --num-gpus-per-node=8 --cp-degree=16
@@ -41,6 +42,7 @@ from test_megatron_utils import (
     make_batch_generator, print_model_size, update_model_config, unwrap_model,
 )
 
+SYNC_ALL = os.environ.get("SYNC_ALL", "0") == "1"
 
 def set_random_seed(seed, set_megatron: bool=True):
     """Set worker side random seed."""
@@ -398,29 +400,43 @@ def test(args):
     microbatches = [microbatch]
     import time
     for _ in range(3):
+        print(f"Rank {rank} forward_backward_batch[{_}]: starting")
         ref = worker.forward_backward_batch(
             microbatches=microbatches,
             normal_forward_fn=False,
             forward_only=False,
         )
+        print(f"Rank {rank} forward_backward_batch[{_}]: returned")
+        if SYNC_ALL:
+            torch.cuda.synchronize()
+            print(f"Rank {rank} forward_backward_batch[{_}]: synchronize done")
+            torch.distributed.barrier()
+            print(f"Rank {rank} forward_backward_batch[{_}]: barrier done")
     time.sleep(1)
     torch.cuda.synchronize()
     torch.distributed.barrier()
-    print("warmup done")
+    if rank == 0:
+        print("=" * 20 + "warmup done")
     for _ in range(5):
+        print(f"Rank {rank} forward_backward_batch[{_}]: starting")
         ref = worker.forward_backward_batch(
             microbatches=microbatches,
             normal_forward_fn=False,
             forward_only=False,
         )
+        print(f"Rank {rank} forward_backward_batch[{_}]: returned")
+        if SYNC_ALL:
+            torch.cuda.synchronize()
+            print(f"Rank {rank} forward_backward_batch[{_}]: synchronize done")
+            torch.distributed.barrier()
+            print(f"Rank {rank} forward_backward_batch[{_}]: barrier done")
+
     torch.cuda.synchronize()
     torch.distributed.barrier()
     print("=" * 20 + "forward_backward_batch attention server, done")
 
     if rank == 0:
-        
         rich.print(f"🟢 Test {__file__} passed")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
