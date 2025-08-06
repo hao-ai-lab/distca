@@ -2,10 +2,15 @@
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes 1 --nproc_per_node 2 test_megatron_layer.py \
     --world-size 2
+
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+torchrun --nnodes 1 --nproc_per_node 4 test_megatron_layer.py \
+    --world-size 4 --tp-size 2
 """
 
 from typing import Optional
 
+import megatron.core.parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
@@ -31,7 +36,7 @@ class MegatronLayerWorker(MegatronBaseWorker):
 
     def init_layer(self, config: TransformerConfig, spec: ModuleSpec,
                    seed: int):
-        torch.manual_seed(seed)
+        torch.manual_seed(seed + mpu.get_tensor_model_parallel_rank())
         self.layer = build_module(spec, config)
 
     def forward_normal(self, tensor_input: torch.Tensor, packed_seq_params: PackedSeqParams):
@@ -129,10 +134,10 @@ def test_forward(
     as_group = get_attn_server_group()
     torch.distributed.all_gather_object(ref_debug, debug_ref, group=as_group)
     torch.distributed.all_gather_object(ans_debug, debug_out, group=as_group)
-    torch.distributed.all_gather_object(pingpong_seq_params, ping_pang_params)
+    torch.distributed.all_gather_object(pingpong_seq_params, ping_pang_params, group=as_group)
     print("debug tensors gathered.")
     if as_rank == 0:
-        device = torch.device("cuda", rank)
+        device = torch.device("cuda", worker.rank)
         def to_device(o):
             if isinstance(o, torch.Tensor):
                 return o.to(device)
@@ -245,7 +250,7 @@ def test(args):
     num_query_heads = num_heads
     hidden_size_kv = (hidden_size * num_query_heads) // num_heads
 
-    worker = init_megatron_test(
+    worker: MegatronLayerWorker = init_megatron_test(
         world_size, hidden_size, num_heads, num_query_heads, dtype,
         max_tokens_query, max_tokens_key_value, max_cp_degree, tp_size, seed,
     )
