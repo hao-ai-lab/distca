@@ -16,6 +16,12 @@ NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_2cp.py \
     --num-nodes=1 --num-gpus-per-node=4 --cp-degree=8
 
+# Not Stuck
+SYNC_ALL=1 \
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+torchrun --nnodes 1 --nproc_per_node 8 test_megatron_e2e_2cp.py \
+    --num-nodes=1 --num-gpus-per-node=8 --cp-degree=16
+
 # Stuck?
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes 1 --nproc_per_node 8 test_megatron_e2e_2cp.py \
@@ -23,6 +29,7 @@ torchrun --nnodes 1 --nproc_per_node 8 test_megatron_e2e_2cp.py \
 """
 import argparse
 import rich
+import os
 
 from megatron.core import mpu
 from megatron.core.optimizer import get_megatron_optimizer
@@ -399,7 +406,8 @@ def test(args):
     # print(rank, microbatch["packed_seq_params"])
     microbatches = [microbatch]
     import time
-    for _ in range(3):
+    # for _ in range(3):
+    for _ in range(1):
         print(f"Rank {rank} forward_backward_batch[{_}]: starting")
         ref = worker.forward_backward_batch(
             microbatches=microbatches,
@@ -417,7 +425,7 @@ def test(args):
     torch.distributed.barrier()
     if rank == 0:
         print("=" * 20 + "warmup done")
-    for _ in range(5):
+    for _ in range(1):
         print(f"Rank {rank} forward_backward_batch[{_}]: starting")
         ref = worker.forward_backward_batch(
             microbatches=microbatches,
