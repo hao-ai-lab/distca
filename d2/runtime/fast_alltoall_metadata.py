@@ -499,9 +499,11 @@ def compute_fa2a_metadata_from_logical_metadata(
     # which can be wrong in some extreme cases.
     bytes_q = element_size * hidden_size_q
     bytes_k = element_size * hidden_size_k
-    bytes_attn_out = size_pad_by_int4(
-        element_size * (hidden_size_q + softmax_lse_size)
+    hidden_size_attn_out, _ = size_pad_by_int4(
+        hidden_size_q + softmax_lse_size,
+        element_size,
     )
+    bytes_attn_out = element_size * hidden_size_attn_out
 
     recver_transfer_sz_q = (
         fwd_metadata_q.num_recv_tokens * bytes_q
@@ -613,7 +615,7 @@ def compute_backward_resend_qkv_from_logical_metadata(
 ):
     # merged_q has: q, attn_out, attn_out_grad, softmax_lse
     hidden_size_merged_q = hidden_size_q + hidden_size_q + hidden_size_lse
-    padded_hidden_size_q = size_pad_by_int4(hidden_size_merged_q, element_size)
+    padded_hidden_size_q, _ = size_pad_by_int4(hidden_size_merged_q, element_size)
     # NOTE: we cannot use the bwd metadata generated here, because it's hidden size is wrong.
     grad_fwd_fa2a_metadata_qkv, _ = compute_fa2a_metadata_from_logical_metadata(
         fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,
@@ -645,7 +647,7 @@ def forward_backward_with_resend_e2e_metadata(
     softmax_lse_size: int,  # size of the softmax_lse tensor, should be num_heads
 ):
     # Step 1: compute forward communication
-    (_, _, _, _,
+    (fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,
      fa_fwd_params, fa2a_fwd_metadata) = compute_e2e_fa2a_metadata(
         mlp_seq_len, mlp_num_seqs, mlp_q_dispatch_fwd,
         kv_to_q_mapping, kv_to_q_rank,
@@ -678,6 +680,7 @@ def forward_backward_with_resend_e2e_metadata(
         hidden_size_q, hidden_size_k, element_size, softmax_lse_size,
     )
     return (
+        fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,
         fa_fwd_params, fa_bwd_params,
         qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
         attn_out_fwd_fa2a_metadata, attn_out_qkv_bwd_fa2a_metadata,

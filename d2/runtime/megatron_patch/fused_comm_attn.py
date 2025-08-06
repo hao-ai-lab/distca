@@ -64,7 +64,7 @@ def _qkv_to_attn_out_fwd(q: Tensor, k: Tensor, v: Tensor,
         fa_params.max_seqlen_q,
         fa_params.max_seqlen_kv,
         fa_args.dropout_p,
-        fa_args.softmax_scale,
+        softmax_scale,
         causal=fa_args.causal,
         window_size_left=fa_args.window_size[0],
         window_size_right=fa_args.window_size[1],
@@ -95,6 +95,11 @@ def _qkv_to_attn_out_bwd(
     dout = attn_out_grad.reshape(
         attn_out_grad.shape[0], num_heads_q, head_dim
     )
+
+    softmax_scale = fa_args.softmax_scale
+    if softmax_scale is None:
+        softmax_scale = q.shape[-1] ** (-0.5)
+
     # maybe padding
     out_padded = out
     dout_padded = dout
@@ -109,7 +114,7 @@ def _qkv_to_attn_out_bwd(
     _wrapped_flash_attn_varlen_backward(
         dout_padded, q, k, v, out_padded, softmax_lse, dq, dk, dv,
         cu_seqlen_q, cu_seqlen_kv, max_seqlen_q, max_seqlen_kv,
-        fa_args.dropout_p, fa_args.softmax_scale, fa_args.causal,
+        fa_args.dropout_p, softmax_scale, fa_args.causal,
         fa_args.window_size[0], fa_args.window_size[1], fa_args.softcap, fa_args.alibi_slopes,
         fa_args.deterministic,
     )
@@ -168,7 +173,7 @@ class FusedCommAttn(torch.autograd.Function):
         ctx.dispatcher_id = dispatcher_id
         # Step 2. call FA fwd.
         attn_out, softmax_lse = _qkv_to_attn_out_fwd(
-            recv_q, recv_k, recv_v, fwd_fa_params,
+            recv_q, recv_k, recv_v, fwd_fa_params, flash_attn_args,
         )
         saved_tensors.extend([
             bwd_fa_params.cu_seqlens_q, bwd_fa_params.cu_seqlens_kv,
@@ -178,6 +183,7 @@ class FusedCommAttn(torch.autograd.Function):
 
         # Step 3: pre-dispatch attn out
         assert attn_out.shape == recv_q.shape
+        softmax_lse = softmax_lse.T.contiguous().view(attn_out.dtype)
         attn_out = pre_fast_a2a_attn_out_with_lse(
             attn_out, softmax_lse, fwd_attn_out_metadata.seq_lens[0].send_seqlens,
             fwd_attn_out_metadata.send_memcpy_metadata[0],
@@ -230,6 +236,7 @@ class FusedCommAttn(torch.autograd.Function):
             switch_buffer=switch_buffer,
             instance_id=dispatcher_id,
         )
+        recv_lse = recv_lse.view(recv_attn_out_grad.dtype).T
         # Step 2: call FA bwd.
         dq, dk, dv = _qkv_to_attn_out_bwd(
             recv_q, recv_k, recv_v, recv_attn_out, recv_attn_out_grad,

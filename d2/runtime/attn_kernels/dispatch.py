@@ -120,7 +120,7 @@ def pre_fast_a2a_attn_out(
     instance_id: int=None,
 ):
     to_nvshmem = True
-    q = fast_a2a_memcpy_non_cp(
+    fast_a2a_memcpy_non_cp(
         q.contiguous(), q_send_buffer_offset, q_seq_tokens, to_nvshmem,
         instance_id=instance_id,
     )
@@ -265,7 +265,9 @@ def pre_fast_a2a_attn_out_with_lse(
 ):
     assert softmax_lse.shape[0] == attn_out.shape[0]
     merged_attn_out = torch.concat([attn_out, softmax_lse], dim=1)
-    # TODO: maybe apply a padding here?
+    _, pad_len = size_pad_by_int4(merged_attn_out.shape[1], attn_out.itemsize)
+    if pad_len > 0:
+        merged_attn_out = F.pad(merged_attn_out, (0, _CUDA_INT4_BYTES - pad_len), mode='constant', value=0)
     return pre_fast_a2a_attn_out(
         merged_attn_out, send_seqlens, send_memcpy_metadata[0],
         instance_id=dispatcher_id,

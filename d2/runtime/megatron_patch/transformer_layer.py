@@ -23,6 +23,7 @@ from megatron.core.transformer.transformer_layer import (
 )
 from megatron.core.utils import WrappedTensor, make_viewless_tensor
 
+from d2.runtime.megatron_patch.fused_comm_attn import FlashAttnArgs, FusedCommAttn
 from d2.runtime.megatron_patch.base_transformer_layer import TransformerLayer as BaseTransformerLayer
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron_patch.stream_sync_fn import TickSync
@@ -431,21 +432,24 @@ class TransformerLayer(BaseTransformerLayer):
 
         signal = self._pre_mlp_to_attn(query, key, value, packed_seq_params)
         signal = self._all_to_all(signal, packed_seq_params, is_qkv=True)
-        query, key, value = self._post_mlp_to_attn(signal, packed_seq_params)
-        debug_tensors.append((query, key, value))
 
-        core_attn_out = self._forward_core_attn(
-            query,
-            key,
-            value,
-            attention_mask,
-            attention_bias,
-            attn_mask_type,
+        signal = FusedCommAttn.apply(
+            signal,
+            packed_seq_params.qkv_fwd_metadata,
+            packed_seq_params.qkv_bwd_metadata,
+            packed_seq_params.attn_out_fwd_metadata,
+            packed_seq_params.attn_out_bwd_metadata,
             packed_seq_params,
+            packed_seq_params.bwd_packed_seq_params,
+            packed_seq_params.dispatcher_id,
+            FlashAttnArgs(
+                num_heads_q=self.config.num_attention_heads // self.config.tensor_model_parallel_size,
+                num_heads_kv=self.config.num_query_groups // self.config.tensor_model_parallel_size,
+                head_dim=self.config.hidden_size // self.config.num_attention_heads,
+                return_attn_probs=True,
+            ),
         )
-        debug_tensors.append(core_attn_out)
 
-        signal = self._pre_attn_to_mlp(core_attn_out, packed_seq_params)
         signal = self._all_to_all(signal, packed_seq_params, is_qkv=False)
         core_attn_out = self._post_attn_to_mlp(signal, packed_seq_params)
         debug_tensors.append(core_attn_out)
