@@ -18,7 +18,7 @@ from d2.runtime.megatron_patch.transformer_layer import TransformerLayer as Ping
 from d2.runtime.fast_alltoall_metadata import compute_fa2a_metadata_from_logical_metadata
 
 from test_util import (
-    MegatronBaseWorker, ParallelConfig, create_qkv_dispath_with_backward, simulate_communication,
+    MegatronBaseWorker, ParallelConfig, simulate_communication,
     create_qkv_dispatch, init_worker_torch_distributed,
 )
 
@@ -63,23 +63,28 @@ class MegatronLayerWorker(MegatronBaseWorker):
 
 def test_forward(
     seed, world_size, total_seq_len, num_seqs, max_cp_degree,
-    worker: MegatronLayerWorker, hidden_size_q: int, hidden_size_k: int, num_heads: int
+    worker: MegatronLayerWorker, hidden_size_q: int, hidden_size_k: int
 ):
     torch.manual_seed(seed)
     dtype = torch.float16
     element_size = dtype.itemsize
     (
-        # fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
-        # attention_metadata_attn_layout, intermediates, seq_lens
-        fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,
-        fa_fwd_params, fa_bwd_params,
-        qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
-        attn_out_fwd_fa2a_metadata, attn_out_qkv_bwd_fa2a_metadata,
-        seq_lens,
-    ) = create_qkv_dispath_with_backward(
+        fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
+        attention_metadata_attn_layout, intermediates, seq_lens
+    ) = create_qkv_dispatch(
         world_size, total_seq_len, num_seqs, max_cp_degree,
-        hidden_size_q, hidden_size_k, element_size, num_heads * torch.float32.itemsize // element_size,
-        return_mlp_no_shard_seq_lens=True
+        return_intermediate=True, return_mlp_no_shard_seq_lens=True
+    )
+    # NOTE: this already adds prepended zeros and is sharded to tuples (remove padding seqs)
+    (cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv,
+     num_local_seqs_recv) = attention_metadata_attn_layout
+
+    (qkv_fwd_fa2a_metadata, qkv_rev_fa2a_metadata,
+     attn_out_fwd_fa2a_metadata, attn_out_rev_fa2a_metadata,
+    ) = compute_fa2a_metadata_from_logical_metadata(
+        fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
+        intermediates, total_seq_len, hidden_size_q, hidden_size_k,
+        element_size,
     )
 
     # thd layout's hidden size input is "t,1,h"
@@ -89,17 +94,6 @@ def test_forward(
     )
     rank = worker.rank
     tensor_shard = tensors[rank]
-
-    # NOTE: this already adds prepended zeros and is sharded to tuples (remove padding seqs)
-    (cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, *_) = fa_bwd_params
-    bwd_packed_seq_params = PackedSeqParams(
-        cu_seqlens_q=cu_seqlens_q[rank],
-        cu_seqlens_kv=cu_seqlens_kv[rank],
-        max_seqlen_q=max_seqlen_q[rank],
-        max_seqlen_kv=max_seqlen_kv[rank],
-    )
-    (cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, *_) = fa_fwd_params
-
     # 1. normal forward. Need to provide the PackedSeqParams
     seq_lens_local = seq_lens[rank][:num_seqs]
     packed_seq_params = mlp_layout_packed_params(seq_lens_local)
@@ -114,10 +108,9 @@ def test_forward(
         max_seqlen_q=max_seqlen_q[rank],
         max_seqlen_kv=max_seqlen_kv[rank],
         qkv_fwd_metadata=qkv_fwd_fa2a_metadata.get_slice(rank),
-        qkv_bwd_metadata=qkv_bwd_fa2a_metadata.get_slice(rank),
+        qkv_bwd_metadata=qkv_rev_fa2a_metadata.get_slice(rank),
         attn_out_fwd_metadata=attn_out_fwd_fa2a_metadata.get_slice(rank),
-        attn_out_bwd_metadata=attn_out_qkv_bwd_fa2a_metadata.get_slice(rank),
-        bwd_packed_seq_params=bwd_packed_seq_params,
+        attn_out_bwd_metadata=attn_out_rev_fa2a_metadata.get_slice(rank),
     )
     ping_pang_out, debug_out = worker.forward_ping_pang_one_stage(
         tensor_shard, ping_pang_params
@@ -155,9 +148,9 @@ def test_forward(
         ref_qs = [debug_tensor[0] for debug_tensor in ref_qkvs]
         ref_ks = [debug_tensor[1] for debug_tensor in ref_qkvs]
         ref_vs = [debug_tensor[2] for debug_tensor in ref_qkvs]
-        ref_qs_post_comm = simulate_communication(ref_qs, fwd_metadata_q)
-        ref_ks_post_comm = simulate_communication(ref_ks, fwd_metadata_kv)
-        ref_vs_post_comm = simulate_communication(ref_vs, fwd_metadata_kv)
+        ref_qs_post_comm = simulate_communication(ref_qs, fwd_q_metadata)
+        ref_ks_post_comm = simulate_communication(ref_ks, fwd_k_metadata)
+        ref_vs_post_comm = simulate_communication(ref_vs, fwd_k_metadata)
         ref_qkvs_post_comm = [
             (ref_qs_post_comm[rank], ref_ks_post_comm[rank], ref_vs_post_comm[rank]) for rank in range(world_size)
         ]
@@ -182,7 +175,7 @@ def test_forward(
             ref_attn_out = ref_attn_out.reshape(ref_attn_out.shape[0], 1, -1)
             ref_attn_outs_a_layout.append(ref_attn_out)
         ref_attn_outs_post_comm = simulate_communication(
-            ref_attn_outs_a_layout, bwd_metadata_q
+            ref_attn_outs_a_layout, rev_q_metadata
         )
         torch.testing.assert_close(ref_attn_outs, ref_attn_outs_post_comm)
         print("simulated attn out allclose with expected value")
@@ -250,7 +243,7 @@ def test(args):
 
     test_forward(
         args.seed, world_size, args.num_tokens, args.num_seqs,
-        max_cp_degree, worker, hidden_size, hidden_size_kv, num_heads,
+        max_cp_degree, worker, hidden_size, hidden_size_kv
     )
 
 
