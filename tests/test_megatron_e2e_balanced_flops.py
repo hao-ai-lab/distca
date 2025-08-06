@@ -2,30 +2,30 @@
 # 🟢 Passed
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 nsys profile -o pingpang_layer.nsys-rep -t cuda,nvtx \
-torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_2cp.py \
-    --num-nodes=1 --num-gpus-per-node=2 --cp-degree=4
+torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_balanced_flops.py \
+    --num-nodes=1 --num-gpus-per-node=2 --cp-degree=4 --num-seqs=2
 
 # 🟢 Passed
 SYNC_ALL=1 \
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
-torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_2cp.py \
-    --num-nodes=1 --num-gpus-per-node=4 --cp-degree=8
+torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_balanced_flops.py \
+    --num-nodes=1 --num-gpus-per-node=4 --cp-degree=6 --num-seqs=8
 
 # ⚠️ Stuck
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
-torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_2cp.py \
-    --num-nodes=1 --num-gpus-per-node=4 --cp-degree=8
+torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_balanced_flops.py \
+    --num-nodes=1 --num-gpus-per-node=4 --cp-degree=6 --num-seqs=8
 
 # 🟢 Passed
 SYNC_ALL=1 \
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
-torchrun --nnodes 1 --nproc_per_node 8 test_megatron_e2e_2cp.py \
-    --num-nodes=1 --num-gpus-per-node=8 --cp-degree=16
+torchrun --nnodes 1 --nproc_per_node 8 test_megatron_e2e_balanced_flops.py \
+    --num-nodes=1 --num-gpus-per-node=8 --cp-degree=12 --num-seqs=8
 
 # ⚠️ Stuck
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
-torchrun --nnodes 1 --nproc_per_node 8 test_megatron_e2e_2cp.py \
-    --num-nodes=1 --num-gpus-per-node=8 --cp-degree=16
+torchrun --nnodes 1 --nproc_per_node 8 test_megatron_e2e_balanced_flops.py \
+    --num-nodes=1 --num-gpus-per-node=8 --cp-degree=12 --num-seqs=8
 """
 import argparse
 import rich
@@ -294,17 +294,71 @@ def init_megatron_e2e_test(
     return worker
 
 
-from test_util import create_qkv_dispatch_2cp
+from test_util import create_qkv_dispatch_with_custom_mapping
 from d2.runtime.fast_alltoall_metadata import compute_fa2a_metadata_from_logical_metadata
 
-def create_one_batch_2cp(
+
+def test_create_qkv_dispatch_balanced_flops(
+    world_size_, total_seq_len_, num_seqs_, max_cp_degree_, 
+    verbose=False, return_intermediate=False, return_mlp_no_shard_seq_lens=False,
+):
+    K = 1024
+
+    from d2.planner.equal_flops import (
+        batch_to_items, 
+        plan_relocation,
+        item_to_intermediate_tensors,
+    )
+
+    items_list = [
+        [4 * K] * 1,
+        [2 * K] * 2,
+        [1 * K] * 4,
+        [512] * 8,
+
+        [2 * K] * 2,
+        [1 * K] * 4,
+        [512] * 8,
+        [512] * 8,
+    ]
+    items_list = items_list[:world_size_]
+    
+    total_seq_len = max(sum(batch) for batch in items_list)
+    assert total_seq_len == total_seq_len_, f"This test forces total_seq_len = 16K, got {total_seq_len_=}"
+
+    items = batch_to_items(items_list)
+    items = plan_relocation(items, verbose=False, plot=False)
+
+    world_info, (items, info_mapping, info_list), (seq_lens, cp_num, cp_dst, seq_shard_lens) = item_to_intermediate_tensors(items)    
+
+    world_size = world_info["world_size"]
+    num_seqs = world_info["num_seqs"]
+    max_cp_degree = world_info["max_cp_degree"]
+
+    assert world_size == world_size_ and num_seqs == num_seqs_ and max_cp_degree == max_cp_degree_, \
+        f"This test forces world_size = {world_size}, num_seqs = {num_seqs}, max_cp_degree = {max_cp_degree}, got {world_size_=}, {num_seqs_=}, {max_cp_degree_=}"
+
+    ret = create_qkv_dispatch_with_custom_mapping(
+        world_size, 
+        seq_lens,
+        cp_num,
+        cp_dst,
+        seq_shard_lens,
+        verbose=verbose, return_intermediate=return_intermediate,
+    )
+    if return_mlp_no_shard_seq_lens:
+        ret += (seq_lens,)
+    return ret
+
+
+def create_one_batch_balanced_flops(
     world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
     hidden_size_q: int, hidden_size_k: int, element_size: int
 ):
     (
         fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
         attention_metadata_attn_layout, intermediates, seq_lens
-    ) = create_qkv_dispatch_2cp(
+    ) = test_create_qkv_dispatch_balanced_flops(
         world_size, total_seq_len, num_seqs, max_cp_degree,
         return_intermediate=True, return_mlp_no_shard_seq_lens=True
     )
@@ -366,11 +420,11 @@ def test(args):
 
     rank = worker.rank
 
-    _, fa2a_metadata_0, attn_metadata_0, raw_seq_lens_0 = create_one_batch_2cp(
+    _, fa2a_metadata_0, attn_metadata_0, raw_seq_lens_0 = create_one_batch_balanced_flops(
         world_size, total_seq_len, num_seqs, max_cp_degree,
         hidden_size_q, hidden_size_kv, element_size
     )
-    _, fa2a_metadata_1, attn_metadata_1, raw_seq_lens_1 = create_one_batch_2cp(
+    _, fa2a_metadata_1, attn_metadata_1, raw_seq_lens_1 = create_one_batch_balanced_flops(
         world_size, total_seq_len, num_seqs, max_cp_degree,
         hidden_size_q, hidden_size_kv, element_size
     )
@@ -448,8 +502,8 @@ def test(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num-tokens", type=int, default=1024)
-    parser.add_argument("--num-seqs", type=int, default=3)
+    parser.add_argument("--num-tokens", type=int, default=4 * 1024)
+    parser.add_argument("--num-seqs", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
     parser.add_argument("--num-gpus-per-node", type=int, default=2)
