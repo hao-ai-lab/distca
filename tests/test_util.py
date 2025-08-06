@@ -9,12 +9,18 @@ from megatron.core import parallel_state as mpu
 import ray
 import torch
 
-from d2.runtime.attn_kernels.ops import nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, FastDispatcherWrapper
-from d2.runtime.inplace_metadata import (
-    Metadata, compute_attn_layout_seqlens, compute_metadata, compute_metadata_kv,
-    exclusive_cumsum
+from d2.runtime.attn_kernels.ops import (
+    nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, FastDispatcherWrapper
 )
 from d2.runtime.fast_alltoall_metadata import  compute_fa2a_metadata_from_logical_metadata
+from d2.runtime.inplace_metadata import (
+    Metadata, compute_attn_layout_seqlens, compute_metadata,
+    compute_metadata_kv, exclusive_cumsum
+)
+from d2.runtime.megatron_patch.create_group import (
+    initialize_attention_server_comm, get_attn_server_group_gloo,
+    get_attn_server_rank, get_attn_server_group_src_rank
+)
 
 
 ######## Workers
@@ -34,15 +40,15 @@ class BaseWorker:
     def __init__(self, rank: int, world_size: int):
         self.rank = rank
         self.world_size = world_size
+        self.device = None
 
-    def init_comm(self, buffer_size: int, local_rank: int = None):
-        # Init megatron communication.
-        if local_rank is None:
-            local_rank = int(os.getenv("LOCAL_RANK"))
-
+    def init_torch_distributed(self,):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", rank=self.rank, world_size=self.world_size)
+            local_rank = int(os.environ.get("LOCAL_RANK"))
+            self.device = torch.device(f"cuda:{local_rank}")
 
+    def init_nvshmem(self, buffer_size: int, local_rank: int = None):
         if self.rank == 0:
             uid = nvshmem_get_unique_id()
         else:
@@ -52,6 +58,13 @@ class BaseWorker:
         FastDispatcherWrapper.init(
             self.rank, local_rank, self.world_size, buffer_size, uid
         )
+
+    def init_comm(self, buffer_size: int, local_rank: int = None):
+        if local_rank is None:
+            local_rank = int(os.getenv("LOCAL_RANK"))
+
+        self.init_torch_distributed()
+        self.init_nvshmem(buffer_size, local_rank)
 
     #### General init functions for ray.
     def get_node_ip_port(self):
@@ -71,19 +84,51 @@ class BaseWorker:
         os.environ["MASTER_ADDR"] = master_addr
         os.environ["MASTER_PORT"] = master_port
 
-    def shutdown(self):
-        torch.distributed.destroy_process_group()
+    # def shutdown(self):
+    #     torch.distributed.destroy_process_group()
 
-    def __del__(self):
-        self.shutdown()
+    # def __del__(self):
+    #     self.shutdown()
 
 
 class MegatronBaseWorker(BaseWorker):
     """Worker base class to init communication groups (megatron and nvshmem)."""
+    def __init__(self, rank: int, world_size: int):
+        super().__init__(rank, world_size)
+        self.as_world_size = None
+        self.as_rank = None
+
+    def init_nvshmem(self, buffer_size: int, parallel_config: ParallelConfig, local_rank: int=None):
+        if local_rank is None:
+            local_rank = int(os.getenv("LOCAL_RANK"))
+
+        tp_size = parallel_config.tensor_model_parallel_size
+        if tp_size == 1:
+            super().init_nvshmem(buffer_size, local_rank)
+            self.as_world_size = self.world_size
+            self.as_rank = self.rank
+
+        initialize_attention_server_comm()
+        group = get_attn_server_group_gloo()
+        as_world_size = torch.distributed.get_world_size(group=group)
+        as_rank = get_attn_server_rank()
+        as_src_rank = get_attn_server_group_src_rank()
+
+        self.as_world_size = as_world_size
+        self.as_rank = as_rank
+        if as_rank == 0:
+            uid = nvshmem_get_unique_id()
+        else:
+            uid = nvshmem_alloc_empty_unique_id()
+        torch.distributed.broadcast(uid, src=as_src_rank, group=group)
+        FastDispatcherWrapper.init(
+            as_rank, local_rank, as_world_size, buffer_size, uid
+        )
+
 
     def init_comm(self, buffer_size: int, parallel_config: ParallelConfig, local_rank: Optional[int] = None):
         # Init megatron communication.
-        super().init_comm(buffer_size, local_rank)
+        self.init_torch_distributed()
         # NOTE: do not set to local_rank here because the cuda visible device is set by ray.
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=parallel_config.tensor_model_parallel_size,
@@ -96,6 +141,7 @@ class MegatronBaseWorker(BaseWorker):
             expert_tensor_parallel_size=parallel_config.expert_tensor_parallel_size,
             nccl_communicator_config_path=None,
         )
+        self.init_nvshmem(buffer_size, parallel_config, local_rank)
 
 
 def init_worker_torch_distributed(

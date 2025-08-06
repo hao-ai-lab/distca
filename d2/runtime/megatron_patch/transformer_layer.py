@@ -3,30 +3,20 @@ from typing import Any, Dict, List, Optional, Union
 import types
 
 import torch
-import torch.distributed
 from torch import Tensor
 
 from megatron.core import tensor_parallel
 from megatron.core.inference.contexts import BaseInferenceContext
-from megatron.core.models.common.embeddings.rope_utils import (
-    apply_rotary_pos_emb,
-)
 from megatron.core.models.gpt.gpt_model import GPTModel
-from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.transformer_block import (
     TransformerBlock as MegatronTransformerBlock
-)
-from megatron.core.transformer.transformer_config import TransformerConfig
-from megatron.core.transformer.transformer_layer import (
-    TransformerLayer as MegatronTransformerLayer,
-    TransformerLayerSubmodules,
 )
 from megatron.core.utils import WrappedTensor, make_viewless_tensor
 
 from d2.runtime.megatron_patch.base_transformer_layer import TransformerLayer as BaseTransformerLayer
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron_patch.stream_sync_fn import TickSync
-from d2.runtime.megatron_patch.fast_dispatch_fn import (
+from d2.runtime.fast_dispatch_fn import (
     all_to_all, post_all2all_layout_transfer, pre_all2all_layout_transfer
 )
 
@@ -81,7 +71,8 @@ class TransformerLayer(BaseTransformerLayer):
         torch.cuda.nvtx.range_push("pre_attn_to_mlp")
         num_heads = self.config.num_attention_heads
         head_dim = self.config.hidden_size // self.config.num_attention_heads
-        attn_out = attn_out.view(attn_out.shape[0], num_heads * head_dim)
+        num_heads_local = num_heads // self.config.tensor_model_parallel_size
+        attn_out = attn_out.view(attn_out.shape[0], num_heads_local * head_dim)
         ####
         signal = pre_all2all_layout_transfer.apply(
             attn_out, None, None,
@@ -99,6 +90,8 @@ class TransformerLayer(BaseTransformerLayer):
     ):
         num_heads = self.config.num_attention_heads
         head_dim = self.config.hidden_size // num_heads
+        tp_size = self.config.tensor_model_parallel_size
+        num_heads_local = num_heads // tp_size
         torch.cuda.nvtx.range_push("post_attn_to_mlp")
         attn_out = post_all2all_layout_transfer.apply(
             signal,
@@ -108,7 +101,7 @@ class TransformerLayer(BaseTransformerLayer):
             False,  # is_qkv
         )
         attn_out = attn_out.reshape(
-            attn_out.shape[0], 1, num_heads * head_dim,
+            attn_out.shape[0], 1, num_heads_local * head_dim,
         ).contiguous()
         torch.cuda.nvtx.range_pop()
         return attn_out
@@ -130,10 +123,11 @@ class TransformerLayer(BaseTransformerLayer):
         num_q_heads = self.config.num_attention_heads
         num_kv_heads = self.config.num_query_groups or self.config.num_attention_heads
         head_dim = self.config.hidden_size // num_q_heads
+        tp_size = self.config.tensor_model_parallel_size
         # TODO: write memcpy to nvshmem buffer kernel with stride support.
-        query = query.reshape(query.shape[0], num_q_heads * head_dim)
-        key = key.reshape(key.shape[0], num_kv_heads * head_dim)
-        value = value.reshape(value.shape[0], num_kv_heads * head_dim)
+        query = query.reshape(query.shape[0], num_q_heads * head_dim // tp_size)
+        key = key.reshape(key.shape[0], num_kv_heads * head_dim // tp_size)
+        value = value.reshape(value.shape[0], num_kv_heads * head_dim // tp_size)
         ####
         signal = pre_all2all_layout_transfer.apply(
             query, key, value,
@@ -153,6 +147,10 @@ class TransformerLayer(BaseTransformerLayer):
         num_q_heads = self.config.num_attention_heads
         num_kv_heads = self.config.num_query_groups or self.config.num_attention_heads
         head_dim = self.config.hidden_size // num_q_heads
+
+        tp_size = self.config.tensor_model_parallel_size
+        num_q_heads_local = num_q_heads // tp_size
+        num_kv_heads_local = num_kv_heads // tp_size
         torch.cuda.nvtx.range_push("post_mlp_to_attn")
         query, key, value = post_all2all_layout_transfer.apply(
             signal,
@@ -161,9 +159,9 @@ class TransformerLayer(BaseTransformerLayer):
             packed_seq_params.dispatcher_id,
             True,  # is_qkv
         )
-        query = query.view(query.shape[0], num_q_heads, head_dim).contiguous()
-        key = key.view(key.shape[0], num_kv_heads, head_dim).contiguous()
-        value = value.view(value.shape[0], num_kv_heads, head_dim).contiguous()
+        query = query.view(query.shape[0], num_q_heads_local, head_dim).contiguous()
+        key = key.view(key.shape[0], num_kv_heads_local, head_dim).contiguous()
+        value = value.view(value.shape[0], num_kv_heads_local, head_dim).contiguous()
         torch.cuda.nvtx.range_pop()
         return query, key, value
 
