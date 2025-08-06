@@ -1,26 +1,16 @@
 """
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
-torchrun --nnodes 1 --nproc_per_node 2 test_megatron_layer.py \
+torchrun --nnodes 1 --nproc_per_node 2 test_megatron_layer_bwd_resend.py \
     --world-size 2
 """
 
-from typing import Optional
-
 from megatron.core.packed_seq_params import PackedSeqParams
-from megatron.core.transformer.spec_utils import ModuleSpec, build_module
-from megatron.core.transformer.transformer_config import TransformerConfig
 import torch
 
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
-from d2.runtime.megatron_patch.model_patch import get_gpt_layer_with_transformer_engine_spec, get_gpt_config
 from d2.runtime.megatron_patch.packed_seq_params import PingPangSingleStepPackedSeqParams
-from d2.runtime.megatron_patch.transformer_layer import TransformerLayer as PingPangTransformerLayer
-from d2.runtime.fast_alltoall_metadata import compute_fa2a_metadata_from_logical_metadata
 
-from test_util import (
-    ParallelConfig, create_qkv_dispath_with_backward, simulate_communication,
-    init_worker_torch_distributed,
-)
+from test_util import create_qkv_dispath_with_backward
 from test_megatron_layer import MegatronLayerWorker, init_megatron_test
 
 
@@ -98,7 +88,7 @@ def test(args):
     hidden_size = args.hidden_size
     max_cp_degree = args.max_cp_degree
     seed = args.seed
-    tp_size = args.tp_size
+    tp_size = 1
     num_heads = args.num_heads
     dtype = torch.float16
     num_query_heads = num_heads
@@ -126,7 +116,6 @@ if __name__ == "__main__":
     # NOTE: when increasing this value, remember to increase num-heads as well
     # because FA2 only supports head_dim_qk <= 256.
     parser.add_argument("--hidden-size", type=int, default=128)
-    parser.add_argument("--tp-size", type=int, default=1)
     parser.add_argument("--num-heads", type=int, default=2)
     args = parser.parse_args()
     test(args)

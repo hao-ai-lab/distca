@@ -511,6 +511,9 @@ def compute_fa2a_metadata_from_logical_metadata(
     recver_transfer_sz_kv = (
         fwd_metadata_kv.num_recv_tokens * bytes_k
     )[..., :-1]
+    recver_transfer_sz_attn_out = (
+        fwd_metadata_q.num_recv_tokens * bytes_attn_out
+    )[..., :-1]
 
     num_recv_seqs_q = bwd_metadata_q.num_seqs
     num_recv_seqs_kv = bwd_metadata_kv.num_seqs
@@ -549,7 +552,7 @@ def compute_fa2a_metadata_from_logical_metadata(
     tensor_shape = [tensor_shape[0]]
     attn_out_bwd_fa2a_metadata = compute_backward_attn_out_a2a_layout_metadata(
         tokens_to_dst_per_dispatch_q.squeeze(2), q_seq_to_dst,
-        recver_transfer_sz_q, num_recv_seqs_q, bytes_attn_out,
+        recver_transfer_sz_attn_out, num_recv_seqs_q, bytes_attn_out,
         seq_lens=seqlens, tensor_shape=tensor_shape,
     )
     attn_out_fwd_fa2a_metadata = compute_reverse_a2a_layout_metadata(
@@ -647,6 +650,7 @@ def forward_backward_with_resend_e2e_metadata(
     softmax_lse_size: int,  # size of the softmax_lse tensor, should be num_heads
 ):
     # Step 1: compute forward communication
+    # NOTE: the two bwd_metadata here are actually not in use!
     (fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,
      fa_fwd_params, fa2a_fwd_metadata) = compute_e2e_fa2a_metadata(
         mlp_seq_len, mlp_num_seqs, mlp_q_dispatch_fwd,
