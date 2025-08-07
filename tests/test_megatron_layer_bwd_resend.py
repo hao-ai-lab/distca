@@ -57,7 +57,7 @@ def test_forward(
     seq_lens_local = seq_lens[rank][:num_seqs]
     packed_seq_params = mlp_layout_packed_params(seq_lens_local)
     normal_forward_out, debug_ref = worker.forward_normal(
-        tensor_shard, packed_seq_params
+        tensor_shard, packed_seq_params, return_grad=True
     )
 
     ping_pang_params = PingPangSingleStepPackedSeqParams(
@@ -73,7 +73,7 @@ def test_forward(
         bwd_packed_seq_params=bwd_packed_seq_params,
     )
     ping_pang_out, debug_out = worker.forward_ping_pang_one_stage(
-        tensor_shard, ping_pang_params
+        tensor_shard, ping_pang_params, return_grad=True
     )
     ref_debug = [None] * world_size
     ans_debug = [None] * world_size
