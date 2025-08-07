@@ -12,7 +12,10 @@ import torch
 from d2.runtime.attn_kernels.ops import (
     nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, FastDispatcherWrapper
 )
-from d2.runtime.fast_alltoall_metadata import  compute_fa2a_metadata_from_logical_metadata, forward_backward_with_resend_e2e_metadata
+from d2.runtime.fast_alltoall_metadata import (
+    compute_fa2a_metadata_from_logical_metadata,
+    forward_backward_with_resend_e2e_metadata,
+)
 from d2.runtime.inplace_metadata import (
     Metadata, compute_attn_layout_seqlens, compute_metadata,
     compute_metadata_kv, exclusive_cumsum
