@@ -113,7 +113,7 @@ def _qkv_to_attn_out_bwd(
 
     dq, dk, dv = torch.empty_like(q), torch.empty_like(k), torch.empty_like(v)
     _wrapped_flash_attn_varlen_backward(
-        dout_padded, q.contiguous(), k, v, out_padded.contiguous(), softmax_lse, dq, dk, dv,
+        dout_padded, q, k, v, out_padded.contiguous(), softmax_lse, dq, dk, dv,
         cu_seqlen_q, cu_seqlen_kv, max_seqlen_q, max_seqlen_kv,
         fa_args.dropout_p, softmax_scale, fa_args.causal,
         fa_args.window_size[0], fa_args.window_size[1], fa_args.softcap, fa_args.alibi_slopes,
@@ -185,13 +185,13 @@ class FusedCommAttn(torch.autograd.Function):
         # Step 3: pre-dispatch attn out
         assert attn_out.shape == recv_q.shape
         softmax_lse_dtype = softmax_lse.dtype
-        softmax_lse = softmax_lse.T.contiguous().view(attn_out.dtype)
+        softmax_lse = softmax_lse.T.contiguous()
         attn_out = pre_fast_a2a_attn_out_with_lse(
             attn_out, softmax_lse, fwd_attn_out_metadata.seq_lens[0].send_seqlens,
             fwd_attn_out_metadata.send_memcpy_metadata[0],
             dispatcher_id,
         )
-        signal = torch.empty((1,), device=attn_out.device, dtype=attn_out.dtype)
+        signal = torch.empty((1,), device=signal.device, dtype=signal.dtype)
 
         saved_tensors.extend([
             bwd_attn_out_qkv_metadata.seq_lens[0].recv_seqlens,
@@ -228,6 +228,7 @@ class FusedCommAttn(torch.autograd.Function):
         (recv_attn_out_grad, recv_attn_out, recv_lse, recv_q, recv_k, recv_v
          ) = post_fast_a2a_attn_out_grad_resend_qkv(
             ctx.attn_out_shape, ctx.softmax_lse_shape, ctx.bwd_q_shape,
+            ctx.softmax_lse_dtype,
             recv_k, recv_v,
             None,
             bwd_attn_out_qkv_recv_seqlens_q, bwd_attn_out_qkv_recv_seqlens_k,
@@ -237,7 +238,7 @@ class FusedCommAttn(torch.autograd.Function):
             switch_buffer=switch_buffer,
             instance_id=dispatcher_id,
         )
-        recv_lse = recv_lse.view(ctx.softmax_lse_dtype).T
+        recv_lse = recv_lse.T.contiguous()
         # Step 2: call FA bwd.
         dq, dk, dv = _qkv_to_attn_out_bwd(
             recv_q, recv_k, recv_v, recv_attn_out, recv_attn_out_grad,
@@ -270,20 +271,25 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
         recv_shape = metadata.tensor_shape[0].recv_shape
         recv_attn_out = torch.empty(
             recv_shape, dtype=signal.dtype, device=signal.device
-        )
-        post_fast_a2a_attn_out(
+        ).view(torch.uint8)
+
+        recv_attn_out = post_fast_a2a_attn_out(
             recv_attn_out,
             metadata.seq_lens[0].recv_seqlens,
             *metadata.recv_memcpy_metadata,
             switch_buffer=switch_buffer,
             instance_id=dispatcher_id,
         )
-        hidden_size = math.prod(q.shape[1:])
-        lse_size = num_heads_q * torch.float32.itemsize // signal.itemsize
-        attn_out = recv_attn_out[:, :hidden_size].unsqueeze(1)
-        softmax_lse = recv_attn_out[:, hidden_size:hidden_size + lse_size]
+
+        lse_dtype = torch.float32
+        hidden_bytes = math.prod(q.shape[1:]) * signal.itemsize // torch.uint8.itemsize
+        lse_bytes = num_heads_q * lse_dtype.itemsize // torch.uint8.itemsize
+
+        attn_out = recv_attn_out[:, :hidden_bytes].view(signal.dtype).unsqueeze(1)
+        softmax_lse_bytes = recv_attn_out[:, hidden_bytes:hidden_bytes + lse_bytes]
+
         ctx.save_for_backward(
-            q, k, v, attn_out, softmax_lse,
+            q, k, v, attn_out, softmax_lse_bytes,
             bwd_attn_out_qkv_metadata.kv_replica_mask,
             # q_grad, k_grad send shape
             bwd_attn_out_qkv_metadata.seq_lens[0].send_seqlens,
@@ -296,7 +302,7 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_attn_out: Tensor):
-        q, k, v, attn_out, softmax_lse, *send_metadata = ctx.saved_tensors
+        q, k, v, attn_out, softmax_lse_bytes, *send_metadata = ctx.saved_tensors
 
         attn_out = attn_out.reshape(attn_out.shape[0], -1)
         grad_attn_out = grad_attn_out.reshape(grad_attn_out.shape[0], -1)
@@ -305,7 +311,7 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
         v = v.reshape(v.shape[0], -1)
 
         pre_fast_a2a_attn_out_grad_resend_qkv(
-            grad_attn_out, attn_out, softmax_lse, q, k, v,
+            grad_attn_out, attn_out, softmax_lse_bytes, q, k, v,
             *send_metadata,
             instance_id=ctx.dispatcher_id
         )
