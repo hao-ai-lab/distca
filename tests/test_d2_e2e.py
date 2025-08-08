@@ -303,7 +303,6 @@ from d2.runtime.fast_alltoall_metadata import compute_fa2a_metadata_from_logical
 from typing import Iterable, List
 from d2.planner.samples import sample_wlbllm_docs_upsample, batch_documents
 
-
 ITERATION_ID = 0
 GLOBAL_BATCH: Iterable[List[int]] = None
 
@@ -508,18 +507,11 @@ def test(args):
         if sample_id == 0:
             # Warmup
             for _ in range(5):
-                # print(f"Rank {rank} forward_backward_batch[{_}]: starting")
                 ref = worker.forward_backward_batch(
                     microbatches=microbatches,
                     normal_forward_fn=False,
                     forward_only=False,
                 )
-                # print(f"Rank {rank} forward_backward_batch[{_}]: returned")
-                # if SYNC_ALL:
-                #     torch.cuda.synchronize()
-                #     print(f"Rank {rank} forward_backward_batch[{_}]: synchronize done")
-                #     torch.distributed.barrier()
-                #     print(f"Rank {rank} forward_backward_batch[{_}]: barrier done")
             time.sleep(1)
             torch.cuda.synchronize()
             torch.distributed.barrier()
