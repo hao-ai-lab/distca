@@ -294,7 +294,7 @@ GLOBAL_BATCH: Iterable[List[int]] = None
 
 K = 1024
 
-def setup_global_batch():
+def setup_global_batch(total_seq_len):
     global GLOBAL_BATCH
     if GLOBAL_BATCH is not None:
         return
@@ -305,9 +305,9 @@ def setup_global_batch():
             upsample_long_factor=2,
             filter_threshold=10000,
             filter_ratio=0.09,
-        ), max_ctx_length=16 * K
+        ), max_ctx_length=total_seq_len
     )
-    pass
+    return
 
 def get_next_batch(dp_size):
     global GLOBAL_BATCH
@@ -323,7 +323,7 @@ def test_create_qkv_dispatch_balanced_flops(
     world_size_, total_seq_len_, num_seqs_, max_cp_degree_, 
     verbose=False, return_intermediate=False, return_mlp_no_shard_seq_lens=False,
 ):
-    setup_global_batch()
+    setup_global_batch(total_seq_len_)
     K = 1024
 
     from d2.planner.equal_flops import (
@@ -350,12 +350,12 @@ def test_create_qkv_dispatch_balanced_flops(
 
     """
 
-    items_list = [
-        [16 * K] * 1,
-        [4 * K] * 4,
-    ]
-    items_list = items_list[:world_size_]
-    # items_list = get_next_batch(world_size_)
+    # items_list = [
+    #     [16 * K] * 1,
+    #     [4 * K] * 4,
+    # ]
+    # items_list = items_list[:world_size_]
+    items_list = get_next_batch(world_size_)
     rich.print(f"Generate Sample ID={ITERATION_ID}: {items_list}")
 
     total_seq_len = max(sum(batch) for batch in items_list)
