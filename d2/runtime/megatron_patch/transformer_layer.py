@@ -614,12 +614,12 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
             )
 
         # tick 1
+        # communication
+        arg_group_0 = _layout_mlp_to_attn(layer, arg_group_0)
         # compute
         if l_no > 0:
             arg_group_1 = _forward_post_core_attn(prev_layer, arg_group_1)
         arg_group_1 = _forward_pre_core_attn(layer, arg_group_1)
-        # communication
-        arg_group_0 = _layout_mlp_to_attn(layer, arg_group_0)
         _tick_sync(
             compute_stream, self.comm_stream,
             arg_group_0, "signal",  # comm out
@@ -627,10 +627,10 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         )
 
         # tick 2
-        # compute
-        arg_group_0 = _forward_core_attn(layer, arg_group_0)
         # communication
         arg_group_1 = _layout_mlp_to_attn(layer, arg_group_1)
+        # compute
+        arg_group_0 = _forward_core_attn(layer, arg_group_0)
         _tick_sync(
             compute_stream, self.comm_stream,
             arg_group_0, "signal",  # compute out
@@ -638,10 +638,10 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         )
 
         # tick 3
-        # compute
-        arg_group_1 = _forward_core_attn(layer, arg_group_1)
         # communication
         arg_group_0 = _layout_attn_to_mlp(layer, arg_group_0)
+        # compute
+        arg_group_1 = _forward_core_attn(layer, arg_group_1)
         _tick_sync(
             compute_stream, self.comm_stream,
             arg_group_0, "signal",  # comm out
@@ -649,10 +649,10 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         )
 
         # tick 4, also the tick 0 of the next layer
-        # compute
-        arg_group_0 = _forward_post_core_attn(layer, arg_group_0)
         # communication
         arg_group_1 = _layout_attn_to_mlp(layer, arg_group_1)
+        # compute
+        arg_group_0 = _forward_post_core_attn(layer, arg_group_0)
         # NOTE: communication of this tick is at the next layer.
 
         # if the last layer, do the other half of tick 4 and tick 5
