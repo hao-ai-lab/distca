@@ -4,19 +4,34 @@
 # - Node 0
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 \
-    --master_addr=fs-mbz-gpu-717 --master_port=29500 test_d2_e2e.py \
-    --num-nodes=2 --num-gpus-per-node=8 --tp-size=4 --num-seq 8 --cp-degree 6 --total-seq-len 16384
+    --master_addr=<master_ip> --master_port=29500 test_d2_e2e.py \
+    --num-nodes=2 --num-gpus-per-node=8 --tp-size=4  --total-seq-len 16384
 
 # - Node 1
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 \
-    --master_addr=fs-mbz-gpu-717 --master_port=29500 test_d2_e2e.py \
-    --num-nodes=2 --num-gpus-per-node=8 --tp-size=4 --num-seq 8 --cp-degree 6 --total-seq-len 16384
+    --master_addr=<master_ip> --master_port=29500 test_d2_e2e.py \
+    --num-nodes=2 --num-gpus-per-node=8 --tp-size=4  --total-seq-len 16384
+
+
+# 🟢 Passed: TP = 8, DP = 2
+# - Node 0
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 \
+    --master_addr=<master_ip> --master_port=29500 test_d2_e2e.py \
+    --num-nodes=2 --num-gpus-per-node=8 --tp-size=8  --num-tokens 16384
+
+# - Node 1
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 \
+    --master_addr=<master_ip> --master_port=29500 test_d2_e2e.py \
+    --num-nodes=2 --num-gpus-per-node=8 --tp-size=8  --num-tokens 16384
 
 """
 import argparse
 import rich
 import os
+import time
 
 from megatron.core import mpu
 from megatron.core.optimizer import get_megatron_optimizer
@@ -294,6 +309,9 @@ GLOBAL_BATCH: Iterable[List[int]] = None
 
 K = 1024
 
+
+iterated_samples = []
+
 def setup_global_batch(total_seq_len):
     global GLOBAL_BATCH
     if GLOBAL_BATCH is not None:
@@ -312,11 +330,13 @@ def setup_global_batch(total_seq_len):
 def get_next_batch(dp_size):
     global GLOBAL_BATCH
     global ITERATION_ID
+    global iterated_samples
     # get dp_size number of batches 
     batches = []
     for _ in range(dp_size):    
         batches.append(next(GLOBAL_BATCH))
     ITERATION_ID += 1
+    iterated_samples.append(batches)
     return batches
 
 def test_create_qkv_dispatch_balanced_flops(
@@ -332,31 +352,11 @@ def test_create_qkv_dispatch_balanced_flops(
         item_to_intermediate_tensors,
     )
 
-    # items_list = [
-    #     [4 * K] * 1,
-    #     [2 * K] * 2,
-    #     [1 * K] * 4,
-    #     [512] * 8,
-
-    #     [2 * K] * 2,
-    #     [1 * K] * 4,
-    #     [512] * 8,
-    #     [512] * 8,
-    # ]
-    """
-
-    Generate Sample ID=1: [[12786, 3598], [16384], [8866, 785, 2622, 3023, 313, 775], [3782, 344, 4034, 1305, 496, 2001, 4422]]
-    Generate Sample ID=2: [[11855, 4529], [7779, 3201, 3622, 1782], [10681, 5703], [138, 10797, 1055, 4394]]
-
-    """
-
-    # items_list = [
-    #     [16 * K] * 1,
-    #     [4 * K] * 4,
-    # ]
-    # items_list = items_list[:world_size_]
     items_list = get_next_batch(world_size_)
-    rich.print(f"Generate Sample ID={ITERATION_ID}: {items_list}")
+    
+    rank = torch.distributed.get_rank()
+    if rank == 0:
+        rich.print(f"Generate Sample ID={ITERATION_ID}: {items_list}")
 
     total_seq_len = max(sum(batch) for batch in items_list)
     assert total_seq_len == total_seq_len_, f"This test forces total_seq_len = {total_seq_len_}, got {total_seq_len=}"
@@ -367,12 +367,8 @@ def test_create_qkv_dispatch_balanced_flops(
     world_info, (items, info_mapping, info_list), (seq_lens, cp_num, cp_dst, seq_shard_lens) = item_to_intermediate_tensors(items)    
 
     world_size = world_info["world_size"]
-    # num_seqs = world_info["num_seqs"]
-    # max_cp_degree = world_info["max_cp_degree"]
 
     assert world_size == world_size_
-    # assert world_size == world_size_ and num_seqs == num_seqs_ and max_cp_degree == max_cp_degree_, \
-    #     f"This test forces world_size = {world_size}, num_seqs = {num_seqs}, max_cp_degree = {max_cp_degree}, got {world_size_=}, {num_seqs_=}, {max_cp_degree_=}"
 
     ret = create_qkv_dispatch_with_custom_mapping(
         world_size, 
@@ -461,86 +457,103 @@ def test(args):
     hidden_size_q_tp = hidden_size_q // tp_size
     hidden_size_k_tp = hidden_size_kv // tp_size
 
-    _, fa2a_metadata_0, attn_metadata_0, raw_seq_lens_0 = create_one_batch_balanced_flops(
-        as_world_size, total_seq_len, num_seqs, max_cp_degree,
-        hidden_size_q_tp, hidden_size_k_tp, element_size
-    )
-    _, fa2a_metadata_1, attn_metadata_1, raw_seq_lens_1 = create_one_batch_balanced_flops(
-        as_world_size, total_seq_len, num_seqs, max_cp_degree,
-        hidden_size_q_tp, hidden_size_k_tp, element_size
-    )
+    # TODO(Refactor): Properly refactor this into a function and we call it multiple times
 
-    set_random_seed(seed, set_megatron=False)
-    input_ids = torch.randint(0, 100, (as_world_size, total_seq_len * 2))
-    position_ids = torch.arange(total_seq_len).repeat(as_world_size, 2)
-    input_ids_local = input_ids[as_rank]
-    position_ids_local = position_ids[as_rank]
-    ping_pang_params_0 = get_single_step_packed_seq_params(
-        fa2a_metadata_0, attn_metadata_0, as_rank
-    )
-    ping_pang_params_1 = get_single_step_packed_seq_params(
-        fa2a_metadata_1, attn_metadata_1, as_rank
-    )
+    max_sample_id = 10
+    sample_times = []
+    for sample_id in range(max_sample_id):
 
-    # NOTE: we don't consider that seq_lens var has padding because our data generation
-    # guarantees so. However, in practice, this is not true.
-    mlp_seq_params_0 = mlp_layout_packed_params(raw_seq_lens_0[as_rank])
-    mlp_seq_params_1 = mlp_layout_packed_params(raw_seq_lens_1[as_rank])
-    ping_pang_params = PingPangPackedSeqParams(
-        seq_params=[ping_pang_params_0, ping_pang_params_1],
-        mlp_layout_seq_params=[mlp_seq_params_0, mlp_seq_params_1],
-        max_seqlen_q=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
-        max_seqlen_kv=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
-        qkv_format="thd",
-    )
-    microbatch = {
-        "input_ids": input_ids_local,
-        "position_ids": position_ids_local,
-        "packed_seq_params": ping_pang_params,
-    }
-    # print(rank, microbatch["packed_seq_params"])
-    microbatches = [microbatch]
-    import time
-    # for _ in range(3):
-    for _ in range(1):
-        print(f"Rank {rank} forward_backward_batch[{_}]: starting")
-        ref = worker.forward_backward_batch(
-            microbatches=microbatches,
-            normal_forward_fn=False,
-            forward_only=False,
+        _, fa2a_metadata_0, attn_metadata_0, raw_seq_lens_0 = create_one_batch_balanced_flops(
+            as_world_size, total_seq_len, num_seqs, max_cp_degree,
+            hidden_size_q_tp, hidden_size_k_tp, element_size
         )
-        print(f"Rank {rank} forward_backward_batch[{_}]: returned")
-        if SYNC_ALL:
-            torch.cuda.synchronize()
-            print(f"Rank {rank} forward_backward_batch[{_}]: synchronize done")
-            torch.distributed.barrier()
-            print(f"Rank {rank} forward_backward_batch[{_}]: barrier done")
-    time.sleep(1)
-    torch.cuda.synchronize()
-    torch.distributed.barrier()
-    if rank == 0:
-        print("=" * 20 + "warmup done")
-    
-    N = 3
-    start_time = time.time()
-    for _ in range(N):
-        print(f"Rank {rank} forward_backward_batch[{_}]: starting")
-        ref = worker.forward_backward_batch(
-            microbatches=microbatches,
-            normal_forward_fn=False,
-            forward_only=False,
+        _, fa2a_metadata_1, attn_metadata_1, raw_seq_lens_1 = create_one_batch_balanced_flops(
+            as_world_size, total_seq_len, num_seqs, max_cp_degree,
+            hidden_size_q_tp, hidden_size_k_tp, element_size
         )
-        print(f"Rank {rank} forward_backward_batch[{_}]: returned")
-        if SYNC_ALL:
+
+        set_random_seed(seed, set_megatron=False)
+        input_ids = torch.randint(0, 100, (as_world_size, total_seq_len * 2))
+        position_ids = torch.arange(total_seq_len).repeat(as_world_size, 2)
+        input_ids_local = input_ids[as_rank]
+        position_ids_local = position_ids[as_rank]
+        ping_pang_params_0 = get_single_step_packed_seq_params(
+            fa2a_metadata_0, attn_metadata_0, as_rank
+        )
+        ping_pang_params_1 = get_single_step_packed_seq_params(
+            fa2a_metadata_1, attn_metadata_1, as_rank
+        )
+
+        # NOTE: we don't consider that seq_lens var has padding because our data generation
+        # guarantees so. However, in practice, this is not true.
+        mlp_seq_params_0 = mlp_layout_packed_params(raw_seq_lens_0[as_rank])
+        mlp_seq_params_1 = mlp_layout_packed_params(raw_seq_lens_1[as_rank])
+        ping_pang_params = PingPangPackedSeqParams(
+            seq_params=[ping_pang_params_0, ping_pang_params_1],
+            mlp_layout_seq_params=[mlp_seq_params_0, mlp_seq_params_1],
+            max_seqlen_q=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
+            max_seqlen_kv=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
+            qkv_format="thd",
+        )
+        microbatch = {
+            "input_ids": input_ids_local,
+            "position_ids": position_ids_local,
+            "packed_seq_params": ping_pang_params,
+        }
+        # print(rank, microbatch["packed_seq_params"])
+        microbatches = [microbatch]
+
+        
+
+        if sample_id == 0:
+            # Warmup
+            for _ in range(5):
+                # print(f"Rank {rank} forward_backward_batch[{_}]: starting")
+                ref = worker.forward_backward_batch(
+                    microbatches=microbatches,
+                    normal_forward_fn=False,
+                    forward_only=False,
+                )
+                # print(f"Rank {rank} forward_backward_batch[{_}]: returned")
+                # if SYNC_ALL:
+                #     torch.cuda.synchronize()
+                #     print(f"Rank {rank} forward_backward_batch[{_}]: synchronize done")
+                #     torch.distributed.barrier()
+                #     print(f"Rank {rank} forward_backward_batch[{_}]: barrier done")
+            time.sleep(1)
             torch.cuda.synchronize()
-            print(f"Rank {rank} forward_backward_batch[{_}]: synchronize done")
             torch.distributed.barrier()
-            print(f"Rank {rank} forward_backward_batch[{_}]: barrier done")
-    end_time = time.time()
-    duration = end_time - start_time
-    duration_ms = duration * 1000
-    avg_duration_ms = duration_ms / N
-    print(f"Rank {rank} forward_backward_batch: time per iteration = {avg_duration_ms} ms")
+            if rank == 0:
+                print("=" * 20 + "warmup done")
+        
+        # Real Experiment
+        N = 5
+        torch.cuda.synchronize()
+
+        start_time = time.time()
+        for _ in range(N):
+            # print(f"Rank {rank} forward_backward_batch[{_}]: starting")
+            ref = worker.forward_backward_batch(
+                microbatches=microbatches,
+                normal_forward_fn=False,
+                forward_only=False,
+            )
+            # print(f"Rank {rank} forward_backward_batch[{_}]: returned")
+            # if SYNC_ALL:
+            #     torch.cuda.synchronize()
+            #     print(f"Rank {rank} forward_backward_batch[{_}]: synchronize done")
+            #     torch.distributed.barrier()
+            #     print(f"Rank {rank} forward_backward_batch[{_}]: barrier done")
+        
+        torch.cuda.synchronize()
+        torch.distributed.barrier()
+        end_time = time.time()
+        duration = end_time - start_time
+        duration_ms = duration * 1000
+        avg_duration_ms = duration_ms / N
+        sample_times.append(avg_duration_ms)
+        if rank == 0:
+            print(f"[Sample ID={sample_id}] forward_backward_batch: avg_time_per_iteration = {avg_duration_ms} ms")
 
     torch.cuda.synchronize()
     torch.distributed.barrier()
@@ -548,6 +561,8 @@ def test(args):
 
     if rank == 0:
         rich.print(f"🟢 Test {__file__} passed")
+        for idx, (sample, duration) in enumerate(zip(iterated_samples, sample_times)):
+            rich.print(f"🟢 Sample {idx}: {sample}, duration: {duration} ms")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
