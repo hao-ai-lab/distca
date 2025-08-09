@@ -706,10 +706,11 @@ def test(args):
             })
         
         # Write benchmark results to file
+        # TODO: Make the output directory configurable.
         file_dir = os.path.dirname(os.path.abspath(__file__))
-        benchmark_dir = os.path.join(file_dir, "..", "benchmarks")
+        benchmark_dir = os.path.join(file_dir, "..", "benchmarks", "_250809_e2e_benchmark", "data")
         os.makedirs(benchmark_dir, exist_ok=True)
-        benchmark_file = os.path.join(benchmark_dir, f"_250809_e2e_benchmark.{now_ts}.json")
+        benchmark_file = os.path.join(benchmark_dir, f"benchmark.{now_ts}.{mode}.json")
         
         with open(benchmark_file, 'w') as f:
             json.dump(benchmark_data, f, indent=2)
