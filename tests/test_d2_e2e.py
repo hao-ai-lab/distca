@@ -1,8 +1,25 @@
 """
+# Benchmark
 
-# Profile: Node = 2, TP = 8, CPDP = 2, SeqLen = 16k 
-# (testing 8k does not make comp/comm overlap)
+# 🟢 Passed: Node = 2, TP = 8, CPDP = 2, SeqLen = 16k 
+```bash
 
+NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
+    test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+
+NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
+    test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+
+```
+
+
+# Profile: 
+
+# 🟢 Passed: Node = 2, TP = 8, CPDP = 2, SeqLen = 16k 
+#   (testing 8k does not make comp/comm overlap)
+```bash
 mkdir -p nsys-profile
 # export NVSHMEM_DEBUG=DEBUG
 
@@ -15,7 +32,7 @@ NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 nsys profile --force-overwrite=true -o nsys-profile/test_d2_e2e.n1.t16k.nsys-rep -t cuda,nvtx \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
     test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
-
+```
 """
 import time
 import rich
@@ -529,7 +546,7 @@ def test(args):
         avg_duration_ms = duration_ms / N
         sample_times.append(avg_duration_ms)
         if rank == 0:
-            rich.print(f"[Sample ID={sample_id}] forward_backward_batch: avg_time_per_iteration = {avg_duration_ms} ms")
+            rich.print(f"[Sample ID=({2*sample_id+1}-{2*sample_id+2})] forward_backward_batch: avg_time_per_iteration = {avg_duration_ms} ms")
 
         time.sleep(2) # to ensure the profile sees a better profiling result
         torch.cuda.synchronize()
@@ -547,12 +564,13 @@ def test(args):
         rich.print(f"🟢 Test {__file__} passed")
         dp_size = world_size // tp_size
         config = dict(tp_size=tp_size, dp_size=dp_size, num_tokens=num_tokens)
-        rich.print(f"🟢 HF Config: ", hf_config)
+        rich.print(f"🟢 HF Config: {hf_config}")
         rich.print(f"🟢 Test Config: ", config)
         rich.print(f"🟢 Test DateTime: ", timestamp)
         for idx in range(len(sample_times)):
             samples = iterated_samples[2*idx: 2*idx+2]
             duration = sample_times[idx]
+            # total_flops_factor = 
             rich.print(f"🟢 Sample {idx}: {samples}, duration: {duration} ms")
 
         # for idx, (sample, duration) in enumerate(zip(iterated_samples, sample_times)):
