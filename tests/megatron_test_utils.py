@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 from enum import Enum
 import logging
 from typing import Callable
+import rich
+import os
 
 from megatron.core import mpu, tensor_parallel
 from megatron.core.transformer.module import Float16Module
@@ -362,9 +364,13 @@ def _override_hf_config_num_layers_with_env_var(hf_config: PretrainedConfig):
     # This is a temporary workaround to modify the number of layers for testing purposes.
     # Note: There appears to be an issue with the override config mechanism not properly
     # updating the HF config in some cases.
+
+    try:
+        rank = int(os.environ.get("RANK", 0))
+    except ValueError:
+        rank = 0
     
-    import rich
-    import os
+    
     num_layers = os.environ.get("NUM_LAYERS", None)
     
     if num_layers is not None:
@@ -378,7 +384,8 @@ def _override_hf_config_num_layers_with_env_var(hf_config: PretrainedConfig):
         else:
             # Fallback - try to set the most common attribute name
             hf_config.num_hidden_layers = num_layers
-        rich.print(f"Override HF Config: Set number of layers: {num_layers}. Now HF Config: ", str(hf_config))
+        if rank == 0:
+            rich.print(f"Override HF Config: Set number of layers: {num_layers}. Now HF Config: ", str(hf_config))
     return hf_config
     
 
