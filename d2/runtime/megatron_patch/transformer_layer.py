@@ -757,8 +757,9 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
             arg_group_1[key] = out_tensor
 
     def forward(self, *args, **kwargs):
-        if self._ping_pang_debug:
-            return self._normal_forward(*args, **kwargs)
+        # print(f'{self._ping_pang_debug=}')
+        # if self._ping_pang_debug:
+        return self._normal_forward(*args, **kwargs)
         assert self.ping_pong_comm_initialized
         return self.ping_pang_forward(*args, **kwargs)
 

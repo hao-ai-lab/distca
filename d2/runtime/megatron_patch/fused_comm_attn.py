@@ -208,7 +208,6 @@ class FusedCommAttn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, signal_grad: Tensor):
-        print(f'FusedCommAttn backward {signal_grad=}')
         dispatcher_id = ctx.dispatcher_id
         switch_buffer = ctx.dispatcher_id is None
         (bwd_qkv_grad_send_seqlens_q, bwd_qkv_grad_send_seqlens_k,
@@ -225,10 +224,6 @@ class FusedCommAttn(torch.autograd.Function):
         recv_k = torch.empty(
             recv_k_shape, dtype=signal_grad.dtype, device=signal_grad.device
         )
-        print(f'post attn_out grad {recv_k.device=}, {recv_k.shape=}, '
-              f'{bwd_attn_out_qkv_recv_seqlens_q=}, {bwd_attn_out_qkv_recv_seqlens_k=}, '
-              f'{bwd_attn_out_qkv_recv_q_offset=}, {bwd_attn_out_qkv_recv_k_offset=}, '
-              f'{bwd_attn_out_qkv_recv_v_offset=}')
         recv_v = torch.empty_like(recv_k)
         (recv_attn_out_grad, recv_attn_out, recv_lse, recv_q, recv_k, recv_v
          ) = post_fast_a2a_attn_out_grad_resend_qkv(
@@ -250,7 +245,6 @@ class FusedCommAttn(torch.autograd.Function):
             recv_lse, ctx.fa_args, bwd_attn_cu_seqlens_q, bwd_attn_cu_seqlens_kv,
             bwd_attn_max_seqlen_q, bwd_attn_max_seqlen_kv,
         )
-        print(f'pre qkv grad {dq.device=}, {dq.shape=}')
         # Step 3: pre-dispatch q_grad, k_grad, v_grad
         dq, dk, dv = pre_fast_a2a_qkv(
             dq, dk, dv, None, bwd_qkv_grad_send_seqlens_q, bwd_qkv_grad_send_seqlens_k,
@@ -316,16 +310,11 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
         k = k.reshape(k.shape[0], -1)
         v = v.reshape(v.shape[0], -1)
 
-        print(f'pre attn_out grad {q.device=}, {attn_out.shape=}, {send_metadata=}, {grad_attn_out=}')
-
         pre_fast_a2a_attn_out_grad_resend_qkv(
             grad_attn_out, attn_out, softmax_lse_bytes, q, k, v,
             *send_metadata,
             instance_id=ctx.dispatcher_id
         )
 
-        print(f'pre attn_out grad done {q.device=}, {attn_out.shape=}, {send_metadata=}')
-
         signal_grad = grad_attn_out.new_zeros((1,))
-        print(f'signal grad {signal_grad=}')
         return signal_grad, *((None,) * 7)

@@ -94,6 +94,9 @@ class MegatronE2eWorker(MegatronBaseWorker):
 
         })
         self._build_model_optimizer(model_path, optim_config, override_model_config, override_transformer_config)
+        assert self.device is not None
+        for module in self.train_module:
+            unwrap_model(module).init_ping_pong_communication_ctx(self.device)
 
     def _init_hf_config_and_tf_config(
         self,
@@ -278,7 +281,7 @@ class MegatronE2eWorker(MegatronBaseWorker):
 
 
 def init_megatron_e2e_test(
-    hidden_size_q: int, hidden_size_kv: int, num_tokens: int,
+    hidden_size_q: int, hidden_size_kv: int, num_heads: int, num_tokens: int,
     world_size: int, max_cp_degree: int, tp_size: int, pp_size: int,
     dtype, worker_cls=MegatronE2eWorker
 ):
@@ -287,9 +290,11 @@ def init_megatron_e2e_test(
     max_tokens_query = num_tokens * world_size
     max_tokens_key_value = num_tokens * world_size
     buffer_size = (
-        token_bytes_q * max_tokens_query +
+        token_bytes_q * max_tokens_query * 3 +
+        num_heads * torch.float32.itemsize * 2 * max_tokens_query +
         token_bytes_kv * max_tokens_key_value * max_cp_degree * 2
     )
+    print(f'{buffer_size=}', flush=True)
     parallel_config = ParallelConfig(
         tensor_model_parallel_size=tp_size,
         pipeline_model_parallel_size=pp_size,
@@ -324,7 +329,7 @@ def test(args):
                           hf_config.num_attention_heads)
 
     worker: MegatronE2eWorker = init_megatron_e2e_test(
-        hidden_size_q, hidden_size_kv, num_tokens,
+        hidden_size_q, hidden_size_kv, hf_config.num_attention_heads, num_tokens,
         world_size, max_cp_degree, tp_size, pp_size,
         dtype, MegatronE2eWorker
     )
