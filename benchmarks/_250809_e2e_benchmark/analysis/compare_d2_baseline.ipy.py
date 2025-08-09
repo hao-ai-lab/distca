@@ -3,8 +3,8 @@
 # # 64 K Comparison
 
 # %%
-d2_path       = "../data/benchmark.20250809_135610.d2.json"
-baseline_path = "../data/benchmark.20250809_135943.baseline.json"
+d2_path       = "../data/20250809_135610/d2.json"
+baseline_path = "../data/20250809_135610/baseline.json"
 
 # %%
 import json
