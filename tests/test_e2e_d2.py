@@ -6,11 +6,11 @@
 
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
-    test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+    test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
 
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
-    test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+    test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
 
 ```
 
@@ -19,12 +19,12 @@ torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr>
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
-        test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 65536
+        test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 65536
 
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
-        test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 65536
+        test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 65536
 ```
 
 # 🟢 Passed: Node = 2, TP = 8, CPDP = 2, SeqLen = 96k, num_layers = 4
@@ -32,12 +32,12 @@ NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
-        test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 98304
+        test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 98304
 
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
-        test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 98304
+        test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 98304
 ```
 
 
@@ -46,26 +46,26 @@ NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=fs-mbz-gpu-463 --master_port=29500 \
-        test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 131072
+        test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 131072
 
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=fs-mbz-gpu-463 --master_port=29500 \
-        test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 131072
+        test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 131072
 ```
 
 ```log
 [rank7]: Traceback (most recent call last):
-[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_d2_e2e.py", line 603, in <module>
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_d2.py", line 603, in <module>
 [rank7]:     test(args)
-[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_d2_e2e.py", line 471, in test
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_d2.py", line 471, in test
 [rank7]:     worker.init(model_path, seed=seed)
-[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_d2_e2e.py", line 128, in init
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_d2.py", line 128, in init
 [rank7]:     self._build_model_optimizer(model_path, optim_config, override_model_config, override_transformer_config)
-[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_d2_e2e.py", line 278, in _build_model_optimizer
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_d2.py", line 278, in _build_model_optimizer
 [rank7]:     train_module = make_model(wrap_with_ddp=True)
 [rank7]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_d2_e2e.py", line 271, in make_model
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_d2.py", line 271, in make_model
 [rank7]:     return get_model(
 [rank7]:            ^^^^^^^^^^
 [rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/megatron_test_utils.py", line 269, in get_model
@@ -96,12 +96,12 @@ mkdir -p nsys-profile
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 nsys profile --force-overwrite=true -o nsys-profile/test_d2_e2e.n0.t16k.nsys-rep -t cuda,nvtx \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
-    test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+    test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
 
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 nsys profile --force-overwrite=true -o nsys-profile/test_d2_e2e.n1.t16k.nsys-rep -t cuda,nvtx \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
-    test_d2_e2e.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+    test_e2e_d2.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
 ```
 """
 import time
