@@ -1,4 +1,78 @@
 """
+This doesn't work with the following error:
+
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 599, in <module>
+[rank1]:     test(args)
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 524, in test
+[rank1]:     ref = worker.forward_backward_batch(
+[rank1]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 300, in forward_backward_batch
+[rank1]:     losses_reduced = forward_backward_func(
+[rank1]:                      ^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2-megatron/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 498, in forward_backward_no_pipelining
+[rank1]:     output_tensor, num_tokens = forward_step(
+[rank1]:                                 ^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2-megatron/Megatron-LM/megatron/core/pipeline_parallel/schedules.py", line 277, in forward_step
+[rank1]:     output_tensor, loss_func = forward_step_func(data_iterator, model)
+[rank1]:                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 283, in forward_step
+[rank1]:     output = gptmodel_forward(
+[rank1]:              ^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/megatron_test_utils.py", line 583, in gptmodel_forward
+[rank1]:     output_orig = model(
+[rank1]:                   ^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1751, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1762, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2-megatron/Megatron-LM/megatron/core/distributed/data_parallel_base.py", line 22, in forward
+[rank1]:     return self.module(*inputs, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1751, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1762, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2-megatron/Megatron-LM/megatron/core/transformer/module.py", line 178, in forward
+[rank1]:     outputs = self.module(*inputs, **kwargs)
+[rank1]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1751, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1762, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2-megatron/Megatron-LM/megatron/core/models/gpt/gpt_model.py", line 293, in forward
+[rank1]:     rotary_pos_emb = self.rotary_pos_emb(
+[rank1]:                      ^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1751, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1762, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2-megatron/Megatron-LM/megatron/core/models/common/embeddings/rotary_pos_embedding.py", line 157, in forward
+[rank1]:     freqs = self.get_freqs_non_repeated(max_seq_len, offset)
+[rank1]:             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/weka/home/hao.zhang/jd/d2-megatron/Megatron-LM/megatron/core/models/common/embeddings/rotary_pos_embedding.py", line 122, in get_freqs_non_repeated
+[rank1]:     torch.arange(max_seq_len, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
+[rank1]: TypeError: arange() received an invalid combination of arguments - got (Tensor, dtype=torch.dtype, device=torch.device), but expected one of:
+[rank1]:  * (Number end, *, Tensor out = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+[rank1]:  * (Number start, Number end, *, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+[rank1]:  * (Number start, Number end, Number step = 1, *, Tensor out = None, torch.dtype dtype = None, torch.layout layout = None, torch.device device = None, bool pin_memory = False, bool requires_grad = False)
+"""
+
+"""
+Megatron E2E Baseline. 
+
+We want to forward x2 batches at a time.
+For example, if we have DP=2, then we will 
+forward 2 x 2 = 4 batches at a time. 
+
 # Debug
 
 ```bash
@@ -411,7 +485,7 @@ def setup_global_batch(total_seq_len):
     return
 
 
-def get_next_batch(dp_size):
+def get_next_batch(dp_size) -> Iterable[List[List[int]]]:
     global GLOBAL_BATCH
     global ITERATION_ID
     global iterated_samples
@@ -423,53 +497,8 @@ def get_next_batch(dp_size):
     iterated_samples.append(batches)
     return batches
 
-
-from test_util import (
-    create_raw_qkv_dispatch,
-)
-
-from d2.runtime.inplace_metadata import (
-    compute_metadata,
-    compute_metadata_kv,
-    compute_attn_layout_seqlens,
-)
-
-
-def create_qkv_dispatch(
-    world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
-    return_intermediate: bool=False, return_mlp_no_shard_seq_lens: bool=False
-):
-    (cp_seq_lens, num_cp_shards, cp_query_dst,
-     kv_to_q_mapping, kv_to_q_rank, kv_context_size,
-     q_to_num_kv_seq, q_to_num_kv_tokens,
-     seq_lens) = create_raw_qkv_dispatch(
-        world_size, total_seq_len, num_seqs, max_cp_degree,
-        return_mlp_no_shard_seq_lens
-    )
-    fwd_q_metadata, rev_q_metadata, q_intermediates = compute_metadata(
-        cp_seq_lens, cp_query_dst, return_intermediate=True
-    )
-    _, q_seq_to_dst, _ = q_intermediates
-    pad_len = torch.max(num_cp_shards)
-    fwd_k_metadata, rev_k_metadata, kv_intermediates = compute_metadata_kv(
-        kv_to_q_mapping, kv_to_q_rank, kv_context_size, q_to_num_kv_seq,
-        q_to_num_kv_tokens, cp_seq_lens, num_cp_shards, cp_query_dst,
-        q_seq_to_dst.squeeze(2), pad_len,
-        return_intermediate=True
-    )
-    attention_metadata = compute_attn_layout_seqlens(
-        cp_seq_lens, q_to_num_kv_tokens, cp_query_dst, shard_to_tuple=True
-    )
-    ret = (
-        fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata, attention_metadata
-    )
-    if return_intermediate:
-        intermediates = q_intermediates + kv_intermediates
-        ret += (intermediates,)
-    ret += seq_lens
-    return ret
-
-
+from itertools import accumulate
+from megatron.core.packed_seq_params import PackedSeqParams
 def test(args):
     seed = args.seed
     num_tokens = args.num_tokens
@@ -483,6 +512,8 @@ def test(args):
 
     dtype = torch.bfloat16
     element_size = dtype.itemsize
+
+    setup_global_batch(total_seq_len)
 
     model_path = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
     hf_config = AutoConfig.from_pretrained(model_path)
@@ -506,6 +537,12 @@ def test(args):
     rank = worker.rank
     as_rank = worker.as_rank
     as_world_size = worker.as_world_size
+    
+    # TODO: in the baseline testing, we should also consider 
+    # the Megatron native context parallel case.
+    dp_size = as_world_size
+    dp_rank = as_rank
+    assert isinstance(dp_rank, int), f"dp_rank must be an integer: {dp_rank}"
 
     hidden_size_q_tp = hidden_size_q // tp_size
     hidden_size_k_tp = hidden_size_kv // tp_size
@@ -514,28 +551,38 @@ def test(args):
     max_sample_id = 10
     sample_times = []
     for sample_id in range(max_sample_id):
-        (
-            fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
-            attention_metadata_attn_layout, intermediates, seq_lens
-        ) = create_qkv_dispatch(
-            as_world_size, total_seq_len, num_seqs, max_cp_degree,
-            return_intermediate=True, return_mlp_no_shard_seq_lens=True
-        )
-
-        # TODO(Refactor): Remove the `as_` part of the dependency.
-        # thd layout's hidden size input is "t,1,h"
-        # tensors = torch.randn(
-        #     (as_world_size, total_seq_len, 1, hidden_size_q), dtype=dtype
-        # )
-        # tensor_shard = tensors[as_rank]
-        input_ids = torch.randint(100, 10000, (as_world_size, total_seq_len))
+        device = worker.device
+        input_ids = torch.randint(100, 10000, (as_world_size, total_seq_len), device=device)
         input_ids_local = input_ids[as_rank]
-        # 1. normal forward. Need to provide the PackedSeqParams
-        seq_lens_local = seq_lens[as_rank][:num_seqs]
-        packed_seq_params = mlp_layout_packed_params(seq_lens_local)
         
         position_ids = torch.arange(total_seq_len, dtype=torch.int64).repeat(as_world_size, 2)
         position_ids_local = position_ids[as_rank]
+
+        # just pass in the PackedSeqParams
+        seq_lens: list[list[int]] = get_next_batch(dp_size)
+        my_seq_lens: list[int] = seq_lens[dp_rank]
+
+        cu_seqlens_q = torch.tensor([0] + list(accumulate(my_seq_lens)), dtype=torch.int32)
+        cu_seqlens_kv = cu_seqlens_q.clone()
+
+        max_seqlen_q = torch.tensor([max(my_seq_lens)], dtype=torch.int32)
+        max_seqlen_kv = max_seqlen_q.clone()
+
+        rich.print(f"cu_seqlens_q = {cu_seqlens_q}")
+        rich.print(f"cu_seqlens_kv = {cu_seqlens_kv}")
+        rich.print(f"max_seqlen_q = {max_seqlen_q}")
+        rich.print(f"max_seqlen_kv = {max_seqlen_kv}")
+        # exit(0)
+
+        packed_seq_params = PackedSeqParams(
+            qkv_format='thd',
+            cu_seqlens_q=cu_seqlens_q,
+            cu_seqlens_kv=cu_seqlens_kv,
+            max_seqlen_q=max_seqlen_q,
+            max_seqlen_kv=max_seqlen_kv,
+            # cu_seqlens_q_padded = None,
+            # cu_seqlens_kv_padded = None,
+        )
 
         microbatch = {
             # "input_ids": tensor_shard,
@@ -581,6 +628,7 @@ def test(args):
         avg_duration_ms = duration_ms / N
         sample_times.append(avg_duration_ms)
         if rank == 0:
+            rich.print(f"seq_lens = {seq_lens}")
             rich.print(f"[Sample ID=({2*sample_id+1}-{2*sample_id+2})] forward_backward_batch: avg_time_per_iteration = {avg_duration_ms} ms")
 
         time.sleep(2) # to ensure the profile sees a better profiling result
@@ -615,7 +663,7 @@ def test(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
-    parser.add_argument("--cp-degree", type=int, default=2)
+    parser.add_argument("--cp-degree", type=int, default=1)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)

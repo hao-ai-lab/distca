@@ -1,16 +1,16 @@
 """
-Megatron E2E Base Test. 
+Megatron E2E Baseline. 
 
-Note: You should use `test_e2e_baseline.py` for testing. 
-For testing, we want to forward x2 batches at a time, 
-instead of 1 batch at a time for this one.
+We want to forward x2 batches at a time.
+For example, if we have DP=2, then we will 
+forward 2 x 2 = 4 batches at a time. 
 
 # Debug
 
 ```bash
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes=1 --nproc_per_node=4 --node_rank=0 --master_addr=<master_addr> \
-    --master_port=29500 test_e2e_base.py --num-nodes=1 --num-gpus-per-node=4 --tp-size=1 --num-tokens 4096
+    --master_port=29500 test_e2e_baseline.py --num-nodes=1 --num-gpus-per-node=4 --tp-size=1 --num-tokens 4096
 ```
 
 # Benchmark
@@ -20,11 +20,11 @@ torchrun --nnodes=1 --nproc_per_node=4 --node_rank=0 --master_addr=<master_addr>
 
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
-    test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+    test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
 
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
-    test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+    test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
 
 ```
 
@@ -33,12 +33,12 @@ torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr>
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
-        test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 65536
+        test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 65536
 
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
-        test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 65536
+        test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 65536
 ```
 
 # ⚪ Not Tested: Node = 2, TP = 8, CPDP = 2, SeqLen = 96k, num_layers = 4
@@ -46,12 +46,12 @@ NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
-        test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 98304
+        test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 98304
 
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
-        test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 98304
+        test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 98304
 ```
 
 
@@ -60,13 +60,44 @@ NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=fs-mbz-gpu-463 --master_port=29500 \
-        test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 131072
+        test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 131072
 
 NUM_LAYERS=4 \
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=fs-mbz-gpu-463 --master_port=29500 \
-        test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 131072
+        test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 131072
 ```
+
+```log
+[rank7]: Traceback (most recent call last):
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 603, in <module>
+[rank7]:     test(args)
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 471, in test
+[rank7]:     worker.init(model_path, seed=seed)
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 128, in init
+[rank7]:     self._build_model_optimizer(model_path, optim_config, override_model_config, override_transformer_config)
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 278, in _build_model_optimizer
+[rank7]:     train_module = make_model(wrap_with_ddp=True)
+[rank7]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_baseline.py", line 271, in make_model
+[rank7]:     return get_model(
+[rank7]:            ^^^^^^^^^^
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2/tests/megatron_test_utils.py", line 269, in get_model
+[rank7]:     model_module.broadcast_params()
+[rank7]:   File "/mnt/weka/home/hao.zhang/jd/d2-megatron/Megatron-LM/megatron/core/distributed/distributed_data_parallel.py", line 516, in broadcast_params
+[rank7]:     torch.distributed.broadcast(
+[rank7]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/distributed/c10d_logger.py", line 81, in wrapper
+[rank7]:     return func(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/mnt/weka/home/hao.zhang/conda/miniconda/envs/jd-d2-megatron/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py", line 2714, in broadcast
+[rank7]:     work = group.broadcast([tensor], opts)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]: torch.distributed.DistBackendError: NCCL error in: /pytorch/torch/csrc/distributed/c10d/NCCLUtils.cpp:77, unhandled cuda error (run with NCCL_DEBUG=INFO for details), NCCL version 2.26.2
+[rank7]: ncclUnhandledCudaError: Call to CUDA function failed.
+[rank7]: Last error:
+[rank7]: Cuda failure 'invalid argument'
+```
+
 
 # Profile: 
 
@@ -79,12 +110,12 @@ mkdir -p nsys-profile
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 nsys profile --force-overwrite=true -o nsys-profile/test_d2_e2e.n0.t16k.nsys-rep -t cuda,nvtx \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
-    test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+    test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
 
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
 nsys profile --force-overwrite=true -o nsys-profile/test_d2_e2e.n1.t16k.nsys-rep -t cuda,nvtx \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
-    test_e2e_base.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
+    test_e2e_baseline.py --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384
 ```
 """
 
@@ -399,10 +430,6 @@ def get_next_batch(dp_size):
     return batches
 
 
-from test_util import (
-    create_raw_qkv_dispatch,
-)
-
 from d2.runtime.inplace_metadata import (
     compute_metadata,
     compute_metadata_kv,
@@ -410,16 +437,239 @@ from d2.runtime.inplace_metadata import (
 )
 
 
+def create_raw_qkv_dispatch(
+    world_size: int, 
+    seq_lens: 'torch.Tensor[world_size, max_num_seqs]',
+    # cp_num[src_rank, seq_id] = num_cp_shards
+    cp_num: 'torch.Tensor[world_size, max_num_seqs]',
+    # cp_dst[src_rank, seq_id, shard_id] = dst_rank (or -1 as null)
+    cp_dst: 'torch.Tensor[world_size, max_num_seqs, max_cp_degree]',
+    # seq_shard_lens[src_rank, seq_id, shard_id] = shard_len (or 0 as null)
+    seq_shard_lens: 'torch.Tensor[world_size, max_num_seqs, max_cp_degree]',
+    return_mlp_no_shard_seq_lens: bool=False,
+    verbose: bool=False,
+):
+    """NOTE: this is currently a dispatch tensor of not consider the 2CP optimization."""
+    # init sequence
+    
+    VERBOSE = verbose
+    def print_if_verbose(*args, **kwargs):
+        if VERBOSE:
+            rich.print(*args, **kwargs)
+
+    num_seqs = seq_lens.shape[1]
+    max_cp_degree = cp_dst.shape[2]
+    
+    assert seq_lens.shape == (world_size, num_seqs)
+    assert seq_lens.min() >= 0
+    assert cp_num.shape == (world_size, num_seqs)
+    assert cp_num.min() >= 0
+    assert cp_dst.shape == (world_size, num_seqs, max_cp_degree)
+
+    
+    print_if_verbose("seq_lens =", seq_lens)
+    print_if_verbose("cp_num =", cp_num)
+
+    def check_seq_lens():
+        for i in range(world_size):
+            for j in range(num_seqs):
+                if seq_lens[i, j] == 0:
+                    # Then everything k > j should also be 0
+                    for k in range(j + 1, num_seqs):
+                        assert seq_lens[i, k] == 0, f"seq_lens[{i}, {k}] = {seq_lens[i, k]} is not 0"
+        return
+
+    check_seq_lens()
+    print_if_verbose("seq_lens =", seq_lens)
+
+    # # init cp send dstination.
+    # cp_dst_helper = torch.rand((world_size, num_seqs, max_cp_degree)).argsort(dim=2)
+    # cp_dst_helper = cp_dst_helper % world_size # ensure everything is in the range of world_size
+    # cp_dst = cp_dst_helper[:, :, :max_cp_degree]
+    # mask = torch.arange(max_cp_degree).expand(world_size, num_seqs, max_cp_degree)
+    # cp_num_expanded = cp_num.unsqueeze(-1)
+    # mask = mask >= cp_num_expanded
+    # cp_dst[mask] = -1
+
+    # check: cp_dst[src_rank, seq_id, shard_id] >= 0 if shard_id < cp_num[src_rank, seq_id]
+    def check_cp_dst():
+        for i in range(world_size):
+            for j in range(num_seqs):
+                num_cp = int((cp_num[i, j]).item())
+                for k in range(max_cp_degree):
+                    if k < num_cp:
+                        assert cp_dst[i, j, k] >= 0, f"cp_dst[{i}, {j}, {k}] = {cp_dst[i, j, k]} is not >= 0"
+                    else:
+                        assert cp_dst[i, j, k] == -1, f"cp_dst[{i}, {j}, {k}] = {cp_dst[i, j, k]} is not -1"
+        return
+    
+    check_cp_dst()
+    print_if_verbose("cp_dst =", cp_dst)
+
+    # Prepare the sequence length for each shard
+    # seq_shard_lens = torch.zeros((world_size, num_seqs, max_cp_degree), dtype=torch.int64)
+    # for i in range(world_size):
+    #     for j in range(num_seqs):
+    #         num_cp = int((cp_num[i, j]).item())
+    #         seq_len = seq_lens[i, j]
+    #         seq_shard_lens[i, j, :num_cp] = seq_len // num_cp
+    def check_seq_shard_lens():
+        for i in range(world_size):
+            for j in range(num_seqs):
+                # Check if the shard length is valid.
+                num_cp = int((cp_num[i, j]).item())
+                for k in range(max_cp_degree):
+                    if k < num_cp:
+                        assert seq_shard_lens[i, j, k] > 0, f"seq_shard_lens[{i}, {j}, {k}] = {seq_shard_lens[i, j, k]} is not >= 0"
+                    else:
+                        assert seq_shard_lens[i, j, k] == 0, f"seq_shard_lens[{i}, {j}, {k}] = {seq_shard_lens[i, j, k]} is not 0"
+                # Check the sum of this sequence matches seq_len[i, j]
+                assert seq_shard_lens[i, j, :num_cp].sum() == seq_lens[i, j], f"seq_shard_lens[{i}, {j}, :{num_cp}].sum() = {seq_shard_lens[i, j, :num_cp].sum()} is not equal to seq_lens[{i}, {j}] = {seq_lens[i, j]}"
+        return
+    
+    check_seq_shard_lens()
+    print_if_verbose("seq_shard_lens =", seq_shard_lens)
+
+    # q_global_dispatch tensor:
+    num_cp_shards = cp_num.sum(dim=1)
+    pad_len = torch.max(num_cp_shards)
+    print_if_verbose("num_cp_shards =", num_cp_shards)
+
+
+    cp_seq_lens = torch.zeros(world_size, pad_len, dtype=torch.int64)
+    cp_query_dst = torch.ones(world_size, pad_len, dtype=torch.int64) * -1
+    kv_to_q_mapping = torch.ones((world_size, pad_len, max_cp_degree, 2), dtype=torch.int64) * -1
+    kv_to_q_rank = torch.ones((world_size, pad_len, max_cp_degree), dtype=torch.int64) * -1
+    kv_context_size = torch.zeros((world_size, pad_len), dtype=torch.int64)
+    q_to_num_kv_seq = torch.zeros((world_size, pad_len), dtype=torch.int64)
+
+    # cumulative number of cp shards before this one.
+    from test_util import exclusive_cumsum
+    num_cul_cp_shards = exclusive_cumsum(cp_num, dim=1)
+    print_if_verbose("num_cul_cp_shards =", num_cul_cp_shards)
+
+    for i in range(world_size):
+        cp_seq_lens_local = []
+        cp_query_dst_local = []
+        kv_to_q_mapping_local = []
+        kv_to_q_rank_local = []
+        kv_context_size_local = []
+        q_to_num_kv_seq_local = []
+
+        for j in range(num_seqs):
+            num_cp = int((cp_num[i, j]).item())
+            seq_len = seq_lens[i, j]
+            if seq_len == 0:
+                break
+            _seq_shard_len = seq_shard_lens[i, j, :num_cp]
+            try:
+                _kv_context_size_seq = exclusive_cumsum(_seq_shard_len, dim=0)
+            except Exception as e:
+                breakpoint()
+
+            cp_seq_lens_local.append(_seq_shard_len)
+            cp_query_dst_local.append(cp_dst[i, j, :num_cp].flatten())
+            #### Compute kv_to_q_mapping.
+            row_indices = torch.arange(num_cp).view(-1, 1)
+            col_indices = torch.arange(max_cp_degree).view(1, -1)
+            mask = col_indices < (num_cp - row_indices)
+            kv_to_q_mapping_seq = torch.empty((num_cp, max_cp_degree, 2), dtype=torch.int64)
+            # All q shards are on this node (TODO: we are testing MLP-DP. For MLP-CP, this is different).
+            kv_to_q_mapping_seq[..., 0] = torch.where(mask, i, -1)
+            vals_ch1 = row_indices + col_indices + num_cul_cp_shards[i, j]
+            kv_to_q_mapping_seq[..., 1] = torch.where(mask, vals_ch1, -1)
+            kv_to_q_mapping_local.append(kv_to_q_mapping_seq)
+            #### Compute kv_to_q_rank (Index of this KV to the query's dst).
+            kv_to_q_rank_seq = torch.arange(num_cp).view(-1, 1).repeat(1, max_cp_degree) * mask + (mask.int() - 1)
+            kv_to_q_rank_local.append(kv_to_q_rank_seq)
+            #### Compute kv context size (For this kv, how many tokens are in the context).
+            kv_context_size_seq = _kv_context_size_seq
+            kv_context_size_local.append(kv_context_size_seq)
+            #### Compute q_to_num_kv_seq (For this kv, how many shards are in the context).
+            q_to_num_kv_seq_seq = torch.arange(num_cp) + 1
+            q_to_num_kv_seq_local.append(q_to_num_kv_seq_seq)
+
+        cp_seq_lens_local = torch.cat(cp_seq_lens_local, dim=0)
+        cp_query_dst_local = torch.cat(cp_query_dst_local, dim=0)
+        kv_to_q_mapping_local = torch.cat(kv_to_q_mapping_local, dim=0)
+        kv_to_q_rank_local = torch.cat(kv_to_q_rank_local, dim=0)
+        kv_context_size_local = torch.cat(kv_context_size_local, dim=0)
+        q_to_num_kv_seq_local = torch.cat(q_to_num_kv_seq_local, dim=0)
+        # shape check:
+        seq_shards = cp_seq_lens_local.shape[0]
+        assert cp_seq_lens_local.shape == (seq_shards,)
+        assert cp_query_dst_local.shape == (seq_shards,)
+        assert kv_to_q_mapping_local.shape == (seq_shards, max_cp_degree, 2)
+        assert kv_to_q_rank_local.shape == (seq_shards, max_cp_degree)
+        assert kv_context_size_local.shape == (seq_shards,)
+        assert q_to_num_kv_seq_local.shape == (seq_shards,)
+
+        cp_seq_lens[i, :seq_shards] = cp_seq_lens_local
+        cp_query_dst[i, :seq_shards] = cp_query_dst_local
+        kv_to_q_mapping[i, :seq_shards] = kv_to_q_mapping_local
+        kv_to_q_rank[i, :seq_shards] = kv_to_q_rank_local
+        kv_context_size[i, :seq_shards] = kv_context_size_local
+        q_to_num_kv_seq[i, :seq_shards] = q_to_num_kv_seq_local
+
+    q_to_num_kv_tokens = kv_context_size + cp_seq_lens
+    ret = (
+        cp_seq_lens, num_cp_shards, cp_query_dst,
+        kv_to_q_mapping, kv_to_q_rank, kv_context_size,
+        q_to_num_kv_seq, q_to_num_kv_tokens,
+    )
+    if return_mlp_no_shard_seq_lens:
+        ret += (seq_lens,)
+    return ret
+
+
 def create_qkv_dispatch(
     world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
     return_intermediate: bool=False, return_mlp_no_shard_seq_lens: bool=False
 ):
+    setup_global_batch(total_seq_len)
+
+    # TODO: Check the world_size carefully.
+    items_list: list[list[int]] = get_next_batch(world_size)
+    
+    num_seqs = max(len(items) for items in items_list)
+
+    seq_lens = torch.zeros((world_size, num_seqs), dtype=torch.int64)
+    for i, _seq_lens in enumerate(items_list):
+        for j, _seq in enumerate(_seq_lens):
+            # seq_lens[i, j] = item["seq_len"]
+            seq_lens[i, j] = _seq # sequence length
+            pass
+
+    # Make every sequence cp = 1 for now
+    cp_num = torch.zeros((world_size, num_seqs), dtype=torch.int64)
+    for i, _seq_lens in enumerate(items_list):
+        for j, _ in enumerate(_seq_lens):
+            cp_num[i, j] = 1
+            pass
+
+    cp_dst = torch.ones((world_size, num_seqs, max_cp_degree), dtype=torch.int64) * -1
+    for i, _seq_lens in enumerate(items_list):
+        for j, _ in enumerate(_seq_lens):
+            cp_dst[i, j, 0] = i
+            pass
+    
+    seq_shard_lens = torch.zeros((world_size, num_seqs, max_cp_degree), dtype=torch.int64)
+    for i, _seq_lens in enumerate(items_list):
+        for j, _seq in enumerate(_seq_lens):
+            seq_shard_lens[i, j, 0] = _seq
+            pass
+    
+
     (cp_seq_lens, num_cp_shards, cp_query_dst,
      kv_to_q_mapping, kv_to_q_rank, kv_context_size,
      q_to_num_kv_seq, q_to_num_kv_tokens,
      seq_lens) = create_raw_qkv_dispatch(
-        world_size, total_seq_len, num_seqs, max_cp_degree,
-        return_mlp_no_shard_seq_lens
+        world_size,
+        seq_lens,
+        cp_num,
+        cp_dst,
+        seq_shard_lens,
+        return_mlp_no_shard_seq_lens=return_mlp_no_shard_seq_lens,
     )
     fwd_q_metadata, rev_q_metadata, q_intermediates = compute_metadata(
         cp_seq_lens, cp_query_dst, return_intermediate=True
@@ -441,7 +691,8 @@ def create_qkv_dispatch(
     if return_intermediate:
         intermediates = q_intermediates + kv_intermediates
         ret += (intermediates,)
-    ret += seq_lens
+    if return_mlp_no_shard_seq_lens:
+        ret += (seq_lens,)
     return ret
 
 
@@ -556,6 +807,7 @@ def test(args):
         avg_duration_ms = duration_ms / N
         sample_times.append(avg_duration_ms)
         if rank == 0:
+            rich.print(f"seq_lens = {seq_lens}")
             rich.print(f"[Sample ID=({2*sample_id+1}-{2*sample_id+2})] forward_backward_batch: avg_time_per_iteration = {avg_duration_ms} ms")
 
         time.sleep(2) # to ensure the profile sees a better profiling result
@@ -590,7 +842,7 @@ def test(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
-    parser.add_argument("--cp-degree", type=int, default=2)
+    parser.add_argument("--cp-degree", type=int, default=1)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
