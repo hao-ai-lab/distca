@@ -558,6 +558,7 @@ def test(args):
         avg_duration_ms = duration_ms / N
         sample_times.append(avg_duration_ms)
         if rank == 0:
+            rich.print(f"[Sample ID=({2*sample_id+1}-{2*sample_id+2})] seq_lens = {seq_lens}")
             rich.print(f"[Sample ID=({2*sample_id+1}-{2*sample_id+2})] forward_backward_batch: avg_time_per_iteration = {avg_duration_ms} ms")
 
         time.sleep(2) # to ensure the profile sees a better profiling result
