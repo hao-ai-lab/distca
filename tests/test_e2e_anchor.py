@@ -1,8 +1,10 @@
 """
-Anchor the 
-
-
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+torchrun --nnodes 1 --nproc_per_node 4 test_e2e_anchor.py \
+    --num-nodes=1 --num-gpus-per-node=4 --tp-size=2 \
+    --num-tokens 16384 --num-layers 4
 """
+from datetime import datetime
 import os
 import gc
 import pytz
@@ -170,9 +172,11 @@ class MegatronE2eWorker(MegatronBaseWorker):
             packed_seq_params = batch['packed_seq_params']
             # returns "hidden_states" if not model.post_process (not the last layer)
             # returns "logits" when label is None.
+            torch.cuda.nvtx.range_push("forward_step")
             output = gptmodel_forward(
                 model, input_ids, attention_mask, position_ids, self.tf_config.sequence_parallel, packed_seq_params
             )
+            torch.cuda.nvtx.range_pop()
             return output, loss_func
 
         batch_generator = make_batch_generator(microbatches, vpp_size=len(self.train_module))
@@ -633,17 +637,20 @@ def test(args):
                 print("=" * 20 + "warmup done")
         
         # Real Experiment
-        N = 10
+        N = 4
         torch.cuda.synchronize()
+        torch.distributed.barrier()
 
         start_time = time.time()
         torch.cuda.nvtx.range_push(f"sample_{sample_id}(repeat={N})")
         for _ in range(N):
+            torch.cuda.nvtx.range_push(f"forward_backward_batch(iter={_})")
             ref = worker.forward_backward_batch(
                 microbatches=microbatches,
                 normal_forward_fn=normal_forward_fn,
                 forward_only=False,
             )
+            torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_pop()
         
         torch.cuda.synchronize()
@@ -665,10 +672,7 @@ def test(args):
     torch.distributed.barrier()
     print("=" * 20 + "forward_backward_batch attention server, done")
 
-    if rank == 0:
-        from datetime import datetime
-        
-        
+    if rank == 0:    
         pst = pytz.timezone('US/Pacific')
         timestamp = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S PST")
         now_ts = datetime.now(pst).strftime("%Y%m%d_%H%M%S")
@@ -730,31 +734,32 @@ def test(args):
     # NO BARRIER - this is what was causing the hang!
     # Instead, each process cleans up independently and exits
     
-    # Clear CUDA cache first
-    try:
-        if torch.cuda.is_available():
-            print(f"[Rank {rank}] Clearing CUDA cache...")
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            torch.cuda.ipc_collect()
-            print(f"[Rank {rank}] CUDA cleanup completed")
-    except Exception as e:
-        print(f"[Rank {rank}] Error in CUDA cleanup: {e}")
+    # Prevent nsys to exit...
+    # # Clear CUDA cache first
+    # try:
+    #     if torch.cuda.is_available():
+    #         print(f"[Rank {rank}] Clearing CUDA cache...")
+    #         torch.cuda.empty_cache()
+    #         torch.cuda.synchronize()
+    #         torch.cuda.ipc_collect()
+    #         print(f"[Rank {rank}] CUDA cleanup completed")
+    # except Exception as e:
+    #     print(f"[Rank {rank}] Error in CUDA cleanup: {e}")
     
-    # Force garbage collection
-    try:
+    # # Force garbage collection
+    # try:
         
-        gc.collect()
-        print(f"[Rank {rank}] Garbage collection completed")
-    except Exception as e:
-        print(f"[Rank {rank}] Error in garbage collection: {e}")
+    #     gc.collect()
+    #     print(f"[Rank {rank}] Garbage collection completed")
+    # except Exception as e:
+    #     print(f"[Rank {rank}] Error in garbage collection: {e}")
     
-    # Just force exit immediately - don't try to clean up distributed stuff
-    # as it often hangs in complex setups like Megatron + NVSHMEM
-    print(f"[Rank {rank}] Force exiting now...")
+    # # Just force exit immediately - don't try to clean up distributed stuff
+    # # as it often hangs in complex setups like Megatron + NVSHMEM
+    # print(f"[Rank {rank}] Force exiting now...")
     
-    # Immediate force exit with os._exit (bypasses Python cleanup)
-    os._exit(0)
+    # # Immediate force exit with os._exit (bypasses Python cleanup)
+    # os._exit(0)
 
 
 if __name__ == "__main__":
