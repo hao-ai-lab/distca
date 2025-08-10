@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+import dis
 import functools
 from typing import Any, Dict, List, Optional, Union
 import types
@@ -7,6 +8,9 @@ import warnings
 import torch
 from torch import Tensor
 
+from d2.runtime.attn_kernels import dispatch
+from d2.runtime.attn_kernels.dispatch import post_fast_a2a_attn_out_grad_resend_qkv, pre_fast_a2a_attn_out_grad_resend_qkv
+from d2.runtime.attn_kernels.ops import fast_a2a
 from megatron.core import tensor_parallel, parallel_state
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt.gpt_model import GPTModel
@@ -15,7 +19,7 @@ from megatron.core.transformer.transformer_block import (
 )
 from megatron.core.utils import WrappedTensor, make_viewless_tensor
 
-from d2.runtime.megatron_patch.fused_comm_attn import FlashAttnArgs, FusedCommAttn, post_a2a_attn_out_with_lse
+from d2.runtime.megatron_patch.fused_comm_attn import FlashAttnArgs, FusedCommAttn, dummy_backward, post_a2a_attn_out_with_lse
 from d2.runtime.megatron_patch.base_transformer_layer import TransformerLayer as BaseTransformerLayer
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron_patch.stream_sync_fn import TickSync
@@ -820,6 +824,12 @@ class PingPangGPTModel(GPTModel):
         if decoder_pre_process_flag:
             self.decoder.pre_process = False
         return output
+
+    def dummy_backward(self, packed_seq_params: PingPangPackedSeqParams):
+        dtype = self.decoder.layers[0].self_attention.linear_qkv.weight.dtype
+        device = self.decoder.layers[0].self_attention.linear_qkv.weight.device
+        for _ in self.decoder.layers:
+            dummy_backward(self.config, packed_seq_params, dtype, device)
 
     def init_ping_pong_communication_ctx(self, device: torch.device):
         self.decoder.init_ping_pang_communication_ctx(device)

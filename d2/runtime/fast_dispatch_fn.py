@@ -131,8 +131,6 @@ class all_to_all(torch.autograd.Function):
     def backward(ctx, grad_signal: torch.Tensor):
         stream = ctx.stream
         with torch.cuda.stream(stream):
-            torch.cuda.synchronize()  # Ensure all operations are complete before proceeding
-            torch.distributed.barrier()  # Ensure all ranks are synchronized before proceeding
             fast_a2a(
                 *ctx.saved_tensors,
                 ctx.my_rank_send_offset, ctx.my_rank_recv_offset, ctx.my_rank_send_sz,

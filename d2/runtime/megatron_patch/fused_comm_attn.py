@@ -3,10 +3,12 @@ import math
 from typing import Tuple
 
 from flash_attn.flash_attn_interface import (
-    _wrapped_flash_attn_varlen_forward, _wrapped_flash_attn_varlen_backward,
-    flash_attn_varlen_func
+    _wrapped_flash_attn_varlen_forward, _wrapped_flash_attn_varlen_backward
 )
+from d2.runtime.attn_kernels.ops import fast_a2a
+from d2.runtime.megatron_patch.packed_seq_params import PingPangSingleStepPackedSeqParams
 from megatron.core.packed_seq_params import PackedSeqParams
+from megatron.core.transformer.transformer_config import TransformerConfig
 import torch
 from torch import Tensor
 
@@ -318,3 +320,113 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
 
         signal_grad = grad_attn_out.new_zeros((1,))
         return signal_grad, *((None,) * 7)
+
+
+@torch.no_grad()
+def dummy_backward(
+    config: TransformerConfig,
+    packed_seq_params: PingPangSingleStepPackedSeqParams,
+    dtype: torch.dtype,
+    device: torch.device,
+):
+    assert packed_seq_params.bwd_packed_seq_params is not None
+
+    # create some dummy data
+    q_len = packed_seq_params.qkv_fwd_metadata.seq_lens[0].send_seqlens.sum().item()
+    kv_len = packed_seq_params.qkv_fwd_metadata.seq_lens[1].send_seqlens.sum().item()
+    attn_out = torch.zeros((q_len, config.hidden_size), dtype=dtype, device=device)
+    grad_attn_out = torch.zeros_like(attn_out)
+    num_heads = config.num_attention_heads // config.tensor_model_parallel_size
+    softmax_lse = torch.zeros((q_len, num_heads), dtype=torch.float32, device=device)
+    q = torch.zeros_like(attn_out)
+    k = torch.zeros((kv_len, config.hidden_size), dtype=dtype, device=device)
+    v = torch.zeros_like(k)
+
+    dispatcher_id = packed_seq_params.dispatcher_id
+
+    bwd_attn_out_qkv_metadata = packed_seq_params.attn_out_bwd_metadata
+    bwd_qkv_metadata = packed_seq_params.qkv_bwd_metadata
+    bwd_fa_params = packed_seq_params.bwd_packed_seq_params
+
+    pre_fast_a2a_attn_out_grad_resend_qkv(
+        grad_attn_out, attn_out, softmax_lse, q, k, v,
+        bwd_attn_out_qkv_metadata.kv_replica_mask,
+        bwd_attn_out_qkv_metadata.seq_lens[0].send_seqlens,
+        bwd_attn_out_qkv_metadata.seq_lens[1].send_seqlens,
+        *bwd_attn_out_qkv_metadata.send_memcpy_metadata,
+        instance_id=dispatcher_id,
+    )
+
+    with torch.cuda.stream(packed_seq_params.stream):
+        fast_a2a(
+            *bwd_attn_out_qkv_metadata.fa2a_metadata,
+            bwd_attn_out_qkv_metadata.my_rank_send_offset,
+            bwd_attn_out_qkv_metadata.my_rank_recv_offset,
+            bwd_attn_out_qkv_metadata.my_rank_send_sz,
+            instance_id=dispatcher_id,
+        )
+    
+    recv_k_shape = bwd_attn_out_qkv_metadata.tensor_shape[1].recv_shape
+    recv_k = torch.empty(recv_k_shape, dtype=dtype, device=device)
+    recv_v = torch.empty_like(recv_k)
+    recv_q_len = bwd_attn_out_qkv_metadata.seq_lens[0].recv_seqlens.sum().item()
+    recv_q_shape = recv_q_len, config.hidden_size // config.tensor_model_parallel_size
+    softmax_lse_shape = recv_q_len, num_heads
+    (recv_attn_out_grad, recv_attn_out, recv_lse, recv_q, recv_k, recv_v
+    ) = post_fast_a2a_attn_out_grad_resend_qkv(
+        recv_q_shape, softmax_lse_shape, recv_q_shape, torch.float32,
+        recv_k, recv_v,
+        None,
+        bwd_attn_out_qkv_metadata.seq_lens[0].recv_seqlens,
+        bwd_attn_out_qkv_metadata.seq_lens[1].recv_seqlens,
+        *bwd_attn_out_qkv_metadata.recv_memcpy_metadata,
+        is_fwd=True,
+        switch_buffer=dispatcher_id is None,
+        instance_id=dispatcher_id,
+    )
+
+    recv_lse = recv_lse.T.contiguous()
+    dq, dk, dv = _qkv_to_attn_out_bwd(
+        recv_q, recv_k, recv_v, recv_attn_out, recv_attn_out_grad,
+        recv_lse,
+        FlashAttnArgs(
+            num_heads_q=config.num_attention_heads // config.tensor_model_parallel_size,
+            num_heads_kv=config.num_query_groups // config.tensor_model_parallel_size,
+            head_dim=config.hidden_size // config.num_attention_heads,
+            return_attn_probs=True,
+        ),
+        bwd_fa_params.cu_seqlens_q, bwd_fa_params.cu_seqlens_kv,
+        bwd_fa_params.max_seqlen_q, bwd_fa_params.max_seqlen_kv,
+    )
+
+    pre_fast_a2a_qkv(
+        dq, dk, dv, None,
+        bwd_qkv_metadata.seq_lens[0].send_seqlens,
+        bwd_qkv_metadata.seq_lens[1].send_seqlens,
+        *bwd_qkv_metadata.send_memcpy_metadata,
+        is_fwd=False,
+        instance_id=dispatcher_id,
+    )
+
+    with torch.cuda.stream(packed_seq_params.stream):
+        fast_a2a(
+            *bwd_qkv_metadata.fa2a_metadata,
+            bwd_qkv_metadata.my_rank_send_offset,
+            bwd_qkv_metadata.my_rank_recv_offset,
+            bwd_qkv_metadata.my_rank_send_sz,
+            instance_id=dispatcher_id,
+        )
+    
+    grad_q = q.new_empty(bwd_qkv_metadata.tensor_shape[0].recv_shape)
+    grad_k = k.new_empty(bwd_qkv_metadata.tensor_shape[1].recv_shape)
+    grad_v = torch.empty_like(grad_k)
+    post_fast_a2a_qkv(
+        grad_q, grad_k, grad_v,
+        bwd_qkv_metadata.kv_replica_mask,
+        bwd_qkv_metadata.seq_lens[0].recv_seqlens,
+        bwd_qkv_metadata.seq_lens[1].recv_seqlens,
+        *bwd_qkv_metadata.recv_memcpy_metadata,
+        is_fwd=False,
+        switch_buffer=dispatcher_id is None,
+        instance_id=dispatcher_id,
+    )

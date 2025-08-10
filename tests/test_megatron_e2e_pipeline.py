@@ -170,7 +170,7 @@ class MegatronE2eWorker(MegatronBaseWorker):
         dummy_microbatch = microbatches[0]  # FIXME: this is important for all-to-all
 
         def wrap_iter(batch_iter):
-            if mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage():
+            if False:  #mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage():
                 # hardcode here: pipeline parallel add this number of dummy forwards
                 for _ in range(mpu.get_data_parallel_rank()):
                     print('yield pre dummy')
@@ -193,9 +193,12 @@ class MegatronE2eWorker(MegatronBaseWorker):
             # returns "hidden_states" if not model.post_process (not the last layer)
             # returns "logits" when label is None.
             output = gptmodel_forward(
-                model, input_ids, attention_mask, position_ids, self.tf_config.sequence_parallel, packed_seq_params
+                model, input_ids, attention_mask, position_ids, self.tf_config.sequence_parallel, packed_seq_params, labels=input_ids.unsqueeze(0),
             )
             return output, loss_func
+
+        def dummy_backward_step(model):
+            unwrap_model(model).dummy_backward(dummy_microbatch['packed_seq_params'])
 
         batch_generator = make_batch_generator(microbatches, vpp_size=len(self.train_module))
         batch_generator = wrap_iter(batch_generator)
@@ -208,6 +211,7 @@ class MegatronE2eWorker(MegatronBaseWorker):
                 seq_length=total_seqlen,  # no use, since variable_seq_lengths=True
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
+                dummy_bwd_func=dummy_backward_step,
             )
         else:
             losses_reduced = forward_backward_func(
@@ -219,6 +223,7 @@ class MegatronE2eWorker(MegatronBaseWorker):
                 micro_batch_size=1,  # in use for pp = 1
                 forward_only=forward_only,
             )
+        print(f'{losses_reduced=}')
         return losses_reduced
 
     def _build_model_optimizer(self,
@@ -359,10 +364,13 @@ def test(args):
     )
 
     set_random_seed(seed, set_megatron=False)
-    input_ids = torch.randint(0, 100, (as_world_size, total_seq_len))
-    position_ids = torch.arange(total_seq_len).repeat(as_world_size, 1)
-    input_ids_local = input_ids[as_rank]
-    position_ids_local = position_ids[as_rank]
+    # input_ids = torch.randint(0, 100, (as_world_size, total_seq_len))
+    # position_ids = torch.arange(total_seq_len).repeat(as_world_size, 1)
+    # input_ids_local = input_ids[as_rank]
+    # position_ids_local = position_ids[as_rank]
+    # print(input_ids_local.shape, position_ids_local.shape)
+    input_ids_local = torch.randint(0, 100, (total_seq_len,))
+    position_ids_local = torch.arange(total_seq_len)
     (cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, *_) = fa_bwd_params
     bwd_packed_seq_params = PackedSeqParams(
         cu_seqlens_q=cu_seqlens_q[rank],
@@ -430,8 +438,8 @@ if __name__ == "__main__":
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
-    parser.add_argument("--num-gpus-per-node", type=int, default=2)
+    parser.add_argument("--num-gpus-per-node", type=int, default=4)
     parser.add_argument("--tp-size", type=int, default=1)
-    parser.add_argument("--pp-size", type=int, default=2)
+    parser.add_argument("--pp-size", type=int, default=4)
     args = parser.parse_args()
     test(args)

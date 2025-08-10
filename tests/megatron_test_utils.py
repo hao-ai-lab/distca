@@ -547,7 +547,7 @@ def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
 
 def gptmodel_forward(
     model, input_ids, attention_mask, position_ids, sequence_parallel, packed_seq_params,
-    logits_processor=None, logits_processor_kwargs=None,
+    labels=None, logits_processor=None, logits_processor_kwargs=None,
 ):
     pre_process = unwrap_model(model).pre_process
     if pre_process:
@@ -555,6 +555,7 @@ def gptmodel_forward(
     post_process = unwrap_model(model).post_process
     output_orig = model(
         input_ids=input_ids,
+        labels=labels,
         attention_mask=None,
         position_ids=position_ids,
         packed_seq_params=packed_seq_params,
