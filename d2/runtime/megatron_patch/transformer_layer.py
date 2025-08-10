@@ -1,5 +1,4 @@
 from contextlib import nullcontext
-import dis
 import functools
 from typing import Any, Dict, List, Optional, Union
 import types
@@ -8,9 +7,6 @@ import warnings
 import torch
 from torch import Tensor
 
-from d2.runtime.attn_kernels import dispatch
-from d2.runtime.attn_kernels.dispatch import post_fast_a2a_attn_out_grad_resend_qkv, pre_fast_a2a_attn_out_grad_resend_qkv
-from d2.runtime.attn_kernels.ops import fast_a2a
 from megatron.core import tensor_parallel, parallel_state
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt.gpt_model import GPTModel
