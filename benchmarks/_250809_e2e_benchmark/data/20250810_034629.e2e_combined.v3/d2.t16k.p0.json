@@ -1,0 +1,6437 @@
+{
+  "test_file": "/mnt/weka/home/hao.zhang/jd/d2/tests/test_e2e_combined.py",
+  "timestamp": "2025-08-09 20:00:01 PST",
+  "config": {
+    "mode": "d2",
+    "tp_size": 8,
+    "dp_size": 2,
+    "num_tokens": 16384,
+    "model_path": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+    "num_layers": 4,
+    "max_sample_id": 64,
+    "up_sample_factor": 2,
+    "replan_iter": 0
+  },
+  "samples": [
+    {
+      "sample_id": 0,
+      "samples": [
+        [
+          12786,
+          3598
+        ],
+        [
+          16384
+        ],
+        [
+          8866,
+          785,
+          2622,
+          3023,
+          313,
+          775
+        ],
+        [
+          3782,
+          344,
+          4034,
+          1305,
+          496,
+          2001,
+          4422
+        ]
+      ],
+      "duration_ms": 146.67115211486816,
+      "plans": [
+        [
+          {
+            "q": 12786,
+            "kv": 12786,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3598,
+            "kv": 3598,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 8866,
+            "kv": 8866,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 785,
+            "kv": 785,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2622,
+            "kv": 2622,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3023,
+            "kv": 3023,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 313,
+            "kv": 313,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 775,
+            "kv": 775,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3782,
+            "kv": 3782,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 344,
+            "kv": 344,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4034,
+            "kv": 4034,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1305,
+            "kv": 1305,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 496,
+            "kv": 496,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2001,
+            "kv": 2001,
+            "gpuid": 1,
+            "seqid": 5,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4422,
+            "kv": 4422,
+            "gpuid": 1,
+            "seqid": 6,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 1,
+      "samples": [
+        [
+          11855,
+          4529
+        ],
+        [
+          7779,
+          3201,
+          3622,
+          1782
+        ],
+        [
+          10681,
+          5703
+        ],
+        [
+          138,
+          10797,
+          1055,
+          4394
+        ]
+      ],
+      "duration_ms": 148.24461936950684,
+      "plans": [
+        [
+          {
+            "q": 11855,
+            "kv": 11855,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4529,
+            "kv": 4529,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7779,
+            "kv": 7779,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3201,
+            "kv": 3201,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3622,
+            "kv": 3622,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1782,
+            "kv": 1782,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 10681,
+            "kv": 10681,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5703,
+            "kv": 5703,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 138,
+            "kv": 138,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 10797,
+            "kv": 10797,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1055,
+            "kv": 1055,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4394,
+            "kv": 4394,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 2,
+      "samples": [
+        [
+          74,
+          12464,
+          3846
+        ],
+        [
+          938,
+          3960,
+          11486
+        ],
+        [
+          3120,
+          308,
+          623,
+          12333
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 148.38178157806396,
+      "plans": [
+        [
+          {
+            "q": 74,
+            "kv": 74,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12464,
+            "kv": 12464,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3846,
+            "kv": 3846,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 938,
+            "kv": 938,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3960,
+            "kv": 3960,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 11486,
+            "kv": 11486,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 3120,
+            "kv": 3120,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 308,
+            "kv": 308,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 623,
+            "kv": 623,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12333,
+            "kv": 12333,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 3,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          14876,
+          1508
+        ],
+        [
+          9331,
+          7053
+        ]
+      ],
+      "duration_ms": 149.03748035430908,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 14876,
+            "kv": 14876,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1508,
+            "kv": 1508,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 9331,
+            "kv": 9331,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 7053,
+            "kv": 7053,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 4,
+      "samples": [
+        [
+          11653,
+          1031,
+          1606,
+          2094
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          7057,
+          1212,
+          280,
+          4490,
+          2575,
+          770
+        ]
+      ],
+      "duration_ms": 150.31957626342773,
+      "plans": [
+        [
+          {
+            "q": 11653,
+            "kv": 11653,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1031,
+            "kv": 1031,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1606,
+            "kv": 1606,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2094,
+            "kv": 2094,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7057,
+            "kv": 7057,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1212,
+            "kv": 1212,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 280,
+            "kv": 280,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4490,
+            "kv": 4490,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2575,
+            "kv": 2575,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 770,
+            "kv": 770,
+            "gpuid": 1,
+            "seqid": 5,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 5,
+      "samples": [
+        [
+          2195,
+          12284,
+          294,
+          1611
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 149.71323013305664,
+      "plans": [
+        [
+          {
+            "q": 2195,
+            "kv": 2195,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12284,
+            "kv": 12284,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 294,
+            "kv": 294,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1611,
+            "kv": 1611,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 6,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.8611240386963,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 7,
+      "samples": [
+        [
+          3004,
+          4937,
+          5114,
+          757,
+          2572
+        ],
+        [
+          7583,
+          540,
+          2710,
+          2074,
+          2215,
+          1262
+        ],
+        [
+          4774,
+          3859,
+          7751
+        ],
+        [
+          14192,
+          2192
+        ]
+      ],
+      "duration_ms": 146.64089679718018,
+      "plans": [
+        [
+          {
+            "q": 3004,
+            "kv": 3004,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4937,
+            "kv": 4937,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5114,
+            "kv": 5114,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 757,
+            "kv": 757,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2572,
+            "kv": 2572,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7583,
+            "kv": 7583,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 540,
+            "kv": 540,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2710,
+            "kv": 2710,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2074,
+            "kv": 2074,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2215,
+            "kv": 2215,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1262,
+            "kv": 1262,
+            "gpuid": 1,
+            "seqid": 5,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 4774,
+            "kv": 4774,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3859,
+            "kv": 3859,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7751,
+            "kv": 7751,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 14192,
+            "kv": 14192,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2192,
+            "kv": 2192,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 8,
+      "samples": [
+        [
+          10807,
+          5577
+        ],
+        [
+          6238,
+          4676,
+          4535,
+          935
+        ],
+        [
+          14186,
+          2198
+        ],
+        [
+          2073,
+          2765,
+          11546
+        ]
+      ],
+      "duration_ms": 145.89905738830566,
+      "plans": [
+        [
+          {
+            "q": 10807,
+            "kv": 10807,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5577,
+            "kv": 5577,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 6238,
+            "kv": 6238,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4676,
+            "kv": 4676,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4535,
+            "kv": 4535,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 935,
+            "kv": 935,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 14186,
+            "kv": 14186,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2198,
+            "kv": 2198,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2073,
+            "kv": 2073,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2765,
+            "kv": 2765,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 11546,
+            "kv": 11546,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 9,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 147.04840183258057,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 10,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          6698,
+          1804,
+          7882
+        ],
+        [
+          3783,
+          6161,
+          5108,
+          1332
+        ],
+        [
+          1640,
+          4865,
+          1364,
+          2823,
+          5692
+        ]
+      ],
+      "duration_ms": 146.21222019195557,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 6698,
+            "kv": 6698,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1804,
+            "kv": 1804,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 7882,
+            "kv": 7882,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 3783,
+            "kv": 3783,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 6161,
+            "kv": 6161,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5108,
+            "kv": 5108,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1332,
+            "kv": 1332,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1640,
+            "kv": 1640,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4865,
+            "kv": 4865,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1364,
+            "kv": 1364,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2823,
+            "kv": 2823,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5692,
+            "kv": 5692,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 11,
+      "samples": [
+        [
+          448,
+          5340,
+          5943,
+          3466,
+          1187
+        ],
+        [
+          1273,
+          3111,
+          12000
+        ],
+        [
+          1034,
+          3288,
+          682,
+          1816,
+          9564
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 150.40209293365479,
+      "plans": [
+        [
+          {
+            "q": 448,
+            "kv": 448,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5340,
+            "kv": 5340,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5943,
+            "kv": 5943,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3466,
+            "kv": 3466,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1187,
+            "kv": 1187,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1273,
+            "kv": 1273,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3111,
+            "kv": 3111,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 12000,
+            "kv": 12000,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 1034,
+            "kv": 1034,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3288,
+            "kv": 3288,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 682,
+            "kv": 682,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1816,
+            "kv": 1816,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 9564,
+            "kv": 9564,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 12,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 147.040057182312,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 13,
+      "samples": [
+        [
+          4205,
+          5574,
+          5085,
+          1520
+        ],
+        [
+          1772,
+          1228,
+          6053,
+          4517,
+          2814
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 145.26355266571045,
+      "plans": [
+        [
+          {
+            "q": 4205,
+            "kv": 4205,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5574,
+            "kv": 5574,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5085,
+            "kv": 5085,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1520,
+            "kv": 1520,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1772,
+            "kv": 1772,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1228,
+            "kv": 1228,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 6053,
+            "kv": 6053,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4517,
+            "kv": 4517,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2814,
+            "kv": 2814,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 14,
+      "samples": [
+        [
+          10233,
+          1817,
+          4334
+        ],
+        [
+          13286,
+          3098
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.12488746643066,
+      "plans": [
+        [
+          {
+            "q": 10233,
+            "kv": 10233,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1817,
+            "kv": 1817,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4334,
+            "kv": 4334,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 13286,
+            "kv": 13286,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3098,
+            "kv": 3098,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 15,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          2723,
+          804,
+          10945,
+          1285,
+          627
+        ]
+      ],
+      "duration_ms": 150.0267744064331,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2723,
+            "kv": 2723,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 804,
+            "kv": 804,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 10945,
+            "kv": 10945,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1285,
+            "kv": 1285,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 627,
+            "kv": 627,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 16,
+      "samples": [
+        [
+          893,
+          4836,
+          1412,
+          2487,
+          4114,
+          2642
+        ],
+        [
+          258,
+          16126
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 150.88863372802734,
+      "plans": [
+        [
+          {
+            "q": 893,
+            "kv": 893,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4836,
+            "kv": 4836,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1412,
+            "kv": 1412,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2487,
+            "kv": 2487,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4114,
+            "kv": 4114,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2642,
+            "kv": 2642,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 258,
+            "kv": 258,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 16126,
+            "kv": 16126,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 17,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          5687,
+          3447,
+          7250
+        ],
+        [
+          3875,
+          12509
+        ],
+        [
+          2899,
+          1835,
+          11650
+        ]
+      ],
+      "duration_ms": 148.56672286987305,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5687,
+            "kv": 5687,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3447,
+            "kv": 3447,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 7250,
+            "kv": 7250,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 3875,
+            "kv": 3875,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12509,
+            "kv": 12509,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2899,
+            "kv": 2899,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1835,
+            "kv": 1835,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 11650,
+            "kv": 11650,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 18,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16173,
+          211
+        ],
+        [
+          258,
+          1430,
+          14696
+        ]
+      ],
+      "duration_ms": 150.63204765319824,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16173,
+            "kv": 16173,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 211,
+            "kv": 211,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 258,
+            "kv": 258,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1430,
+            "kv": 1430,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 14696,
+            "kv": 14696,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 19,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          14949,
+          1435
+        ],
+        [
+          16384
+        ],
+        [
+          700,
+          15684
+        ]
+      ],
+      "duration_ms": 148.86727333068848,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 14949,
+            "kv": 14949,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1435,
+            "kv": 1435,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 700,
+            "kv": 700,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 15684,
+            "kv": 15684,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 20,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.7108964920044,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 21,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          531,
+          5460,
+          10393
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 148.79848957061768,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 531,
+            "kv": 531,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5460,
+            "kv": 5460,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 10393,
+            "kv": 10393,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 22,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          3054,
+          13330
+        ],
+        [
+          322,
+          10234,
+          2160,
+          1827,
+          1841
+        ],
+        [
+          8700,
+          3676,
+          4008
+        ]
+      ],
+      "duration_ms": 147.15805053710938,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3054,
+            "kv": 3054,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 13330,
+            "kv": 13330,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 322,
+            "kv": 322,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 10234,
+            "kv": 10234,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2160,
+            "kv": 2160,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1827,
+            "kv": 1827,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1841,
+            "kv": 1841,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 8700,
+            "kv": 8700,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3676,
+            "kv": 3676,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4008,
+            "kv": 4008,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 23,
+      "samples": [
+        [
+          8028,
+          5887,
+          1924,
+          545
+        ],
+        [
+          5039,
+          2895,
+          1459,
+          1158,
+          1442,
+          4391
+        ],
+        [
+          11705,
+          3188,
+          1491
+        ],
+        [
+          3583,
+          1055,
+          5237,
+          5720,
+          789
+        ]
+      ],
+      "duration_ms": 146.0881233215332,
+      "plans": [
+        [
+          {
+            "q": 8028,
+            "kv": 8028,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5887,
+            "kv": 5887,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1924,
+            "kv": 1924,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 545,
+            "kv": 545,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5039,
+            "kv": 5039,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2895,
+            "kv": 2895,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1459,
+            "kv": 1459,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1158,
+            "kv": 1158,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1442,
+            "kv": 1442,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4391,
+            "kv": 4391,
+            "gpuid": 1,
+            "seqid": 5,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 11705,
+            "kv": 11705,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3188,
+            "kv": 3188,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1491,
+            "kv": 1491,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3583,
+            "kv": 3583,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1055,
+            "kv": 1055,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5237,
+            "kv": 5237,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5720,
+            "kv": 5720,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 789,
+            "kv": 789,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 24,
+      "samples": [
+        [
+          1229,
+          15155
+        ],
+        [
+          5606,
+          2423,
+          8355
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 148.55034351348877,
+      "plans": [
+        [
+          {
+            "q": 1229,
+            "kv": 1229,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 15155,
+            "kv": 15155,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5606,
+            "kv": 5606,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2423,
+            "kv": 2423,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 8355,
+            "kv": 8355,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 25,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          155,
+          256,
+          9653,
+          2370,
+          2137,
+          1813
+        ]
+      ],
+      "duration_ms": 150.4352569580078,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 155,
+            "kv": 155,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 256,
+            "kv": 256,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 9653,
+            "kv": 9653,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2370,
+            "kv": 2370,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2137,
+            "kv": 2137,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1813,
+            "kv": 1813,
+            "gpuid": 1,
+            "seqid": 5,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 26,
+      "samples": [
+        [
+          1803,
+          3995,
+          4777,
+          3184,
+          1761,
+          864
+        ],
+        [
+          2616,
+          6117,
+          920,
+          585,
+          4499,
+          1647
+        ],
+        [
+          75,
+          16309
+        ],
+        [
+          2151,
+          57,
+          5522,
+          5194,
+          3460
+        ]
+      ],
+      "duration_ms": 149.41482543945312,
+      "plans": [
+        [
+          {
+            "q": 1803,
+            "kv": 1803,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3995,
+            "kv": 3995,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4777,
+            "kv": 4777,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3184,
+            "kv": 3184,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1761,
+            "kv": 1761,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 864,
+            "kv": 864,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2616,
+            "kv": 2616,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 6117,
+            "kv": 6117,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 920,
+            "kv": 920,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 585,
+            "kv": 585,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4499,
+            "kv": 4499,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1647,
+            "kv": 1647,
+            "gpuid": 1,
+            "seqid": 5,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 75,
+            "kv": 75,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16309,
+            "kv": 16309,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2151,
+            "kv": 2151,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 57,
+            "kv": 57,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5522,
+            "kv": 5522,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5194,
+            "kv": 5194,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3460,
+            "kv": 3460,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 27,
+      "samples": [
+        [
+          489,
+          4306,
+          3775,
+          7814
+        ],
+        [
+          12223,
+          4161
+        ],
+        [
+          1819,
+          3290,
+          11275
+        ],
+        [
+          672,
+          14304,
+          1408
+        ]
+      ],
+      "duration_ms": 146.37625217437744,
+      "plans": [
+        [
+          {
+            "q": 489,
+            "kv": 489,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4306,
+            "kv": 4306,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3775,
+            "kv": 3775,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7814,
+            "kv": 7814,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12223,
+            "kv": 12223,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4161,
+            "kv": 4161,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 1819,
+            "kv": 1819,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3290,
+            "kv": 3290,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 11275,
+            "kv": 11275,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 672,
+            "kv": 672,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 14304,
+            "kv": 14304,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1408,
+            "kv": 1408,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 28,
+      "samples": [
+        [
+          1308,
+          6128,
+          1580,
+          7368
+        ],
+        [
+          16384
+        ],
+        [
+          798,
+          3918,
+          185,
+          3608,
+          747,
+          4539,
+          2589
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 153.16686630249023,
+      "plans": [
+        [
+          {
+            "q": 1308,
+            "kv": 1308,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 6128,
+            "kv": 6128,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1580,
+            "kv": 1580,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7368,
+            "kv": 7368,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 798,
+            "kv": 798,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3918,
+            "kv": 3918,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 185,
+            "kv": 185,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3608,
+            "kv": 3608,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 747,
+            "kv": 747,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4539,
+            "kv": 4539,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2589,
+            "kv": 2589,
+            "gpuid": 0,
+            "seqid": 6,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 29,
+      "samples": [
+        [
+          3159,
+          3407,
+          1773,
+          1350,
+          5638,
+          428,
+          629
+        ],
+        [
+          11628,
+          3515,
+          1241
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 148.13687801361084,
+      "plans": [
+        [
+          {
+            "q": 3159,
+            "kv": 3159,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3407,
+            "kv": 3407,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1773,
+            "kv": 1773,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1350,
+            "kv": 1350,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5638,
+            "kv": 5638,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 428,
+            "kv": 428,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 629,
+            "kv": 629,
+            "gpuid": 0,
+            "seqid": 6,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 11628,
+            "kv": 11628,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3515,
+            "kv": 3515,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1241,
+            "kv": 1241,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 30,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          2337,
+          14047
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 147.17016220092773,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2337,
+            "kv": 2337,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 14047,
+            "kv": 14047,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 31,
+      "samples": [
+        [
+          11454,
+          2059,
+          2871
+        ],
+        [
+          2887,
+          4017,
+          3245,
+          672,
+          3700,
+          1863
+        ],
+        [
+          2794,
+          1082,
+          12508
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 148.6670970916748,
+      "plans": [
+        [
+          {
+            "q": 11454,
+            "kv": 11454,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2059,
+            "kv": 2059,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2871,
+            "kv": 2871,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2887,
+            "kv": 2887,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4017,
+            "kv": 4017,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3245,
+            "kv": 3245,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 672,
+            "kv": 672,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3700,
+            "kv": 3700,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1863,
+            "kv": 1863,
+            "gpuid": 1,
+            "seqid": 5,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 2794,
+            "kv": 2794,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1082,
+            "kv": 1082,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12508,
+            "kv": 12508,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 32,
+      "samples": [
+        [
+          13147,
+          3237
+        ],
+        [
+          295,
+          2394,
+          6242,
+          7453
+        ],
+        [
+          5447,
+          10937
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 145.55389881134033,
+      "plans": [
+        [
+          {
+            "q": 13147,
+            "kv": 13147,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3237,
+            "kv": 3237,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 295,
+            "kv": 295,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2394,
+            "kv": 2394,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 6242,
+            "kv": 6242,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 7453,
+            "kv": 7453,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 5447,
+            "kv": 5447,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 10937,
+            "kv": 10937,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 33,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          3727,
+          2512,
+          4603,
+          3906,
+          1636
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 149.91135597229004,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3727,
+            "kv": 3727,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2512,
+            "kv": 2512,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4603,
+            "kv": 4603,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3906,
+            "kv": 3906,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1636,
+            "kv": 1636,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 34,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.41492366790771,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 35,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          7911,
+          8473
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.72350883483887,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7911,
+            "kv": 7911,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 8473,
+            "kv": 8473,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 36,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          11975,
+          2094,
+          2315
+        ]
+      ],
+      "duration_ms": 148.59707355499268,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 11975,
+            "kv": 11975,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2094,
+            "kv": 2094,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2315,
+            "kv": 2315,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 37,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.1902618408203,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 38,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          12055,
+          3976,
+          353
+        ],
+        [
+          10727,
+          5501,
+          156
+        ],
+        [
+          866,
+          5212,
+          5459,
+          2159,
+          2688
+        ]
+      ],
+      "duration_ms": 147.00944423675537,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12055,
+            "kv": 12055,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3976,
+            "kv": 3976,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 353,
+            "kv": 353,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 10727,
+            "kv": 10727,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5501,
+            "kv": 5501,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 156,
+            "kv": 156,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 866,
+            "kv": 866,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5212,
+            "kv": 5212,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5459,
+            "kv": 5459,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2159,
+            "kv": 2159,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2688,
+            "kv": 2688,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 39,
+      "samples": [
+        [
+          1383,
+          15001
+        ],
+        [
+          1798,
+          67,
+          12544,
+          1975
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 148.32348823547363,
+      "plans": [
+        [
+          {
+            "q": 1383,
+            "kv": 1383,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 15001,
+            "kv": 15001,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1798,
+            "kv": 1798,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 67,
+            "kv": 67,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 12544,
+            "kv": 12544,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1975,
+            "kv": 1975,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 40,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 149.9176025390625,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 41,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          3660,
+          12724
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 147.20115661621094,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3660,
+            "kv": 3660,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 12724,
+            "kv": 12724,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 42,
+      "samples": [
+        [
+          12820,
+          545,
+          3019
+        ],
+        [
+          2528,
+          13856
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.9531536102295,
+      "plans": [
+        [
+          {
+            "q": 12820,
+            "kv": 12820,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 545,
+            "kv": 545,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3019,
+            "kv": 3019,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2528,
+            "kv": 2528,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 13856,
+            "kv": 13856,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 43,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          8347,
+          503,
+          905,
+          859,
+          4491,
+          1279
+        ],
+        [
+          621,
+          1037,
+          367,
+          81,
+          3199,
+          5060,
+          6019
+        ]
+      ],
+      "duration_ms": 147.03927040100098,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 8347,
+            "kv": 8347,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 503,
+            "kv": 503,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 905,
+            "kv": 905,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 859,
+            "kv": 859,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4491,
+            "kv": 4491,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1279,
+            "kv": 1279,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 621,
+            "kv": 621,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1037,
+            "kv": 1037,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 367,
+            "kv": 367,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 81,
+            "kv": 81,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3199,
+            "kv": 3199,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5060,
+            "kv": 5060,
+            "gpuid": 1,
+            "seqid": 5,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 6019,
+            "kv": 6019,
+            "gpuid": 1,
+            "seqid": 6,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 44,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          15115,
+          1269
+        ],
+        [
+          3305,
+          389,
+          12690
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 149.61557388305664,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 15115,
+            "kv": 15115,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1269,
+            "kv": 1269,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 3305,
+            "kv": 3305,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 389,
+            "kv": 389,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12690,
+            "kv": 12690,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 45,
+      "samples": [
+        [
+          3915,
+          10882,
+          1587
+        ],
+        [
+          2384,
+          14000
+        ],
+        [
+          1905,
+          4793,
+          3339,
+          5635,
+          712
+        ],
+        [
+          3638,
+          12746
+        ]
+      ],
+      "duration_ms": 146.49527072906494,
+      "plans": [
+        [
+          {
+            "q": 3915,
+            "kv": 3915,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 10882,
+            "kv": 10882,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1587,
+            "kv": 1587,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2384,
+            "kv": 2384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 14000,
+            "kv": 14000,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 1905,
+            "kv": 1905,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4793,
+            "kv": 4793,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3339,
+            "kv": 3339,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5635,
+            "kv": 5635,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 712,
+            "kv": 712,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3638,
+            "kv": 3638,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 12746,
+            "kv": 12746,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 46,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          8798,
+          3186,
+          4400
+        ],
+        [
+          6960,
+          1962,
+          7462
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 144.92287635803223,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 8798,
+            "kv": 8798,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3186,
+            "kv": 3186,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4400,
+            "kv": 4400,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 6960,
+            "kv": 6960,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1962,
+            "kv": 1962,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7462,
+            "kv": 7462,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 47,
+      "samples": [
+        [
+          12448,
+          3936
+        ],
+        [
+          1030,
+          1178,
+          733,
+          13443
+        ],
+        [
+          4691,
+          1294,
+          10399
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 149.63698387145996,
+      "plans": [
+        [
+          {
+            "q": 12448,
+            "kv": 12448,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3936,
+            "kv": 3936,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1030,
+            "kv": 1030,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1178,
+            "kv": 1178,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 733,
+            "kv": 733,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 13443,
+            "kv": 13443,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 4691,
+            "kv": 4691,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1294,
+            "kv": 1294,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 10399,
+            "kv": 10399,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 48,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          1378,
+          3487,
+          4911,
+          6608
+        ]
+      ],
+      "duration_ms": 148.9431619644165,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1378,
+            "kv": 1378,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3487,
+            "kv": 3487,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4911,
+            "kv": 4911,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 6608,
+            "kv": 6608,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 49,
+      "samples": [
+        [
+          3586,
+          12798
+        ],
+        [
+          5662,
+          10722
+        ],
+        [
+          143,
+          3758,
+          12483
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 145.8550214767456,
+      "plans": [
+        [
+          {
+            "q": 3586,
+            "kv": 3586,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12798,
+            "kv": 12798,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5662,
+            "kv": 5662,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 10722,
+            "kv": 10722,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 143,
+            "kv": 143,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3758,
+            "kv": 3758,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12483,
+            "kv": 12483,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 50,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          12588,
+          3796
+        ],
+        [
+          84,
+          3013,
+          13287
+        ]
+      ],
+      "duration_ms": 146.964430809021,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 12588,
+            "kv": 12588,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3796,
+            "kv": 3796,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 84,
+            "kv": 84,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3013,
+            "kv": 3013,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 13287,
+            "kv": 13287,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 51,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.65873050689697,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 52,
+      "samples": [
+        [
+          13378,
+          2625,
+          381
+        ],
+        [
+          5722,
+          2397,
+          5225,
+          3040
+        ],
+        [
+          2756,
+          3565,
+          2427,
+          7636
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 145.70157527923584,
+      "plans": [
+        [
+          {
+            "q": 13378,
+            "kv": 13378,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2625,
+            "kv": 2625,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 381,
+            "kv": 381,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5722,
+            "kv": 5722,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2397,
+            "kv": 2397,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5225,
+            "kv": 5225,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3040,
+            "kv": 3040,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 2756,
+            "kv": 2756,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3565,
+            "kv": 3565,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2427,
+            "kv": 2427,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7636,
+            "kv": 7636,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 53,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          109,
+          1049,
+          11272,
+          3954
+        ],
+        [
+          2288,
+          2213,
+          292,
+          5266,
+          995,
+          5330
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 148.9692211151123,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 109,
+            "kv": 109,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 1049,
+            "kv": 1049,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 11272,
+            "kv": 11272,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3954,
+            "kv": 3954,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 2288,
+            "kv": 2288,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2213,
+            "kv": 2213,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 292,
+            "kv": 292,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5266,
+            "kv": 5266,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 995,
+            "kv": 995,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5330,
+            "kv": 5330,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 54,
+      "samples": [
+        [
+          3162,
+          13222
+        ],
+        [
+          1225,
+          558,
+          14601
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 147.8182315826416,
+      "plans": [
+        [
+          {
+            "q": 3162,
+            "kv": 3162,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 13222,
+            "kv": 13222,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1225,
+            "kv": 1225,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 558,
+            "kv": 558,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 14601,
+            "kv": 14601,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 55,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          14258,
+          2126
+        ],
+        [
+          1627,
+          2806,
+          5876,
+          3768,
+          1654,
+          653
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 149.31538105010986,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 14258,
+            "kv": 14258,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2126,
+            "kv": 2126,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 1627,
+            "kv": 1627,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2806,
+            "kv": 2806,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5876,
+            "kv": 5876,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3768,
+            "kv": 3768,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1654,
+            "kv": 1654,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 653,
+            "kv": 653,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 56,
+      "samples": [
+        [
+          1463,
+          5562,
+          1430,
+          497,
+          5819,
+          1613
+        ],
+        [
+          16384
+        ],
+        [
+          558,
+          4802,
+          1806,
+          5710,
+          3508
+        ],
+        [
+          12994,
+          3390
+        ]
+      ],
+      "duration_ms": 150.04355907440186,
+      "plans": [
+        [
+          {
+            "q": 1463,
+            "kv": 1463,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5562,
+            "kv": 5562,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1430,
+            "kv": 1430,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 497,
+            "kv": 497,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5819,
+            "kv": 5819,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1613,
+            "kv": 1613,
+            "gpuid": 0,
+            "seqid": 5,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 558,
+            "kv": 558,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4802,
+            "kv": 4802,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1806,
+            "kv": 1806,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5710,
+            "kv": 5710,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3508,
+            "kv": 3508,
+            "gpuid": 0,
+            "seqid": 4,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 12994,
+            "kv": 12994,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3390,
+            "kv": 3390,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 57,
+      "samples": [
+        [
+          6856,
+          4547,
+          4981
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          3135,
+          13249
+        ]
+      ],
+      "duration_ms": 148.08611869812012,
+      "plans": [
+        [
+          {
+            "q": 6856,
+            "kv": 6856,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4547,
+            "kv": 4547,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4981,
+            "kv": 4981,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3135,
+            "kv": 3135,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 13249,
+            "kv": 13249,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 58,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 146.41399383544922,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 59,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          221,
+          5284,
+          3677,
+          155,
+          7047
+        ],
+        [
+          16384
+        ],
+        [
+          877,
+          4456,
+          11051
+        ]
+      ],
+      "duration_ms": 151.68254375457764,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 221,
+            "kv": 221,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 5284,
+            "kv": 5284,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 3677,
+            "kv": 3677,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 155,
+            "kv": 155,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 7047,
+            "kv": 7047,
+            "gpuid": 1,
+            "seqid": 4,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 877,
+            "kv": 877,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 4456,
+            "kv": 4456,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 11051,
+            "kv": 11051,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 60,
+      "samples": [
+        [
+          1493,
+          5134,
+          1957,
+          7800
+        ],
+        [
+          16384
+        ],
+        [
+          12209,
+          4175
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 149.68008995056152,
+      "plans": [
+        [
+          {
+            "q": 1493,
+            "kv": 1493,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5134,
+            "kv": 5134,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1957,
+            "kv": 1957,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 7800,
+            "kv": 7800,
+            "gpuid": 0,
+            "seqid": 3,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 12209,
+            "kv": 12209,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 4175,
+            "kv": 4175,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 61,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          2760,
+          302,
+          10341,
+          2981
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 149.37267303466797,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 2760,
+            "kv": 2760,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 302,
+            "kv": 302,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 10341,
+            "kv": 10341,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2981,
+            "kv": 2981,
+            "gpuid": 1,
+            "seqid": 3,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 62,
+      "samples": [
+        [
+          7691,
+          5249,
+          3444
+        ],
+        [
+          1542,
+          14842
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ]
+      ],
+      "duration_ms": 147.34323024749756,
+      "plans": [
+        [
+          {
+            "q": 7691,
+            "kv": 7691,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 5249,
+            "kv": 5249,
+            "gpuid": 0,
+            "seqid": 1,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3444,
+            "kv": 3444,
+            "gpuid": 0,
+            "seqid": 2,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 1542,
+            "kv": 1542,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 14842,
+            "kv": 14842,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    },
+    {
+      "sample_id": 63,
+      "samples": [
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          16384
+        ],
+        [
+          3636,
+          2575,
+          10173
+        ]
+      ],
+      "duration_ms": 148.49247932434082,
+      "plans": [
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ],
+        [
+          {
+            "q": 16384,
+            "kv": 16384,
+            "gpuid": 0,
+            "seqid": 0,
+            "src_gpuid": 0,
+            "is_original": true
+          },
+          {
+            "q": 3636,
+            "kv": 3636,
+            "gpuid": 1,
+            "seqid": 0,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 2575,
+            "kv": 2575,
+            "gpuid": 1,
+            "seqid": 1,
+            "src_gpuid": 1,
+            "is_original": true
+          },
+          {
+            "q": 10173,
+            "kv": 10173,
+            "gpuid": 1,
+            "seqid": 2,
+            "src_gpuid": 1,
+            "is_original": true
+          }
+        ]
+      ]
+    }
+  ],
+  "plans": []
+}

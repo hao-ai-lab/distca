@@ -42,6 +42,9 @@ this_dir=$(dirname $(realpath $0))
 root_dir=$(realpath $this_dir/../..)
 test_dir=$(realpath $root_dir/tests)
 
+now=$(date +%Y%m%d_%H%M%S)
+output_dir=$(realpath $this_dir/data/$now.e2e_combined.v3)
+
 PYTHON_PATH=$test_dir
 FILE_PATH=$(realpath $test_dir/test_e2e_combined.py)
 if [ ! -f $FILE_PATH ]; then
@@ -58,7 +61,6 @@ TORCHRUN_DISTCONFIG=(
     --master_port=29500
 )
 
-now=$(date +%Y%m%d_%H%M%S)
 
 
 EXEC_CONFIG=(
@@ -66,7 +68,7 @@ EXEC_CONFIG=(
     --num-gpus-per-node 8 
     --tp-size 8 
     --num-layers 4
-    --max-sample-id 32
+    --max-sample-id 64
 )
 
 
@@ -86,13 +88,13 @@ for i in "${!TOKEN_SIZES[@]}"; do
     # Run d2 mode with different replan iterations
     for REPLAN_ITER in "${REPLAN_ITERS[@]}"; do
         torchrun ${TORCHRUN_DISTCONFIG[@]} $FILE_PATH ${EXEC_CONFIG[@]} \
-            --output-file $this_dir/data/$now.v3/d2.t${TOKEN_LABEL}.p${REPLAN_ITER}.json --replan-iter $REPLAN_ITER --mode d2 --num-tokens $TOKEN_SIZE
+            --output-file $output_dir/d2.t${TOKEN_LABEL}.p${REPLAN_ITER}.json --replan-iter $REPLAN_ITER --mode d2 --num-tokens $TOKEN_SIZE
         sleep 5
     done
     
     # Run baseline mode
     torchrun ${TORCHRUN_DISTCONFIG[@]} $FILE_PATH ${EXEC_CONFIG[@]} \
-        --output-file $this_dir/data/$now.v3/baseline.t${TOKEN_LABEL}.json --replan-iter 0 --mode baseline --num-tokens $TOKEN_SIZE
+        --output-file $output_dir/baseline.t${TOKEN_LABEL}.json --replan-iter 0 --mode baseline --num-tokens $TOKEN_SIZE
     sleep 5
 done
 
