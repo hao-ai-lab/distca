@@ -48,8 +48,15 @@ class PingPangPackedSeqParams:
     seq_params: List[PingPangSingleStepPackedSeqParams]
     # The seq params for mlp layout. This is mainly used for the RoPE.
     mlp_layout_seq_params: List[PackedSeqParams]
+    # Whether or not launching all2all with a single autograd function
+    # or use separate autograd functions for each direction.
+    # This can ensure both fwd and bwd all2all being launched before
+    # the compute stream kernels.
+    separate_fwd_bwd_all2all: bool = False
     # NOTE: within a TransformerLayer, this will make sure all communications run on the compute stream.
     debug: bool = False
+    # Debug Option, force doing gather at the end of this layer. This is for
+    # test purpose (test running with a single layer)
     do_gather: bool = False
     # NOTE: These attributes are used for rotary seq len's max length.
     # since we do rope in the MLP layout, it should be the max length
@@ -75,6 +82,7 @@ class PingPangPackedSeqParams:
             do_gather=self.do_gather,
             max_seqlen_q=_to_cuda_int32(max_seqlen_q),
             max_seqlen_kv=_to_cuda_int32(max_seqlen_kv),
+            separate_fwd_bwd_all2all=self.separate_fwd_bwd_all2all,
         )
 
 

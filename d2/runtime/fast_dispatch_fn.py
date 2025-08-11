@@ -111,32 +111,37 @@ class all_to_all(torch.autograd.Function):
     @staticmethod
     def forward(ctx, signal: torch.Tensor, metadata: FastAlltoAllMetadata,
                 bwd_metadata: FastAlltoAllMetadata, dispatcher_id: int,
-                stream: torch.cuda.Stream = None):
+                stream: torch.cuda.Stream, stage: str):
+        assert stage in ["fwd", "bwd", "fwd_bwd"], f"unknown stage specifier {stage}"
         if stream is None or metadata.single_stream:
             stream = torch.cuda.current_stream()
-        with torch.cuda.stream(stream):
-            fast_a2a(
-                *metadata.fa2a_metadata,
-                metadata.my_rank_send_offset, metadata.my_rank_recv_offset, metadata.my_rank_send_sz,
-                instance_id=dispatcher_id,
-            )
+        if "fwd" in stage:
+            with torch.cuda.stream(stream):
+                fast_a2a(
+                    *metadata.fa2a_metadata,
+                    metadata.my_rank_send_offset, metadata.my_rank_recv_offset, metadata.my_rank_send_sz,
+                    instance_id=dispatcher_id,
+                )
         ctx.dispatcher_id = dispatcher_id
         ctx.stream = stream
-        ctx.my_rank_send_offset = bwd_metadata.my_rank_send_offset
-        ctx.my_rank_recv_offset = bwd_metadata.my_rank_recv_offset
-        ctx.my_rank_send_sz = bwd_metadata.my_rank_send_sz
-        ctx.save_for_backward(*bwd_metadata.fa2a_metadata)
+        ctx.stage = stage
+        if "bwd" in stage:
+            ctx.my_rank_send_offset = bwd_metadata.my_rank_send_offset
+            ctx.my_rank_recv_offset = bwd_metadata.my_rank_recv_offset
+            ctx.my_rank_send_sz = bwd_metadata.my_rank_send_sz
+            ctx.save_for_backward(*bwd_metadata.fa2a_metadata)
         return signal
     @staticmethod
     def backward(ctx, grad_signal: torch.Tensor):
         stream = ctx.stream
-        with torch.cuda.stream(stream):
-            fast_a2a(
-                *ctx.saved_tensors,
-                ctx.my_rank_send_offset, ctx.my_rank_recv_offset, ctx.my_rank_send_sz,
-                instance_id=ctx.dispatcher_id,
-            )
-        return (grad_signal,) + (None,) * 4
+        if "bwd" in ctx.stage:
+            with torch.cuda.stream(stream):
+                fast_a2a(
+                    *ctx.saved_tensors,
+                    ctx.my_rank_send_offset, ctx.my_rank_recv_offset, ctx.my_rank_send_sz,
+                    instance_id=ctx.dispatcher_id,
+                )
+        return (grad_signal,) + (None,) * 5
 
 
 class post_all2all_layout_transfer(torch.autograd.Function):

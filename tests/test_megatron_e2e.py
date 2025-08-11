@@ -341,6 +341,7 @@ def test(args):
         max_seqlen_q=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
         max_seqlen_kv=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
         qkv_format="thd",
+        separate_fwd_bwd_all2all=True,
     )
     microbatch = {
         "input_ids": input_ids_local,

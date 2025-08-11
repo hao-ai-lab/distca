@@ -168,7 +168,8 @@ class TransformerLayer(BaseTransformerLayer):
 
     def _all_to_all(self, signal: torch.Tensor,
                     packed_seq_params: PingPangSingleStepPackedSeqParams,
-                    is_qkv: bool,):
+                    is_qkv: bool,
+                    stage: str = "fwd_bwd"):
         metadatas = []
         if is_qkv:
             metadatas = [
@@ -185,6 +186,7 @@ class TransformerLayer(BaseTransformerLayer):
             *metadatas,
             packed_seq_params.dispatcher_id,
             packed_seq_params.stream,
+            stage,
         )
         return signal
 
@@ -229,6 +231,7 @@ class TransformerLayer(BaseTransformerLayer):
         else:
             setattr(packed_seq_params_0, "dispatcher_id", 0)
             setattr(packed_seq_params_1, "dispatcher_id", 1)
+        separate_fwd_bwd_a2a = packed_seq_params.separate_fwd_bwd_all2all
 
 
         # NOTE: DO NOT REMOVE THIS DEBUG TENSOR! Torch seems to have some
@@ -277,6 +280,7 @@ class TransformerLayer(BaseTransformerLayer):
         ## communicate,0
         signal_0 = self._all_to_all(
             signal_0, packed_seq_params_0, is_qkv=True,
+            stage="fwd" if separate_fwd_bwd_a2a else "fwd_bwd"
         )
         ## compute,1
         torch.cuda.nvtx.range_push("pre_core_attn.1")
@@ -293,6 +297,12 @@ class TransformerLayer(BaseTransformerLayer):
         signal_1 = self._pre_mlp_to_attn(
             query_1, key_1, value_1, packed_seq_params_1
         )
+        # If force prioritize all2all, add bwd one here
+        if separate_fwd_bwd_a2a:
+            signal_1 = self._all_to_all(
+                signal_1, packed_seq_params_0, is_qkv=True, stage="bwd"
+            )
+
         signal_0, signal_1 = TickSync.apply(
             compute_stream, comm_stream, signal_0, signal_1
         )
@@ -303,6 +313,7 @@ class TransformerLayer(BaseTransformerLayer):
         ## communicate,1
         signal_1 = self._all_to_all(
             signal_1, packed_seq_params_1, is_qkv=True,
+            stage="fwd" if separate_fwd_bwd_a2a else "fwd_bwd"
         )
         ## compute
         # post-communicate,0
@@ -322,6 +333,11 @@ class TransformerLayer(BaseTransformerLayer):
         torch.cuda.nvtx.range_pop()
         # pre-communicate,0
         signal_0 = self._pre_attn_to_mlp(core_attn_out_0, packed_seq_params_0)
+                # If force prioritize all2all, add bwd one here
+        if separate_fwd_bwd_a2a:
+            signal_0 = self._all_to_all(
+                signal_0, packed_seq_params_1, is_qkv=True, stage="bwd"
+            )
         signal_1, signal_0 = TickSync.apply(
             compute_stream, comm_stream, signal_1, signal_0
         )
@@ -332,6 +348,7 @@ class TransformerLayer(BaseTransformerLayer):
         ## communicate,0
         signal_0 = self._all_to_all(
             signal_0, packed_seq_params_0, is_qkv=False,
+            stage="fwd" if separate_fwd_bwd_a2a else "fwd_bwd"
         )
         ## compute,1
         # post-communicate,1
@@ -349,13 +366,21 @@ class TransformerLayer(BaseTransformerLayer):
         torch.cuda.nvtx.range_pop()
         # pre-communicate,1
         signal_1 = self._pre_attn_to_mlp(core_attn_out_1, packed_seq_params_1)
+        if separate_fwd_bwd_a2a:
+            signal_1 = self._all_to_all(
+                signal_1, packed_seq_params_0, is_qkv=False, stage="bwd"
+            )
         signal_0, signal_1 = TickSync.apply(compute_stream, comm_stream, signal_0, signal_1)
         # NOTE: do not remove this debug tensor. see above.
         debug_tensors = core_attn_out_1
 
         # 6. mlp forward of microbatch 0, mlp2attn all2all of microbatch 1
         # communicate,1
-        signal_1 = self._all_to_all(signal_1, packed_seq_params_1, is_qkv=False,)
+        # TODO: should also make this able to be separated.
+        signal_1 = self._all_to_all(
+            signal_1, packed_seq_params_1, is_qkv=False,
+            stage="fwd" if separate_fwd_bwd_a2a else "fwd_bwd"
+        )
         ## compute,0
         # post-communicate,0
         core_attn_out_0 = self._post_attn_to_mlp(signal_0, packed_seq_params_0)
@@ -367,6 +392,11 @@ class TransformerLayer(BaseTransformerLayer):
             context_mask_0,
         )
         torch.cuda.nvtx.range_pop()
+        if separate_fwd_bwd_a2a:
+            mlp_output_0 = self._all_to_all(
+                mlp_output_0, packed_seq_params_1, is_qkv=False,
+                stage="bwd"
+            )
         # no pre-communicate for 0 now.
         signal_1, mlp_output_0 = TickSync.apply(compute_stream, comm_stream, signal_1, mlp_output_0)
         # NOTE: do not remove this debug tensor. see above.
@@ -544,6 +574,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         setattr(packed_seq_params_1, "stream", self.comm_stream)
         setattr(packed_seq_params_0, "dispatcher_id", 0)
         setattr(packed_seq_params_1, "dispatcher_id", 1)
+        separate_fwd_bwd_a2a = packed_seq_params.separate_fwd_bwd_all2all
 
         with rng_context, outer_fp8_context:
             # Forward pass.
@@ -573,7 +604,8 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
                     inner_fp8_context = nullcontext()
                     with self.offload_context, inner_fp8_context:
                         arg_group_0, arg_group_1, hidden_states, context = self.forward_layers(
-                            l_no, arg_group_0, arg_group_1, compute_stream
+                            l_no, arg_group_0, arg_group_1, compute_stream,
+                            separate_fwd_bwd_a2a,
                         )
 
                     if (
@@ -601,12 +633,19 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         arg_group_0: Dict[str, Any],
         arg_group_1: Dict[str, Any],
         compute_stream: torch.cuda.Stream,
+        separate_fwd_bwd_a2a: bool=False,
     ):
         layer = self.layers[l_no]
         prev_layer = self.layers[l_no - 1] if l_no > 0 else None
         # tick 0, second half
         arg_group_0 = _forward_pre_core_attn(layer, arg_group_0)
         if l_no > 0:
+
+            if separate_fwd_bwd_a2a:
+                arg_group_0["signal"] = _layout_attn_to_mlp_bwd(
+                    prev_layer, arg_group_0["signal"], arg_group_1
+                )
+
             _tick_sync(
                 compute_stream, self.comm_stream,
                 arg_group_0, "signal",  # compute out
@@ -615,11 +654,20 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         # tick 1
         # communication
-        arg_group_0 = _layout_mlp_to_attn(layer, arg_group_0)
+        arg_group_0 = _layout_mlp_to_attn(
+            layer, arg_group_0,
+            stage="fwd" if separate_fwd_bwd_a2a else "fwd_bwd",
+        )
         # compute
         if l_no > 0:
             arg_group_1 = _forward_post_core_attn(prev_layer, arg_group_1)
         arg_group_1 = _forward_pre_core_attn(layer, arg_group_1)
+
+        if separate_fwd_bwd_a2a:
+            arg_group_1["signal"] = _layout_mlp_to_attn_bwd(
+                layer, arg_group_1["signal"], arg_group_0
+            )
+
         _tick_sync(
             compute_stream, self.comm_stream,
             arg_group_0, "signal",  # comm out
@@ -628,9 +676,18 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         # tick 2
         # communication
-        arg_group_1 = _layout_mlp_to_attn(layer, arg_group_1)
+        arg_group_1 = _layout_mlp_to_attn(
+            layer, arg_group_1,
+            stage="fwd" if separate_fwd_bwd_a2a else "fwd_bwd",
+        )
         # compute
         arg_group_0 = _forward_core_attn(layer, arg_group_0)
+
+        if separate_fwd_bwd_a2a:
+            arg_group_0["signal"] = _layout_mlp_to_attn_bwd(
+                layer, arg_group_0["signal"], arg_group_1,
+            )
+
         _tick_sync(
             compute_stream, self.comm_stream,
             arg_group_0, "signal",  # compute out
@@ -639,9 +696,18 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         # tick 3
         # communication
-        arg_group_0 = _layout_attn_to_mlp(layer, arg_group_0)
+        arg_group_0 = _layout_attn_to_mlp(
+            layer, arg_group_0,
+            stage="fwd" if separate_fwd_bwd_a2a else "fwd_bwd",
+        )
         # compute
         arg_group_1 = _forward_core_attn(layer, arg_group_1)
+
+        if separate_fwd_bwd_a2a:
+            arg_group_1["signal"] = _layout_attn_to_mlp_bwd(
+                layer, arg_group_1["signal"], arg_group_0
+            )
+
         _tick_sync(
             compute_stream, self.comm_stream,
             arg_group_0, "signal",  # comm out
@@ -650,13 +716,20 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         # tick 4, also the tick 0 of the next layer
         # communication
-        arg_group_1 = _layout_attn_to_mlp(layer, arg_group_1)
+        arg_group_1 = _layout_attn_to_mlp(
+            layer, arg_group_1,
+            stage="fwd" if separate_fwd_bwd_a2a else "fwd_bwd",
+        )
         # compute
         arg_group_0 = _forward_post_core_attn(layer, arg_group_0)
         # NOTE: communication of this tick is at the next layer.
 
         # if the last layer, do the other half of tick 4 and tick 5
         if l_no == len(self.layers) - 1:
+            arg_group_0["hidden_states"] = _layout_attn_to_mlp_bwd(
+                layer, arg_group_0["hidden_states"], arg_group_1
+            )
+
             # No next layer, do the sync here.
             _tick_sync(
                 compute_stream, self.comm_stream,
@@ -691,11 +764,23 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         args["signal"] = signal
         return args
 
-    def _layout_mlp_to_attn(layer: TransformerLayer, args: Dict[str, Any]):
+    def _layout_mlp_to_attn(layer: TransformerLayer, args: Dict[str, Any],
+                            stage: str = "fwd_bwd"):
         args.pop("query"), args.pop("key"), args.pop("value")
         signal = args.pop("signal")
-        args["signal"] = layer._all_to_all(signal, args["packed_seq_params"], is_qkv=True)
+        args["signal"] = layer._all_to_all(
+            signal, args["packed_seq_params"], is_qkv=True,
+            stage=stage,
+        )
         return args
+    
+    def _layout_mlp_to_attn_bwd(layer: TransformerLayer, signal: torch.Tensor,
+                                args: Dict[str, Any]):
+        """Here we pass signal because it's the signal of another arg group"""
+        return layer._all_to_all(
+            signal, args["packed_seq_params"], is_qkv=True,
+            stage="bwd"
+        )
 
     def _forward_core_attn(layer: TransformerLayer, args: Dict[str, Any]):
         # pop out to make sure the tensor is freed
@@ -712,11 +797,23 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         args["signal"] = layer._pre_attn_to_mlp(core_attn_out, args["packed_seq_params"])
         return args
 
-    def _layout_attn_to_mlp(layer: TransformerLayer, args: Dict[str, Any]):
+    def _layout_attn_to_mlp(layer: TransformerLayer, args: Dict[str, Any],
+                            stage: str = "fwd_bwd"):
         args.pop("core_attn_out")
         signal = args.pop("signal")
-        args["signal"] = layer._all_to_all(signal, args["packed_seq_params"], is_qkv=False)
+        args["signal"] = layer._all_to_all(
+            signal, args["packed_seq_params"], is_qkv=False,
+            stage=stage,
+        )
         return args
+
+    def _layout_attn_to_mlp_bwd(layer: TransformerLayer, signal: torch.Tensor,
+                                args: Dict[str, Any]):
+        """Here we pass signal because it's the signal of another arg group"""
+        return layer._all_to_all(
+            signal, args["packed_seq_params"], is_qkv=True,
+            stage="bwd",
+        )
 
     def _forward_post_core_attn(layer: TransformerLayer, args: Dict[str, Any]):
         signal = args.pop("signal")

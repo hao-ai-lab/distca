@@ -18,6 +18,7 @@ NVSHMEM_DEBUG=DEBUG NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALG
 """
 
 from typing import Optional
+from contextlib import nullcontext
 
 import megatron.core.parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -59,11 +60,17 @@ class MegatronLayerWorker(MegatronBaseWorker):
         )
         tensor_input = tensor_input.cuda().detach()
         tensor_input.requires_grad = True
-        self.layer.train()
-        mlp_output, context, debug = self.layer.forward_no_switch(
-            tensor_input, packed_seq_params=packed_seq_params
-        )
-        mlp_output.mean().backward()
+        if return_grad:
+            ctx = torch.enable_grad()
+        else:
+            ctx = nullcontext()
+        with ctx:
+            self.layer.train()
+            mlp_output, context, debug = self.layer.forward_no_switch(
+                tensor_input, packed_seq_params=packed_seq_params
+            )
+            if return_grad:
+                mlp_output.mean().backward()
         torch.cuda.synchronize()
         print(self.rank, "normal forward done")
         return (mlp_output, context, *((tensor_input.grad,) if return_grad else ())), debug
@@ -79,12 +86,18 @@ class MegatronLayerWorker(MegatronBaseWorker):
 
         backward_resend_qkv = packed_seq_params.bwd_packed_seq_params is not None
 
-        self.layer.train()
-        mlp_output, context, debug_tensors = self.layer.forward_one_stage(
-            tensor_input, packed_seq_params=packed_seq_params,
-            backward_resend_qkv=backward_resend_qkv
-        )
-        mlp_output.mean().backward()
+        if return_grad:
+            ctx = torch.enable_grad()
+        else:
+            ctx = nullcontext()
+        with ctx:
+            self.layer.train()
+            mlp_output, context, debug_tensors = self.layer.forward_one_stage(
+                tensor_input, packed_seq_params=packed_seq_params,
+                backward_resend_qkv=backward_resend_qkv
+            )
+            if return_grad:
+                mlp_output.mean().backward()
         torch.cuda.synchronize()
         print(self.rank, "ping-pong one stage forward done")
         return (mlp_output, context, *((tensor_input.grad,) if return_grad else ())), debug_tensors

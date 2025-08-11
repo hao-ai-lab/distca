@@ -47,7 +47,7 @@ class PingPangLayerWorker(MegatronLayerWorker):
         self.stream = torch.cuda.Stream(device=self.device, priority=-1)
 
     def forward_ping_pang(self, tensor_input: torch.Tensor, packed_seq_params: PingPangPackedSeqParams,
-                          run_backward: bool = False):
+                          return_grad: bool = False):
         packed_seq_params = packed_seq_params.to_device()
         tensor_input = tensor_input.cuda()
         self.layer.train()
@@ -62,19 +62,20 @@ class PingPangLayerWorker(MegatronLayerWorker):
                 setattr(params, "stream", torch.cuda.current_stream())
         torch.distributed.barrier()
 
-        if run_backward:
+        if return_grad:
             tensor_input.requires_grad = True
             ctx = torch.enable_grad()
         else:
             ctx = torch.no_grad()
         with ctx:
             ret = self.layer.ping_pang_forward(tensor_input, packed_seq_params=packed_seq_params)
-            if not run_backward:
+            if not return_grad:
                 return ret
             output, context = ret
             loss = (output**2).mean()
             loss.backward()
             self.layer.zero_grad()
+        return (*ret, *((tensor_input.grad,) if return_grad else ()))
 
 
 def create_one_batch(
@@ -175,7 +176,7 @@ def test_forward(
     )
     packed_seq_params = mlp_layout_packed_params(seq_lens_local)
     normal_forward_out, debug_ref = worker.forward_normal(
-        tensor_shard, packed_seq_params
+        tensor_shard, packed_seq_params, return_grad=True
     )
 
     ping_pang_params_0 = get_single_step_packed_seq_params(
@@ -197,9 +198,10 @@ def test_forward(
         qkv_format="thd",
         do_gather=True,
         debug=debug,
+        separate_fwd_bwd_all2all=True,
     )
     ans = worker.forward_ping_pang(
-        tensor_shard, ping_pang_params
+        tensor_shard, ping_pang_params, return_grad=True
     )
     torch.testing.assert_close(ans, normal_forward_out)
     print(f"Rank {as_rank} forward ping-pang passed.")
@@ -207,7 +209,7 @@ def test_forward(
         for _ in range(3):
             worker.forward_ping_pang(
                 tensor_shard, ping_pang_params,
-                run_backward=True
+                return_grad=True
             )
         torch.cuda.synchronize()
         torch.distributed.barrier()
@@ -215,7 +217,7 @@ def test_forward(
         for _ in range(20):
             worker.forward_ping_pang(
                 tensor_shard, ping_pang_params,
-                run_backward=True
+                return_grad=True
             )
         torch.cuda.synchronize()
         torch.distributed.barrier()
