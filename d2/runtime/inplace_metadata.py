@@ -264,6 +264,8 @@ def compute_metadata(
         return fwd_metadata, rev_metadata, intermediates
     return fwd_metadata, rev_metadata
 
+import rich
+import os
 
 @torch.no_grad()
 def compute_attn_layout_seqlens(
@@ -284,6 +286,18 @@ def compute_attn_layout_seqlens(
           flash attention requires tha prefix zero.
         shard_to_tuple: bool, whether to return the output as a tuple of tensors, and apply the actual receive length.
     """
+    VERBOSE = True
+    def print_if_verbose(*args, **kwargs):
+        if VERBOSE:
+            rank = torch.distributed.get_rank()
+            if rank == 0:
+                # get the file path of the caller
+                import inspect
+                frame = inspect.currentframe().f_back
+                file_path = os.path.basename(frame.f_code.co_filename)
+                line_number = frame.f_lineno
+                rich.print(f"🟡 {file_path}:{line_number}", *args, **kwargs)
+
     world_size = dispatch.shape[0]
     max_num_local_seqs = dispatch.shape[1]
     assert dispatch.dim() == 2
@@ -294,21 +308,29 @@ def compute_attn_layout_seqlens(
     assert seq_shard_cumsum.dtype == torch.int64
     # dispatch[i, j] = the rank that sequence [i,j] is dispatched to.
     flatten_dispatch = dispatch.flatten()
+    print_if_verbose("🟡 flatten_dispatch: ", flatten_dispatch)
 
     flatten_dispatch_one_hot = F.one_hot(flatten_dispatch + 1, num_classes=world_size + 1)[:, 1:]
+    print_if_verbose("🟡 flatten_dispatch_one_hot: ", flatten_dispatch_one_hot)
+
     # shape: (world_size, seq_len, world_size)
     local_indices_flat = (
         # cumsum: the id of this sequence at the dst rank.
         (flatten_dispatch_one_hot.cumsum(dim=0) - 1) * flatten_dispatch_one_hot
     ).sum(dim=1).reshape(-1)
+    print_if_verbose("🟡 local_indices_flat: ", local_indices_flat)
+
     # if dispatch[i, j] = k, then local_indices_flat[i, j, k] = l means sequence [i,j] is at out_sequence [k,l]
     # out_seqlens_q[k, l] = seq_shard_len[i, j]
     max_num_seq = int(local_indices_flat.max().item() + 1)
     scatter_index = flatten_dispatch * max_num_seq + local_indices_flat
     scatter_index = mask_by_neg(scatter_index, flatten_dispatch >= 0)
+    print_if_verbose("🟡 scatter_index: ", scatter_index)
 
     src_seqlens = seq_shard_len.flatten()
     src_seq_lens_kv = seq_shard_cumsum.flatten()
+    print_if_verbose("🟡 src_seqlens: ", src_seqlens)
+    print_if_verbose("🟡 src_seq_lens_kv: ", src_seq_lens_kv)
 
     out_seqlens_q = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
     out_seqlens_kv = torch.zeros(world_size * max_num_seq, dtype=torch.int64, device=dispatch.device)
@@ -322,8 +344,11 @@ def compute_attn_layout_seqlens(
 
     out_seqlens_q = out_seqlens_q.reshape(world_size, max_num_seq)
     out_seqlens_kv = out_seqlens_kv.reshape(world_size, max_num_seq)
+    print_if_verbose("🟡 out_seqlens_q: ", out_seqlens_q)
+    print_if_verbose("🟡 out_seqlens_kv: ", out_seqlens_kv)
 
     num_local_seqs_recv = local_indices_flat.reshape(-1, world_size).max(dim=0)[0] + 1
+    print_if_verbose("🟡 num_local_seqs_recv: ", num_local_seqs_recv)
 
     cu_seqlens_q = out_seqlens_q.cumsum(dim=1)
     cu_seqlens_kv = out_seqlens_kv.cumsum(dim=1)
@@ -332,6 +357,10 @@ def compute_attn_layout_seqlens(
     if prepend_zero:
         cu_seqlens_q = prepend_zero_fn(cu_seqlens_q, dim=1)
         cu_seqlens_kv = prepend_zero_fn(cu_seqlens_kv, dim=1)
+    print_if_verbose("🟡 cu_seqlens_q: ", cu_seqlens_q)
+    print_if_verbose("🟡 cu_seqlens_kv: ", cu_seqlens_kv)
+    print_if_verbose("🟡 max_seqlen_q: ", max_seqlen_q)
+    print_if_verbose("🟡 max_seqlen_kv: ", max_seqlen_kv)
     if shard_to_tuple:
         sq_len_extra = 1 if prepend_zero else 0
         cu_seqlens_q = tuple(
@@ -344,6 +373,12 @@ def compute_attn_layout_seqlens(
         )
         # NOTE: max_seqlen does not need to shard to tuples because
         # they are of the same length (1,) for each rank.
+    print_if_verbose("🟡 cu_seqlens_q: ", cu_seqlens_q)
+    print_if_verbose("🟡 cu_seqlens_kv: ", cu_seqlens_kv)
+    print_if_verbose("🟡 max_seqlen_q: ", max_seqlen_q)
+    print_if_verbose("🟡 max_seqlen_kv: ", max_seqlen_kv)
+    print_if_verbose("🟡 num_local_seqs_recv: ", num_local_seqs_recv)
+    # exit(0)
 
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_local_seqs_recv
 

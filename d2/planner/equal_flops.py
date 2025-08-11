@@ -414,9 +414,12 @@ def exclusive_cumsum(tensor: torch.Tensor, dim: int = 0) -> torch.Tensor:
 
 
 def item_to_intermediate_tensors(items, verbose=False):
-    def print_if_verbose(message):
-        if verbose:
-            rich.print(message)
+    def print_if_verbose(*args, **kwargs):
+        verbose = True
+        rank = torch.distributed.get_rank()
+        if rank == 0:
+            if verbose:
+                rich.print(f"🟢 [Rank {rank}]", *args, **kwargs)
 
     from collections import defaultdict
     from copy import deepcopy
@@ -436,7 +439,7 @@ def item_to_intermediate_tensors(items, verbose=False):
         values.sort(key=lambda x: x["kv"])
         pass
 
-    print_if_verbose(info_list)
+    print_if_verbose("🟡 info_list: ", info_list)
 
     world_size = max(item["src_gpuid"] for item in items) + 1
     num_seqs = max(item["seqid"] for item in items) + 1
@@ -445,19 +448,19 @@ def item_to_intermediate_tensors(items, verbose=False):
         for value in info_mapping.values()
     )
     world_info = dict(world_size=world_size, num_seqs=num_seqs, max_cp_degree=max_cp_degree)
-    print_if_verbose(world_info)
+    print_if_verbose("🟡 world_info: ", world_info)
 
     seq_lens = torch.zeros((world_size, num_seqs), dtype=torch.int64)
     for i in range(world_size):
         for j in range(num_seqs):
             seq_lens[i, j] = sum(item["q"] for item in info_mapping[(i, j)])
-    print_if_verbose(seq_lens)
+    print_if_verbose("🟡 seq_lens: ", seq_lens)
 
     cp_num = torch.zeros((world_size, num_seqs), dtype=torch.int64)
     for i in range(world_size):
         for j in range(num_seqs):
             cp_num[i, j] = len(info_mapping[(i, j)])
-    print_if_verbose(cp_num)
+    print_if_verbose("🟡 cp_num: ", cp_num)
 
     cp_dst = torch.ones((world_size, num_seqs, max_cp_degree), dtype=torch.int64) * -1
     for i in range(world_size):
@@ -468,7 +471,7 @@ def item_to_intermediate_tensors(items, verbose=False):
                     cp_dst[i, j, k] = info_mapping[(i, j)][k]["gpuid"]
                 else:
                     cp_dst[i, j, k] = -1
-    print_if_verbose(cp_dst)
+    print_if_verbose("🟡 cp_dst: ", cp_dst)
 
     seq_shard_lens = torch.zeros((world_size, num_seqs, max_cp_degree), dtype=torch.int64)
     for i in range(world_size):
@@ -479,7 +482,7 @@ def item_to_intermediate_tensors(items, verbose=False):
                     seq_shard_lens[i, j, k] = info_mapping[(i, j)][k]["q"]
                 else:
                     seq_shard_lens[i, j, k] = 0
-    print_if_verbose(seq_shard_lens)
+    print_if_verbose("🟡 seq_shard_lens: ", seq_shard_lens)
 
     return world_info, (items, info_mapping, info_list), (seq_lens, cp_num, cp_dst, seq_shard_lens)
 
