@@ -314,10 +314,12 @@ def compute_attn_layout_seqlens(
     print_if_verbose("🟡 flatten_dispatch_one_hot: ", flatten_dispatch_one_hot)
 
     # shape: (world_size, seq_len, world_size)
-    local_indices_flat = (
-        # cumsum: the id of this sequence at the dst rank.
-        (flatten_dispatch_one_hot.cumsum(dim=0) - 1) * flatten_dispatch_one_hot
-    ).sum(dim=1).reshape(-1)
+    # local_indices_flat = (
+    #     # cumsum: the id of this sequence at the dst rank.
+    #     (flatten_dispatch_one_hot.cumsum(dim=0) - 1) * flatten_dispatch_one_hot
+    # ).sum(dim=1).reshape(-1)
+    local_indices_flat_one_hot = (flatten_dispatch_one_hot.cumsum(dim=0) - 1) * flatten_dispatch_one_hot
+    local_indices_flat = local_indices_flat_one_hot.sum(dim=1).reshape(-1)
     print_if_verbose("🟡 local_indices_flat: ", local_indices_flat)
 
     # if dispatch[i, j] = k, then local_indices_flat[i, j, k] = l means sequence [i,j] is at out_sequence [k,l]
@@ -347,7 +349,10 @@ def compute_attn_layout_seqlens(
     print_if_verbose("🟡 out_seqlens_q: ", out_seqlens_q)
     print_if_verbose("🟡 out_seqlens_kv: ", out_seqlens_kv)
 
-    num_local_seqs_recv = local_indices_flat.reshape(-1, world_size).max(dim=0)[0] + 1
+    # num_local_seqs_recv = local_indices_flat.reshape(-1, world_size).max(dim=0)[0] + 1
+    # num_local_seqs_recv = local_indices_flat.reshape(world_size, -1).max(dim=1)[0] + 1
+    # TODO: Maybe we just take flatten_dispatch_one_hot and take a sum -> to get the max sequence length.
+    num_local_seqs_recv = local_indices_flat_one_hot.max(dim=0)[0] + 1
     print_if_verbose("🟡 num_local_seqs_recv: ", num_local_seqs_recv)
 
     cu_seqlens_q = out_seqlens_q.cumsum(dim=1)
@@ -380,6 +385,7 @@ def compute_attn_layout_seqlens(
     print_if_verbose("🟡 num_local_seqs_recv: ", num_local_seqs_recv)
     # exit(0)
 
+    
     return cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, num_local_seqs_recv
 
 
