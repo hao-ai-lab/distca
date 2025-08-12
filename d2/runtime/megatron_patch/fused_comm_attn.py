@@ -395,6 +395,7 @@ def dummy_backward(
             num_heads_kv=config.num_query_groups // config.tensor_model_parallel_size,
             head_dim=config.hidden_size // config.num_attention_heads,
             return_attn_probs=True,
+            deterministic=True,
         ),
         bwd_fa_params.cu_seqlens_q, bwd_fa_params.cu_seqlens_kv,
         bwd_fa_params.max_seqlen_q, bwd_fa_params.max_seqlen_kv,

@@ -435,7 +435,7 @@ class TransformerLayer(BaseTransformerLayer):
                 rotary_pos_sin,
                 attention_bias,
                 inference_context,
-                packed_seq_params,
+                packed_seq_params.mlp_packed_seq_params,
                 sequence_len_offset,
                 inference_params=inference_params,
             )
