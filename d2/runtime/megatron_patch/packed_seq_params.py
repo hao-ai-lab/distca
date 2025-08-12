@@ -25,14 +25,25 @@ class PingPangSingleStepPackedSeqParams(PackedSeqParams):
     dispatcher_id: int = None
 
     def to_device(self):
+
+        max_seqlen_q = self.max_seqlen_q
+        if isinstance(max_seqlen_q, torch.Tensor):
+            max_seqlen_q = max_seqlen_q.cpu().item()
+        max_seqlen_kv = self.max_seqlen_kv
+        if isinstance(max_seqlen_kv, torch.Tensor):
+            max_seqlen_kv = max_seqlen_kv.cpu().item()
+
+        assert isinstance(max_seqlen_q, int)
+        assert isinstance(max_seqlen_kv, int)
+
         return PingPangSingleStepPackedSeqParams(
             qkv_format=self.qkv_format,
             cu_seqlens_q=_to_cuda_int32(self.cu_seqlens_q),
             cu_seqlens_kv=_to_cuda_int32(self.cu_seqlens_kv),
             cu_seqlens_q_padded=_to_cuda_int32(self.cu_seqlens_q_padded),
             cu_seqlens_kv_padded=_to_cuda_int32(self.cu_seqlens_kv_padded),
-            max_seqlen_q=self.max_seqlen_q.cpu().item(),
-            max_seqlen_kv=self.max_seqlen_kv.cpu().item(),
+            max_seqlen_q=max_seqlen_q,
+            max_seqlen_kv=max_seqlen_kv,
             qkv_fwd_metadata=self.qkv_fwd_metadata.normalize(),
             qkv_bwd_metadata=self.qkv_bwd_metadata.normalize(),
             attn_out_fwd_metadata=self.attn_out_fwd_metadata.normalize(),
@@ -59,13 +70,18 @@ class PingPangPackedSeqParams:
     qkv_format: str = "thd"
 
     def to_device(self):
-
         max_seqlen_q = self.max_seqlen_q
+        if isinstance(max_seqlen_q, torch.Tensor):
+            max_seqlen_q = max_seqlen_q.cpu().item()
         if max_seqlen_q is None:
             max_seqlen_q = max([p.max_seqlen_q for p in self.mlp_layout_seq_params])
         max_seqlen_kv = self.max_seqlen_kv
+        if isinstance(max_seqlen_kv, torch.Tensor):
+            max_seqlen_kv = max_seqlen_kv.cpu().item()
         if max_seqlen_kv is None:
             max_seqlen_kv = max([p.max_seqlen_kv for p in self.mlp_layout_seq_params])
+        assert isinstance(max_seqlen_q, int)
+        assert isinstance(max_seqlen_kv, int)
         return PingPangPackedSeqParams(
             seq_params=[seq_param.to_device() for seq_param in self.seq_params],
             mlp_layout_seq_params=[
@@ -73,8 +89,8 @@ class PingPangPackedSeqParams:
             ],
             debug=self.debug,
             do_gather=self.do_gather,
-            max_seqlen_q=max_seqlen_q.cpu().item(),
-            max_seqlen_kv=max_seqlen_kv.cpu().item(),
+            max_seqlen_q=max_seqlen_q,
+            max_seqlen_kv=max_seqlen_kv,
         )
 
 
