@@ -1,0 +1,1776 @@
+🟢 Forward: 6.40 ms, Backward: 46.55 ms, Backward / Forward: 7.28
+🟢 Forward: 6.67 ms, Backward: 34.12 ms, Backward / Forward: 5.12
+🟢 Forward: 7.83 ms, Backward: 33.99 ms, Backward / Forward: 4.34
+🟢 Forward: 6.89 ms, Backward: 36.31 ms, Backward / Forward: 5.27
+🟢 Forward: 6.85 ms, Backward: 33.91 ms, Backward / Forward: 4.95
+🟢 Forward: 6.68 ms, Backward: 33.92 ms, Backward / Forward: 5.08
+🟢 Forward: 11.14 ms, Backward: 34.01 ms, Backward / Forward: 3.05
+🟢 Forward: 6.73 ms, Backward: 35.47 ms, Backward / Forward: 5.27
+🟢 Forward: 6.77 ms, Backward: 33.88 ms, Backward / Forward: 5.00
+🟢 Forward: 6.75 ms, Backward: 33.89 ms, Backward / Forward: 5.02
+Flash Attention Varlen - seq_len = 32768 x batch_size = 2 (causal):
+- Forward: 7.27 ± 1.34 ms, Backward: 35.61 ± 3.73 ms, Backward / Forward: 4.90. Total: 42.88 ms. Output shape: torch.Size([65536, 4, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=1, tp_size=1
+============================================================
+🟢 Forward: 0.18 ms, Backward: 1.04 ms, Backward / Forward: 5.88
+🟢 Forward: 1.27 ms, Backward: 1.01 ms, Backward / Forward: 0.79
+🟢 Forward: 0.21 ms, Backward: 0.66 ms, Backward / Forward: 3.19
+🟢 Forward: 0.21 ms, Backward: 0.63 ms, Backward / Forward: 3.03
+🟢 Forward: 0.40 ms, Backward: 0.62 ms, Backward / Forward: 1.56
+🟢 Forward: 0.20 ms, Backward: 0.64 ms, Backward / Forward: 3.24
+🟢 Forward: 0.22 ms, Backward: 1.70 ms, Backward / Forward: 7.75
+🟢 Forward: 0.38 ms, Backward: 0.61 ms, Backward / Forward: 1.63
+🟢 Forward: 0.20 ms, Backward: 0.61 ms, Backward / Forward: 3.01
+🟢 Forward: 0.20 ms, Backward: 0.92 ms, Backward / Forward: 4.70
+Flash Attention Varlen - seq_len = 1024 x batch_size = 1 (causal):
+- Forward: 0.35 ± 0.32 ms, Backward: 0.85 ± 0.33 ms, Backward / Forward: 2.45. Total: 1.19 ms. Output shape: torch.Size([1024, 32, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=1, tp_size=2
+============================================================
+🟢 Forward: 0.09 ms, Backward: 0.48 ms, Backward / Forward: 5.63
+🟢 Forward: 0.19 ms, Backward: 0.48 ms, Backward / Forward: 2.46
+🟢 Forward: 0.19 ms, Backward: 0.48 ms, Backward / Forward: 2.57
+🟢 Forward: 0.19 ms, Backward: 0.46 ms, Backward / Forward: 2.45
+🟢 Forward: 0.19 ms, Backward: 0.48 ms, Backward / Forward: 2.59
+🟢 Forward: 0.19 ms, Backward: 0.46 ms, Backward / Forward: 2.47
+🟢 Forward: 0.19 ms, Backward: 0.46 ms, Backward / Forward: 2.39
+🟢 Forward: 0.19 ms, Backward: 0.46 ms, Backward / Forward: 2.48
+🟢 Forward: 0.18 ms, Backward: 0.48 ms, Backward / Forward: 2.63
+🟢 Forward: 0.19 ms, Backward: 0.47 ms, Backward / Forward: 2.45
+Flash Attention Varlen - seq_len = 1024 x batch_size = 1 (causal):
+- Forward: 0.18 ± 0.03 ms, Backward: 0.47 ± 0.01 ms, Backward / Forward: 2.65. Total: 0.65 ms. Output shape: torch.Size([1024, 16, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=1, tp_size=4
+============================================================
+🟢 Forward: 0.09 ms, Backward: 0.48 ms, Backward / Forward: 5.56
+🟢 Forward: 0.19 ms, Backward: 0.49 ms, Backward / Forward: 2.59
+🟢 Forward: 0.18 ms, Backward: 0.48 ms, Backward / Forward: 2.59
+🟢 Forward: 0.20 ms, Backward: 0.47 ms, Backward / Forward: 2.37
+🟢 Forward: 0.18 ms, Backward: 0.46 ms, Backward / Forward: 2.54
+🟢 Forward: 0.19 ms, Backward: 0.46 ms, Backward / Forward: 2.46
+🟢 Forward: 0.20 ms, Backward: 0.47 ms, Backward / Forward: 2.41
+🟢 Forward: 0.19 ms, Backward: 0.48 ms, Backward / Forward: 2.54
+🟢 Forward: 0.20 ms, Backward: 0.47 ms, Backward / Forward: 2.32
+🟢 Forward: 0.19 ms, Backward: 0.46 ms, Backward / Forward: 2.42
+Flash Attention Varlen - seq_len = 1024 x batch_size = 1 (causal):
+- Forward: 0.18 ± 0.03 ms, Backward: 0.47 ± 0.01 ms, Backward / Forward: 2.62. Total: 0.65 ms. Output shape: torch.Size([1024, 8, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=1, tp_size=8
+============================================================
+🟢 Forward: 0.24 ms, Backward: 0.72 ms, Backward / Forward: 2.98
+🟢 Forward: 0.20 ms, Backward: 0.64 ms, Backward / Forward: 3.21
+🟢 Forward: 0.19 ms, Backward: 0.59 ms, Backward / Forward: 3.02
+🟢 Forward: 0.19 ms, Backward: 0.58 ms, Backward / Forward: 3.05
+🟢 Forward: 0.21 ms, Backward: 0.59 ms, Backward / Forward: 2.77
+🟢 Forward: 0.19 ms, Backward: 0.59 ms, Backward / Forward: 3.03
+🟢 Forward: 0.19 ms, Backward: 0.58 ms, Backward / Forward: 3.13
+🟢 Forward: 0.21 ms, Backward: 0.58 ms, Backward / Forward: 2.74
+🟢 Forward: 0.19 ms, Backward: 0.61 ms, Backward / Forward: 3.23
+🟢 Forward: 0.19 ms, Backward: 0.59 ms, Backward / Forward: 3.09
+Flash Attention Varlen - seq_len = 1024 x batch_size = 1 (causal):
+- Forward: 0.20 ± 0.02 ms, Backward: 0.61 ± 0.04 ms, Backward / Forward: 3.02. Total: 0.81 ms. Output shape: torch.Size([1024, 4, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=2, tp_size=1
+============================================================
+🟢 Forward: 0.27 ms, Backward: 0.91 ms, Backward / Forward: 3.31
+🟢 Forward: 0.37 ms, Backward: 0.87 ms, Backward / Forward: 2.33
+🟢 Forward: 0.37 ms, Backward: 0.84 ms, Backward / Forward: 2.26
+🟢 Forward: 0.38 ms, Backward: 0.84 ms, Backward / Forward: 2.24
+🟢 Forward: 0.37 ms, Backward: 0.83 ms, Backward / Forward: 2.22
+🟢 Forward: 0.37 ms, Backward: 0.85 ms, Backward / Forward: 2.29
+🟢 Forward: 0.37 ms, Backward: 0.84 ms, Backward / Forward: 2.26
+🟢 Forward: 0.38 ms, Backward: 0.84 ms, Backward / Forward: 2.23
+🟢 Forward: 0.37 ms, Backward: 0.84 ms, Backward / Forward: 2.26
+🟢 Forward: 2.63 ms, Backward: 0.83 ms, Backward / Forward: 0.32
+Flash Attention Varlen - seq_len = 1024 x batch_size = 2 (causal):
+- Forward: 0.59 ± 0.68 ms, Backward: 0.85 ± 0.02 ms, Backward / Forward: 1.44. Total: 1.44 ms. Output shape: torch.Size([2048, 32, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=2, tp_size=2
+============================================================
+🟢 Forward: 0.13 ms, Backward: 0.63 ms, Backward / Forward: 4.96
+🟢 Forward: 0.37 ms, Backward: 0.90 ms, Backward / Forward: 2.40
+🟢 Forward: 0.26 ms, Backward: 2.18 ms, Backward / Forward: 8.40
+🟢 Forward: 0.20 ms, Backward: 0.63 ms, Backward / Forward: 3.18
+🟢 Forward: 0.37 ms, Backward: 0.63 ms, Backward / Forward: 1.71
+🟢 Forward: 0.20 ms, Backward: 2.23 ms, Backward / Forward: 11.07
+🟢 Forward: 0.20 ms, Backward: 0.62 ms, Backward / Forward: 3.06
+🟢 Forward: 0.37 ms, Backward: 0.63 ms, Backward / Forward: 1.70
+🟢 Forward: 0.20 ms, Backward: 0.69 ms, Backward / Forward: 3.45
+🟢 Forward: 0.19 ms, Backward: 0.73 ms, Backward / Forward: 3.80
+Flash Attention Varlen - seq_len = 1024 x batch_size = 2 (causal):
+- Forward: 0.25 ± 0.09 ms, Backward: 0.99 ± 0.61 ms, Backward / Forward: 3.96. Total: 1.24 ms. Output shape: torch.Size([2048, 16, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=2, tp_size=4
+============================================================
+🟢 Forward: 0.15 ms, Backward: 0.46 ms, Backward / Forward: 3.15
+🟢 Forward: 0.20 ms, Backward: 0.54 ms, Backward / Forward: 2.71
+🟢 Forward: 0.19 ms, Backward: 0.55 ms, Backward / Forward: 2.88
+🟢 Forward: 0.19 ms, Backward: 2.60 ms, Backward / Forward: 13.47
+🟢 Forward: 0.20 ms, Backward: 4.86 ms, Backward / Forward: 23.81
+🟢 Forward: 0.21 ms, Backward: 0.53 ms, Backward / Forward: 2.54
+🟢 Forward: 0.20 ms, Backward: 0.53 ms, Backward / Forward: 2.64
+🟢 Forward: 0.20 ms, Backward: 3.22 ms, Backward / Forward: 16.13
+🟢 Forward: 0.20 ms, Backward: 0.53 ms, Backward / Forward: 2.71
+🟢 Forward: 0.21 ms, Backward: 0.52 ms, Backward / Forward: 2.49
+Flash Attention Varlen - seq_len = 1024 x batch_size = 2 (causal):
+- Forward: 0.19 ± 0.02 ms, Backward: 1.43 ± 1.49 ms, Backward / Forward: 7.36. Total: 1.63 ms. Output shape: torch.Size([2048, 8, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=2, tp_size=8
+============================================================
+🟢 Forward: 0.11 ms, Backward: 0.46 ms, Backward / Forward: 4.32
+🟢 Forward: 0.35 ms, Backward: 0.46 ms, Backward / Forward: 1.29
+🟢 Forward: 0.20 ms, Backward: 0.47 ms, Backward / Forward: 2.36
+🟢 Forward: 0.19 ms, Backward: 0.45 ms, Backward / Forward: 2.33
+🟢 Forward: 0.38 ms, Backward: 0.44 ms, Backward / Forward: 1.16
+🟢 Forward: 0.20 ms, Backward: 0.46 ms, Backward / Forward: 2.29
+🟢 Forward: 0.20 ms, Backward: 0.45 ms, Backward / Forward: 2.29
+🟢 Forward: 0.36 ms, Backward: 0.45 ms, Backward / Forward: 1.28
+🟢 Forward: 0.20 ms, Backward: 0.44 ms, Backward / Forward: 2.22
+🟢 Forward: 0.19 ms, Backward: 0.46 ms, Backward / Forward: 2.42
+Flash Attention Varlen - seq_len = 1024 x batch_size = 2 (causal):
+- Forward: 0.24 ± 0.09 ms, Backward: 0.45 ± 0.01 ms, Backward / Forward: 1.91. Total: 0.69 ms. Output shape: torch.Size([2048, 4, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=4, tp_size=1
+============================================================
+🟢 Forward: 0.34 ms, Backward: 1.08 ms, Backward / Forward: 3.19
+🟢 Forward: 0.45 ms, Backward: 1.06 ms, Backward / Forward: 2.33
+🟢 Forward: 0.45 ms, Backward: 1.07 ms, Backward / Forward: 2.40
+🟢 Forward: 0.44 ms, Backward: 1.05 ms, Backward / Forward: 2.38
+🟢 Forward: 0.45 ms, Backward: 1.03 ms, Backward / Forward: 2.32
+🟢 Forward: 0.45 ms, Backward: 1.03 ms, Backward / Forward: 2.30
+🟢 Forward: 0.44 ms, Backward: 1.03 ms, Backward / Forward: 2.35
+🟢 Forward: 0.45 ms, Backward: 1.05 ms, Backward / Forward: 2.34
+🟢 Forward: 0.44 ms, Backward: 1.05 ms, Backward / Forward: 2.39
+🟢 Forward: 0.44 ms, Backward: 1.04 ms, Backward / Forward: 2.37
+Flash Attention Varlen - seq_len = 1024 x batch_size = 4 (causal):
+- Forward: 0.43 ± 0.03 ms, Backward: 1.05 ± 0.02 ms, Backward / Forward: 2.42. Total: 1.48 ms. Output shape: torch.Size([4096, 32, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=4, tp_size=2
+============================================================
+🟢 Forward: 0.17 ms, Backward: 0.91 ms, Backward / Forward: 5.22
+🟢 Forward: 0.38 ms, Backward: 0.84 ms, Backward / Forward: 2.20
+🟢 Forward: 0.37 ms, Backward: 0.84 ms, Backward / Forward: 2.28
+🟢 Forward: 0.23 ms, Backward: 0.84 ms, Backward / Forward: 3.75
+🟢 Forward: 0.37 ms, Backward: 0.83 ms, Backward / Forward: 2.25
+🟢 Forward: 0.38 ms, Backward: 0.84 ms, Backward / Forward: 2.22
+🟢 Forward: 0.22 ms, Backward: 0.85 ms, Backward / Forward: 3.80
+🟢 Forward: 0.37 ms, Backward: 0.82 ms, Backward / Forward: 2.22
+🟢 Forward: 0.37 ms, Backward: 0.84 ms, Backward / Forward: 2.26
+🟢 Forward: 0.23 ms, Backward: 0.83 ms, Backward / Forward: 3.70
+Flash Attention Varlen - seq_len = 1024 x batch_size = 4 (causal):
+- Forward: 0.31 ± 0.08 ms, Backward: 0.84 ± 0.02 ms, Backward / Forward: 2.73. Total: 1.15 ms. Output shape: torch.Size([4096, 16, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=4, tp_size=4
+============================================================
+🟢 Forward: 0.14 ms, Backward: 0.61 ms, Backward / Forward: 4.44
+🟢 Forward: 0.38 ms, Backward: 0.62 ms, Backward / Forward: 1.64
+🟢 Forward: 0.20 ms, Backward: 0.63 ms, Backward / Forward: 3.09
+🟢 Forward: 0.20 ms, Backward: 0.66 ms, Backward / Forward: 3.29
+🟢 Forward: 0.38 ms, Backward: 0.65 ms, Backward / Forward: 1.72
+🟢 Forward: 0.23 ms, Backward: 0.63 ms, Backward / Forward: 2.82
+🟢 Forward: 0.20 ms, Backward: 0.63 ms, Backward / Forward: 3.15
+🟢 Forward: 0.37 ms, Backward: 0.62 ms, Backward / Forward: 1.68
+🟢 Forward: 0.20 ms, Backward: 0.61 ms, Backward / Forward: 3.04
+🟢 Forward: 0.21 ms, Backward: 0.61 ms, Backward / Forward: 2.92
+Flash Attention Varlen - seq_len = 1024 x batch_size = 4 (causal):
+- Forward: 0.25 ± 0.08 ms, Backward: 0.63 ± 0.02 ms, Backward / Forward: 2.51. Total: 0.88 ms. Output shape: torch.Size([4096, 8, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=4, tp_size=8
+============================================================
+🟢 Forward: 0.11 ms, Backward: 0.44 ms, Backward / Forward: 3.91
+🟢 Forward: 0.19 ms, Backward: 0.54 ms, Backward / Forward: 2.79
+🟢 Forward: 0.20 ms, Backward: 0.54 ms, Backward / Forward: 2.69
+🟢 Forward: 0.19 ms, Backward: 0.53 ms, Backward / Forward: 2.79
+🟢 Forward: 0.19 ms, Backward: 0.51 ms, Backward / Forward: 2.68
+🟢 Forward: 0.21 ms, Backward: 0.51 ms, Backward / Forward: 2.45
+🟢 Forward: 0.19 ms, Backward: 0.54 ms, Backward / Forward: 2.80
+🟢 Forward: 0.19 ms, Backward: 0.52 ms, Backward / Forward: 2.78
+🟢 Forward: 0.21 ms, Backward: 0.52 ms, Backward / Forward: 2.51
+🟢 Forward: 0.19 ms, Backward: 0.52 ms, Backward / Forward: 2.77
+Flash Attention Varlen - seq_len = 1024 x batch_size = 4 (causal):
+- Forward: 0.19 ± 0.03 ms, Backward: 0.52 ± 0.03 ms, Backward / Forward: 2.77. Total: 0.71 ms. Output shape: torch.Size([4096, 4, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=8, tp_size=1
+============================================================
+🟢 Forward: 0.47 ms, Backward: 1.57 ms, Backward / Forward: 3.37
+🟢 Forward: 0.61 ms, Backward: 1.60 ms, Backward / Forward: 2.63
+🟢 Forward: 0.56 ms, Backward: 1.58 ms, Backward / Forward: 2.82
+🟢 Forward: 0.57 ms, Backward: 1.56 ms, Backward / Forward: 2.72
+🟢 Forward: 0.60 ms, Backward: 1.60 ms, Backward / Forward: 2.68
+🟢 Forward: 0.59 ms, Backward: 1.59 ms, Backward / Forward: 2.69
+🟢 Forward: 0.56 ms, Backward: 1.58 ms, Backward / Forward: 2.81
+🟢 Forward: 0.61 ms, Backward: 1.57 ms, Backward / Forward: 2.59
+🟢 Forward: 0.56 ms, Backward: 1.58 ms, Backward / Forward: 2.83
+🟢 Forward: 0.56 ms, Backward: 1.56 ms, Backward / Forward: 2.80
+Flash Attention Varlen - seq_len = 1024 x batch_size = 8 (causal):
+- Forward: 0.57 ± 0.04 ms, Backward: 1.58 ± 0.01 ms, Backward / Forward: 2.78. Total: 2.15 ms. Output shape: torch.Size([8192, 32, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=8, tp_size=2
+============================================================
+🟢 Forward: 0.24 ms, Backward: 1.09 ms, Backward / Forward: 4.54
+🟢 Forward: 0.44 ms, Backward: 1.06 ms, Backward / Forward: 2.40
+🟢 Forward: 0.44 ms, Backward: 1.04 ms, Backward / Forward: 2.34
+🟢 Forward: 0.29 ms, Backward: 1.05 ms, Backward / Forward: 3.68
+🟢 Forward: 0.45 ms, Backward: 1.04 ms, Backward / Forward: 2.32
+🟢 Forward: 0.44 ms, Backward: 1.02 ms, Backward / Forward: 2.33
+🟢 Forward: 0.29 ms, Backward: 1.04 ms, Backward / Forward: 3.63
+🟢 Forward: 0.46 ms, Backward: 1.01 ms, Backward / Forward: 2.19
+🟢 Forward: 0.46 ms, Backward: 1.04 ms, Backward / Forward: 2.25
+🟢 Forward: 0.29 ms, Backward: 1.04 ms, Backward / Forward: 3.60
+Flash Attention Varlen - seq_len = 1024 x batch_size = 8 (causal):
+- Forward: 0.38 ± 0.09 ms, Backward: 1.04 ± 0.02 ms, Backward / Forward: 2.75. Total: 1.42 ms. Output shape: torch.Size([8192, 16, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=8, tp_size=4
+============================================================
+🟢 Forward: 0.17 ms, Backward: 0.92 ms, Backward / Forward: 5.41
+🟢 Forward: 0.39 ms, Backward: 0.85 ms, Backward / Forward: 2.20
+🟢 Forward: 0.37 ms, Backward: 0.84 ms, Backward / Forward: 2.26
+🟢 Forward: 0.22 ms, Backward: 0.86 ms, Backward / Forward: 3.86
+🟢 Forward: 0.37 ms, Backward: 0.83 ms, Backward / Forward: 2.24
+🟢 Forward: 0.37 ms, Backward: 0.82 ms, Backward / Forward: 2.20
+🟢 Forward: 0.22 ms, Backward: 3.46 ms, Backward / Forward: 15.56
+🟢 Forward: 0.38 ms, Backward: 0.82 ms, Backward / Forward: 2.16
+🟢 Forward: 0.37 ms, Backward: 0.83 ms, Backward / Forward: 2.23
+🟢 Forward: 0.23 ms, Backward: 2.81 ms, Backward / Forward: 12.23
+Flash Attention Varlen - seq_len = 1024 x batch_size = 8 (causal):
+- Forward: 0.31 ± 0.08 ms, Backward: 1.30 ± 0.93 ms, Backward / Forward: 4.21. Total: 1.61 ms. Output shape: torch.Size([8192, 8, 128])
+
+============================================================
+Testing: seq_len=1K, batch_size=8, tp_size=8
+============================================================
+🟢 Forward: 0.16 ms, Backward: 0.62 ms, Backward / Forward: 3.97
+🟢 Forward: 2.22 ms, Backward: 0.61 ms, Backward / Forward: 0.28
+🟢 Forward: 0.21 ms, Backward: 0.65 ms, Backward / Forward: 3.14
+🟢 Forward: 0.20 ms, Backward: 0.63 ms, Backward / Forward: 3.09
+🟢 Forward: 0.36 ms, Backward: 0.61 ms, Backward / Forward: 1.67
+🟢 Forward: 0.20 ms, Backward: 2.58 ms, Backward / Forward: 12.67
+🟢 Forward: 0.21 ms, Backward: 0.63 ms, Backward / Forward: 2.96
+🟢 Forward: 0.37 ms, Backward: 0.62 ms, Backward / Forward: 1.68
+🟢 Forward: 0.20 ms, Backward: 0.61 ms, Backward / Forward: 2.99
+🟢 Forward: 0.20 ms, Backward: 0.60 ms, Backward / Forward: 3.03
+Flash Attention Varlen - seq_len = 1024 x batch_size = 8 (causal):
+- Forward: 0.43 ± 0.60 ms, Backward: 0.82 ± 0.59 ms, Backward / Forward: 1.88. Total: 1.25 ms. Output shape: torch.Size([8192, 4, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=1, tp_size=1
+============================================================
+🟢 Forward: 0.38 ms, Backward: 1.19 ms, Backward / Forward: 3.12
+🟢 Forward: 2.49 ms, Backward: 1.14 ms, Backward / Forward: 0.46
+🟢 Forward: 0.48 ms, Backward: 1.14 ms, Backward / Forward: 2.39
+🟢 Forward: 0.48 ms, Backward: 2.74 ms, Backward / Forward: 5.73
+🟢 Forward: 0.46 ms, Backward: 3.08 ms, Backward / Forward: 6.65
+🟢 Forward: 2.72 ms, Backward: 1.16 ms, Backward / Forward: 0.43
+🟢 Forward: 0.47 ms, Backward: 1.11 ms, Backward / Forward: 2.38
+🟢 Forward: 1.08 ms, Backward: 1.13 ms, Backward / Forward: 1.05
+🟢 Forward: 0.49 ms, Backward: 1.13 ms, Backward / Forward: 2.31
+🟢 Forward: 0.53 ms, Backward: 4.56 ms, Backward / Forward: 8.68
+Flash Attention Varlen - seq_len = 2048 x batch_size = 1 (causal):
+- Forward: 0.96 ± 0.85 ms, Backward: 1.84 ± 1.15 ms, Backward / Forward: 1.92. Total: 2.80 ms. Output shape: torch.Size([2048, 32, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=1, tp_size=2
+============================================================
+🟢 Forward: 0.19 ms, Backward: 0.95 ms, Backward / Forward: 5.12
+🟢 Forward: 0.39 ms, Backward: 1.51 ms, Backward / Forward: 3.84
+🟢 Forward: 0.24 ms, Backward: 0.89 ms, Backward / Forward: 3.69
+🟢 Forward: 0.24 ms, Backward: 3.28 ms, Backward / Forward: 13.92
+🟢 Forward: 2.70 ms, Backward: 0.87 ms, Backward / Forward: 0.32
+🟢 Forward: 0.25 ms, Backward: 0.82 ms, Backward / Forward: 3.21
+🟢 Forward: 0.23 ms, Backward: 0.81 ms, Backward / Forward: 3.47
+🟢 Forward: 0.38 ms, Backward: 1.21 ms, Backward / Forward: 3.16
+🟢 Forward: 0.24 ms, Backward: 0.83 ms, Backward / Forward: 3.44
+🟢 Forward: 0.24 ms, Backward: 0.80 ms, Backward / Forward: 3.36
+Flash Attention Varlen - seq_len = 2048 x batch_size = 1 (causal):
+- Forward: 0.51 ± 0.73 ms, Backward: 1.20 ± 0.73 ms, Backward / Forward: 2.35. Total: 1.71 ms. Output shape: torch.Size([2048, 16, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=1, tp_size=4
+============================================================
+🟢 Forward: 0.14 ms, Backward: 2.84 ms, Backward / Forward: 20.74
+🟢 Forward: 0.21 ms, Backward: 0.72 ms, Backward / Forward: 3.44
+🟢 Forward: 0.20 ms, Backward: 0.72 ms, Backward / Forward: 3.56
+🟢 Forward: 0.19 ms, Backward: 0.65 ms, Backward / Forward: 3.38
+🟢 Forward: 0.21 ms, Backward: 8.40 ms, Backward / Forward: 39.75
+🟢 Forward: 0.22 ms, Backward: 0.68 ms, Backward / Forward: 3.14
+🟢 Forward: 0.21 ms, Backward: 0.64 ms, Backward / Forward: 3.12
+🟢 Forward: 0.20 ms, Backward: 0.64 ms, Backward / Forward: 3.22
+🟢 Forward: 0.19 ms, Backward: 0.65 ms, Backward / Forward: 3.38
+🟢 Forward: 0.20 ms, Backward: 1.28 ms, Backward / Forward: 6.45
+Flash Attention Varlen - seq_len = 2048 x batch_size = 1 (causal):
+- Forward: 0.20 ± 0.02 ms, Backward: 1.72 ± 2.32 ms, Backward / Forward: 8.77. Total: 1.92 ms. Output shape: torch.Size([2048, 8, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=1, tp_size=8
+============================================================
+🟢 Forward: 0.13 ms, Backward: 0.57 ms, Backward / Forward: 4.42
+🟢 Forward: 1.44 ms, Backward: 0.58 ms, Backward / Forward: 0.40
+🟢 Forward: 0.20 ms, Backward: 0.58 ms, Backward / Forward: 2.96
+🟢 Forward: 0.20 ms, Backward: 0.61 ms, Backward / Forward: 3.11
+🟢 Forward: 3.13 ms, Backward: 0.57 ms, Backward / Forward: 0.18
+🟢 Forward: 0.21 ms, Backward: 0.58 ms, Backward / Forward: 2.73
+🟢 Forward: 0.23 ms, Backward: 0.57 ms, Backward / Forward: 2.48
+🟢 Forward: 0.37 ms, Backward: 0.96 ms, Backward / Forward: 2.62
+🟢 Forward: 0.21 ms, Backward: 0.57 ms, Backward / Forward: 2.69
+🟢 Forward: 0.21 ms, Backward: 0.59 ms, Backward / Forward: 2.86
+Flash Attention Varlen - seq_len = 2048 x batch_size = 1 (causal):
+- Forward: 0.63 ± 0.91 ms, Backward: 0.62 ± 0.11 ms, Backward / Forward: 0.98. Total: 1.25 ms. Output shape: torch.Size([2048, 4, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=2, tp_size=1
+============================================================
+🟢 Forward: 0.47 ms, Backward: 3.82 ms, Backward / Forward: 8.05
+🟢 Forward: 0.57 ms, Backward: 4.84 ms, Backward / Forward: 8.55
+🟢 Forward: 0.56 ms, Backward: 1.62 ms, Backward / Forward: 2.89
+🟢 Forward: 0.56 ms, Backward: 1.61 ms, Backward / Forward: 2.85
+🟢 Forward: 0.55 ms, Backward: 1.59 ms, Backward / Forward: 2.87
+🟢 Forward: 2.66 ms, Backward: 1.58 ms, Backward / Forward: 0.59
+🟢 Forward: 0.56 ms, Backward: 3.59 ms, Backward / Forward: 6.37
+🟢 Forward: 0.54 ms, Backward: 1.60 ms, Backward / Forward: 2.96
+🟢 Forward: 1.73 ms, Backward: 1.55 ms, Backward / Forward: 0.90
+🟢 Forward: 0.56 ms, Backward: 1.59 ms, Backward / Forward: 2.86
+Flash Attention Varlen - seq_len = 2048 x batch_size = 2 (causal):
+- Forward: 0.88 ± 0.69 ms, Backward: 2.34 ± 1.18 ms, Backward / Forward: 2.67. Total: 3.21 ms. Output shape: torch.Size([4096, 32, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=2, tp_size=2
+============================================================
+🟢 Forward: 0.23 ms, Backward: 1.21 ms, Backward / Forward: 5.39
+🟢 Forward: 0.46 ms, Backward: 2.81 ms, Backward / Forward: 6.16
+🟢 Forward: 0.44 ms, Backward: 4.28 ms, Backward / Forward: 9.64
+🟢 Forward: 0.30 ms, Backward: 1.65 ms, Backward / Forward: 5.56
+🟢 Forward: 0.47 ms, Backward: 1.11 ms, Backward / Forward: 2.36
+🟢 Forward: 0.50 ms, Backward: 1.10 ms, Backward / Forward: 2.19
+🟢 Forward: 0.31 ms, Backward: 2.75 ms, Backward / Forward: 8.85
+🟢 Forward: 0.45 ms, Backward: 1.12 ms, Backward / Forward: 2.48
+🟢 Forward: 0.45 ms, Backward: 1.09 ms, Backward / Forward: 2.41
+🟢 Forward: 0.29 ms, Backward: 3.31 ms, Backward / Forward: 11.34
+Flash Attention Varlen - seq_len = 2048 x batch_size = 2 (causal):
+- Forward: 0.39 ± 0.09 ms, Backward: 2.04 ± 1.10 ms, Backward / Forward: 5.24. Total: 2.43 ms. Output shape: torch.Size([4096, 16, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=2, tp_size=4
+============================================================
+🟢 Forward: 0.21 ms, Backward: 0.77 ms, Backward / Forward: 3.76
+🟢 Forward: 0.40 ms, Backward: 0.78 ms, Backward / Forward: 1.96
+🟢 Forward: 0.24 ms, Backward: 0.79 ms, Backward / Forward: 3.34
+🟢 Forward: 0.23 ms, Backward: 4.71 ms, Backward / Forward: 20.24
+🟢 Forward: 0.41 ms, Backward: 0.79 ms, Backward / Forward: 1.94
+🟢 Forward: 0.24 ms, Backward: 4.92 ms, Backward / Forward: 20.28
+🟢 Forward: 0.24 ms, Backward: 0.81 ms, Backward / Forward: 3.40
+🟢 Forward: 2.28 ms, Backward: 0.78 ms, Backward / Forward: 0.34
+🟢 Forward: 0.24 ms, Backward: 2.52 ms, Backward / Forward: 10.58
+🟢 Forward: 0.24 ms, Backward: 0.78 ms, Backward / Forward: 3.20
+Flash Attention Varlen - seq_len = 2048 x batch_size = 2 (causal):
+- Forward: 0.47 ± 0.61 ms, Backward: 1.77 ± 1.61 ms, Backward / Forward: 3.74. Total: 2.24 ms. Output shape: torch.Size([4096, 8, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=2, tp_size=8
+============================================================
+🟢 Forward: 0.16 ms, Backward: 0.56 ms, Backward / Forward: 3.50
+🟢 Forward: 0.20 ms, Backward: 0.64 ms, Backward / Forward: 3.17
+🟢 Forward: 0.21 ms, Backward: 0.63 ms, Backward / Forward: 3.05
+🟢 Forward: 0.22 ms, Backward: 0.63 ms, Backward / Forward: 2.93
+🟢 Forward: 0.21 ms, Backward: 0.64 ms, Backward / Forward: 3.09
+🟢 Forward: 0.20 ms, Backward: 0.64 ms, Backward / Forward: 3.26
+🟢 Forward: 0.20 ms, Backward: 2.48 ms, Backward / Forward: 12.36
+🟢 Forward: 0.20 ms, Backward: 0.64 ms, Backward / Forward: 3.14
+🟢 Forward: 0.20 ms, Backward: 0.64 ms, Backward / Forward: 3.16
+🟢 Forward: 0.20 ms, Backward: 2.36 ms, Backward / Forward: 11.69
+Flash Attention Varlen - seq_len = 2048 x batch_size = 2 (causal):
+- Forward: 0.20 ± 0.01 ms, Backward: 0.99 ± 0.72 ms, Backward / Forward: 4.94. Total: 1.19 ms. Output shape: torch.Size([4096, 4, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=4, tp_size=1
+============================================================
+🟢 Forward: 0.66 ms, Backward: 2.21 ms, Backward / Forward: 3.34
+🟢 Forward: 0.81 ms, Backward: 4.56 ms, Backward / Forward: 5.60
+🟢 Forward: 0.92 ms, Backward: 3.82 ms, Backward / Forward: 4.13
+🟢 Forward: 0.94 ms, Backward: 4.48 ms, Backward / Forward: 4.78
+🟢 Forward: 0.93 ms, Backward: 3.26 ms, Backward / Forward: 3.52
+🟢 Forward: 2.73 ms, Backward: 2.25 ms, Backward / Forward: 0.83
+🟢 Forward: 0.92 ms, Backward: 2.32 ms, Backward / Forward: 2.53
+🟢 Forward: 0.88 ms, Backward: 2.29 ms, Backward / Forward: 2.62
+🟢 Forward: 0.88 ms, Backward: 2.30 ms, Backward / Forward: 2.61
+🟢 Forward: 0.92 ms, Backward: 3.68 ms, Backward / Forward: 4.01
+Flash Attention Varlen - seq_len = 2048 x batch_size = 4 (causal):
+- Forward: 1.06 ± 0.56 ms, Backward: 3.12 ± 0.91 ms, Backward / Forward: 2.95. Total: 4.18 ms. Output shape: torch.Size([8192, 32, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=4, tp_size=2
+============================================================
+🟢 Forward: 0.36 ms, Backward: 14.63 ms, Backward / Forward: 41.00
+🟢 Forward: 4.71 ms, Backward: 6.89 ms, Backward / Forward: 1.46
+🟢 Forward: 2.81 ms, Backward: 1.65 ms, Backward / Forward: 0.59
+🟢 Forward: 0.41 ms, Backward: 2.46 ms, Backward / Forward: 5.95
+🟢 Forward: 0.54 ms, Backward: 3.81 ms, Backward / Forward: 7.05
+🟢 Forward: 0.55 ms, Backward: 1.62 ms, Backward / Forward: 2.96
+🟢 Forward: 0.40 ms, Backward: 2.98 ms, Backward / Forward: 7.39
+🟢 Forward: 0.55 ms, Backward: 1.61 ms, Backward / Forward: 2.95
+🟢 Forward: 0.53 ms, Backward: 3.38 ms, Backward / Forward: 6.36
+🟢 Forward: 0.40 ms, Backward: 1.59 ms, Backward / Forward: 3.95
+Flash Attention Varlen - seq_len = 2048 x batch_size = 4 (causal):
+- Forward: 1.13 ± 1.39 ms, Backward: 4.06 ± 3.85 ms, Backward / Forward: 3.61. Total: 5.19 ms. Output shape: torch.Size([8192, 16, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=4, tp_size=4
+============================================================
+🟢 Forward: 0.29 ms, Backward: 7.88 ms, Backward / Forward: 27.41
+🟢 Forward: 2.22 ms, Backward: 2.52 ms, Backward / Forward: 1.14
+🟢 Forward: 0.46 ms, Backward: 1.12 ms, Backward / Forward: 2.41
+🟢 Forward: 0.29 ms, Backward: 1.12 ms, Backward / Forward: 3.85
+🟢 Forward: 0.54 ms, Backward: 1.12 ms, Backward / Forward: 2.06
+🟢 Forward: 0.45 ms, Backward: 1.10 ms, Backward / Forward: 2.43
+🟢 Forward: 0.29 ms, Backward: 2.05 ms, Backward / Forward: 6.95
+🟢 Forward: 0.47 ms, Backward: 1.11 ms, Backward / Forward: 2.34
+🟢 Forward: 2.19 ms, Backward: 1.11 ms, Backward / Forward: 0.51
+🟢 Forward: 0.30 ms, Backward: 1.12 ms, Backward / Forward: 3.78
+Flash Attention Varlen - seq_len = 2048 x batch_size = 4 (causal):
+- Forward: 0.75 ± 0.73 ms, Backward: 2.02 ± 2.01 ms, Backward / Forward: 2.70. Total: 2.78 ms. Output shape: torch.Size([8192, 8, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=4, tp_size=8
+============================================================
+🟢 Forward: 0.20 ms, Backward: 0.78 ms, Backward / Forward: 3.98
+🟢 Forward: 0.39 ms, Backward: 2.36 ms, Backward / Forward: 6.07
+🟢 Forward: 0.25 ms, Backward: 0.81 ms, Backward / Forward: 3.31
+🟢 Forward: 0.24 ms, Backward: 0.80 ms, Backward / Forward: 3.40
+🟢 Forward: 0.40 ms, Backward: 0.79 ms, Backward / Forward: 1.99
+🟢 Forward: 0.24 ms, Backward: 0.80 ms, Backward / Forward: 3.38
+🟢 Forward: 0.24 ms, Backward: 1.65 ms, Backward / Forward: 6.87
+🟢 Forward: 0.40 ms, Backward: 2.10 ms, Backward / Forward: 5.23
+🟢 Forward: 0.24 ms, Backward: 6.45 ms, Backward / Forward: 27.02
+🟢 Forward: 0.24 ms, Backward: 15.86 ms, Backward / Forward: 67.46
+Flash Attention Varlen - seq_len = 2048 x batch_size = 4 (causal):
+- Forward: 0.28 ± 0.08 ms, Backward: 3.24 ± 4.52 ms, Backward / Forward: 11.52. Total: 3.52 ms. Output shape: torch.Size([8192, 4, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=8, tp_size=1
+============================================================
+🟢 Forward: 1.28 ms, Backward: 3.67 ms, Backward / Forward: 2.87
+🟢 Forward: 1.36 ms, Backward: 3.53 ms, Backward / Forward: 2.60
+🟢 Forward: 1.85 ms, Backward: 3.58 ms, Backward / Forward: 1.93
+🟢 Forward: 1.82 ms, Backward: 3.53 ms, Backward / Forward: 1.94
+🟢 Forward: 1.85 ms, Backward: 3.57 ms, Backward / Forward: 1.93
+🟢 Forward: 1.86 ms, Backward: 3.55 ms, Backward / Forward: 1.91
+🟢 Forward: 1.86 ms, Backward: 3.60 ms, Backward / Forward: 1.94
+🟢 Forward: 1.86 ms, Backward: 3.54 ms, Backward / Forward: 1.91
+🟢 Forward: 1.85 ms, Backward: 3.57 ms, Backward / Forward: 1.93
+🟢 Forward: 1.85 ms, Backward: 3.54 ms, Backward / Forward: 1.91
+Flash Attention Varlen - seq_len = 2048 x batch_size = 8 (causal):
+- Forward: 1.74 ± 0.21 ms, Backward: 3.57 ± 0.04 ms, Backward / Forward: 2.05. Total: 5.31 ms. Output shape: torch.Size([16384, 32, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=8, tp_size=2
+============================================================
+🟢 Forward: 0.56 ms, Backward: 2.54 ms, Backward / Forward: 4.54
+🟢 Forward: 0.81 ms, Backward: 2.32 ms, Backward / Forward: 2.86
+🟢 Forward: 0.92 ms, Backward: 2.28 ms, Backward / Forward: 2.47
+🟢 Forward: 0.59 ms, Backward: 2.28 ms, Backward / Forward: 3.84
+🟢 Forward: 0.93 ms, Backward: 2.26 ms, Backward / Forward: 2.42
+🟢 Forward: 0.93 ms, Backward: 2.24 ms, Backward / Forward: 2.41
+🟢 Forward: 0.60 ms, Backward: 2.28 ms, Backward / Forward: 3.78
+🟢 Forward: 0.94 ms, Backward: 2.26 ms, Backward / Forward: 2.39
+🟢 Forward: 0.92 ms, Backward: 2.26 ms, Backward / Forward: 2.46
+🟢 Forward: 0.62 ms, Backward: 2.26 ms, Backward / Forward: 3.63
+Flash Attention Varlen - seq_len = 2048 x batch_size = 8 (causal):
+- Forward: 0.78 ± 0.16 ms, Backward: 2.30 ± 0.08 ms, Backward / Forward: 2.93. Total: 3.08 ms. Output shape: torch.Size([16384, 16, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=8, tp_size=4
+============================================================
+🟢 Forward: 0.35 ms, Backward: 1.63 ms, Backward / Forward: 4.62
+🟢 Forward: 0.54 ms, Backward: 1.60 ms, Backward / Forward: 2.98
+🟢 Forward: 0.54 ms, Backward: 1.60 ms, Backward / Forward: 2.99
+🟢 Forward: 0.40 ms, Backward: 1.61 ms, Backward / Forward: 4.06
+🟢 Forward: 0.55 ms, Backward: 1.62 ms, Backward / Forward: 2.95
+🟢 Forward: 0.53 ms, Backward: 1.62 ms, Backward / Forward: 3.05
+🟢 Forward: 0.41 ms, Backward: 1.60 ms, Backward / Forward: 3.89
+🟢 Forward: 0.54 ms, Backward: 1.60 ms, Backward / Forward: 2.96
+🟢 Forward: 0.55 ms, Backward: 1.59 ms, Backward / Forward: 2.90
+🟢 Forward: 0.40 ms, Backward: 1.59 ms, Backward / Forward: 3.94
+Flash Attention Varlen - seq_len = 2048 x batch_size = 8 (causal):
+- Forward: 0.48 ± 0.07 ms, Backward: 1.61 ± 0.01 ms, Backward / Forward: 3.34. Total: 2.09 ms. Output shape: torch.Size([16384, 8, 128])
+
+============================================================
+Testing: seq_len=2K, batch_size=8, tp_size=8
+============================================================
+🟢 Forward: 0.50 ms, Backward: 1.39 ms, Backward / Forward: 2.78
+🟢 Forward: 0.50 ms, Backward: 1.14 ms, Backward / Forward: 2.29
+🟢 Forward: 0.47 ms, Backward: 1.13 ms, Backward / Forward: 2.39
+🟢 Forward: 0.32 ms, Backward: 1.14 ms, Backward / Forward: 3.54
+🟢 Forward: 0.46 ms, Backward: 1.12 ms, Backward / Forward: 2.41
+🟢 Forward: 0.46 ms, Backward: 1.12 ms, Backward / Forward: 2.45
+🟢 Forward: 0.30 ms, Backward: 1.14 ms, Backward / Forward: 3.85
+🟢 Forward: 0.50 ms, Backward: 1.10 ms, Backward / Forward: 2.21
+🟢 Forward: 0.48 ms, Backward: 1.11 ms, Backward / Forward: 2.30
+🟢 Forward: 0.30 ms, Backward: 1.11 ms, Backward / Forward: 3.71
+Flash Attention Varlen - seq_len = 2048 x batch_size = 8 (causal):
+- Forward: 0.43 ± 0.08 ms, Backward: 1.15 ± 0.08 ms, Backward / Forward: 2.68. Total: 1.58 ms. Output shape: torch.Size([16384, 4, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=1, tp_size=1
+============================================================
+🟢 Forward: 0.67 ms, Backward: 2.64 ms, Backward / Forward: 3.96
+🟢 Forward: 0.98 ms, Backward: 2.68 ms, Backward / Forward: 2.72
+🟢 Forward: 0.98 ms, Backward: 2.66 ms, Backward / Forward: 2.71
+🟢 Forward: 0.98 ms, Backward: 2.64 ms, Backward / Forward: 2.71
+🟢 Forward: 1.01 ms, Backward: 2.68 ms, Backward / Forward: 2.64
+🟢 Forward: 1.03 ms, Backward: 2.67 ms, Backward / Forward: 2.59
+🟢 Forward: 1.01 ms, Backward: 2.66 ms, Backward / Forward: 2.64
+🟢 Forward: 0.99 ms, Backward: 2.66 ms, Backward / Forward: 2.67
+🟢 Forward: 1.00 ms, Backward: 2.69 ms, Backward / Forward: 2.70
+🟢 Forward: 1.00 ms, Backward: 2.64 ms, Backward / Forward: 2.65
+Flash Attention Varlen - seq_len = 4096 x batch_size = 1 (causal):
+- Forward: 0.96 ± 0.10 ms, Backward: 2.66 ± 0.02 ms, Backward / Forward: 2.76. Total: 3.63 ms. Output shape: torch.Size([4096, 32, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=1, tp_size=2
+============================================================
+🟢 Forward: 0.39 ms, Backward: 1.80 ms, Backward / Forward: 4.66
+🟢 Forward: 0.74 ms, Backward: 1.79 ms, Backward / Forward: 2.43
+🟢 Forward: 0.74 ms, Backward: 1.78 ms, Backward / Forward: 2.42
+🟢 Forward: 0.41 ms, Backward: 1.79 ms, Backward / Forward: 4.35
+🟢 Forward: 0.76 ms, Backward: 1.79 ms, Backward / Forward: 2.35
+🟢 Forward: 0.73 ms, Backward: 1.78 ms, Backward / Forward: 2.44
+🟢 Forward: 0.43 ms, Backward: 1.76 ms, Backward / Forward: 4.08
+🟢 Forward: 0.74 ms, Backward: 1.80 ms, Backward / Forward: 2.41
+🟢 Forward: 0.73 ms, Backward: 1.79 ms, Backward / Forward: 2.45
+🟢 Forward: 0.43 ms, Backward: 1.76 ms, Backward / Forward: 4.07
+Flash Attention Varlen - seq_len = 4096 x batch_size = 1 (causal):
+- Forward: 0.61 ± 0.16 ms, Backward: 1.78 ± 0.01 ms, Backward / Forward: 2.92. Total: 2.39 ms. Output shape: torch.Size([4096, 16, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=1, tp_size=4
+============================================================
+🟢 Forward: 0.28 ms, Backward: 1.01 ms, Backward / Forward: 3.59
+🟢 Forward: 0.59 ms, Backward: 1.05 ms, Backward / Forward: 1.77
+🟢 Forward: 0.35 ms, Backward: 1.02 ms, Backward / Forward: 2.93
+🟢 Forward: 0.33 ms, Backward: 1.02 ms, Backward / Forward: 3.11
+🟢 Forward: 0.61 ms, Backward: 1.02 ms, Backward / Forward: 1.68
+🟢 Forward: 0.33 ms, Backward: 1.02 ms, Backward / Forward: 3.11
+🟢 Forward: 0.32 ms, Backward: 1.01 ms, Backward / Forward: 3.17
+🟢 Forward: 0.62 ms, Backward: 1.05 ms, Backward / Forward: 1.69
+🟢 Forward: 0.33 ms, Backward: 1.02 ms, Backward / Forward: 3.14
+🟢 Forward: 0.32 ms, Backward: 1.03 ms, Backward / Forward: 3.17
+Flash Attention Varlen - seq_len = 4096 x batch_size = 1 (causal):
+- Forward: 0.41 ± 0.13 ms, Backward: 1.03 ± 0.01 ms, Backward / Forward: 2.52. Total: 1.43 ms. Output shape: torch.Size([4096, 8, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=1, tp_size=8
+============================================================
+🟢 Forward: 0.19 ms, Backward: 0.78 ms, Backward / Forward: 4.06
+🟢 Forward: 0.26 ms, Backward: 0.87 ms, Backward / Forward: 3.42
+🟢 Forward: 0.25 ms, Backward: 0.86 ms, Backward / Forward: 3.40
+🟢 Forward: 0.25 ms, Backward: 0.85 ms, Backward / Forward: 3.42
+🟢 Forward: 0.25 ms, Backward: 0.86 ms, Backward / Forward: 3.43
+🟢 Forward: 0.25 ms, Backward: 0.88 ms, Backward / Forward: 3.54
+🟢 Forward: 0.25 ms, Backward: 0.87 ms, Backward / Forward: 3.48
+🟢 Forward: 0.25 ms, Backward: 0.87 ms, Backward / Forward: 3.52
+🟢 Forward: 0.25 ms, Backward: 0.87 ms, Backward / Forward: 3.52
+🟢 Forward: 0.25 ms, Backward: 0.86 ms, Backward / Forward: 3.48
+Flash Attention Varlen - seq_len = 4096 x batch_size = 1 (causal):
+- Forward: 0.24 ± 0.02 ms, Backward: 0.86 ± 0.03 ms, Backward / Forward: 3.51. Total: 1.10 ms. Output shape: torch.Size([4096, 4, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=2, tp_size=1
+============================================================
+🟢 Forward: 1.05 ms, Backward: 4.15 ms, Backward / Forward: 3.97
+🟢 Forward: 1.50 ms, Backward: 4.24 ms, Backward / Forward: 2.84
+🟢 Forward: 1.21 ms, Backward: 4.29 ms, Backward / Forward: 3.55
+🟢 Forward: 1.59 ms, Backward: 4.32 ms, Backward / Forward: 2.71
+🟢 Forward: 1.26 ms, Backward: 4.24 ms, Backward / Forward: 3.36
+🟢 Forward: 1.26 ms, Backward: 4.21 ms, Backward / Forward: 3.33
+🟢 Forward: 1.26 ms, Backward: 4.24 ms, Backward / Forward: 3.36
+🟢 Forward: 1.27 ms, Backward: 4.20 ms, Backward / Forward: 3.30
+🟢 Forward: 1.23 ms, Backward: 4.21 ms, Backward / Forward: 3.43
+🟢 Forward: 1.28 ms, Backward: 4.20 ms, Backward / Forward: 3.29
+Flash Attention Varlen - seq_len = 4096 x batch_size = 2 (causal):
+- Forward: 1.29 ± 0.14 ms, Backward: 4.23 ± 0.05 ms, Backward / Forward: 3.28. Total: 5.52 ms. Output shape: torch.Size([8192, 32, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=2, tp_size=2
+============================================================
+🟢 Forward: 0.56 ms, Backward: 2.99 ms, Backward / Forward: 5.33
+🟢 Forward: 0.97 ms, Backward: 2.72 ms, Backward / Forward: 2.79
+🟢 Forward: 1.00 ms, Backward: 2.70 ms, Backward / Forward: 2.70
+🟢 Forward: 0.60 ms, Backward: 2.67 ms, Backward / Forward: 4.46
+🟢 Forward: 0.99 ms, Backward: 2.67 ms, Backward / Forward: 2.69
+🟢 Forward: 1.02 ms, Backward: 2.69 ms, Backward / Forward: 2.63
+🟢 Forward: 0.61 ms, Backward: 2.67 ms, Backward / Forward: 4.35
+🟢 Forward: 1.03 ms, Backward: 2.68 ms, Backward / Forward: 2.61
+🟢 Forward: 1.02 ms, Backward: 2.67 ms, Backward / Forward: 2.63
+🟢 Forward: 0.63 ms, Backward: 2.66 ms, Backward / Forward: 4.24
+Flash Attention Varlen - seq_len = 4096 x batch_size = 2 (causal):
+- Forward: 0.84 ± 0.20 ms, Backward: 2.71 ± 0.09 ms, Backward / Forward: 3.22. Total: 3.55 ms. Output shape: torch.Size([8192, 16, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=2, tp_size=4
+============================================================
+🟢 Forward: 0.37 ms, Backward: 1.81 ms, Backward / Forward: 4.84
+🟢 Forward: 0.73 ms, Backward: 1.81 ms, Backward / Forward: 2.49
+🟢 Forward: 0.72 ms, Backward: 1.79 ms, Backward / Forward: 2.48
+🟢 Forward: 0.42 ms, Backward: 1.79 ms, Backward / Forward: 4.29
+🟢 Forward: 0.73 ms, Backward: 1.80 ms, Backward / Forward: 2.46
+🟢 Forward: 0.72 ms, Backward: 1.78 ms, Backward / Forward: 2.47
+🟢 Forward: 0.43 ms, Backward: 1.77 ms, Backward / Forward: 4.09
+🟢 Forward: 0.75 ms, Backward: 1.78 ms, Backward / Forward: 2.38
+🟢 Forward: 0.76 ms, Backward: 1.79 ms, Backward / Forward: 2.34
+🟢 Forward: 0.42 ms, Backward: 1.77 ms, Backward / Forward: 4.18
+Flash Attention Varlen - seq_len = 4096 x batch_size = 2 (causal):
+- Forward: 0.61 ± 0.16 ms, Backward: 1.79 ± 0.01 ms, Backward / Forward: 2.95. Total: 2.39 ms. Output shape: torch.Size([8192, 8, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=2, tp_size=8
+============================================================
+🟢 Forward: 0.27 ms, Backward: 1.00 ms, Backward / Forward: 3.66
+🟢 Forward: 0.60 ms, Backward: 1.03 ms, Backward / Forward: 1.72
+🟢 Forward: 0.33 ms, Backward: 1.04 ms, Backward / Forward: 3.17
+🟢 Forward: 0.33 ms, Backward: 1.03 ms, Backward / Forward: 3.08
+🟢 Forward: 0.64 ms, Backward: 1.05 ms, Backward / Forward: 1.64
+🟢 Forward: 0.33 ms, Backward: 1.04 ms, Backward / Forward: 3.14
+🟢 Forward: 0.32 ms, Backward: 1.03 ms, Backward / Forward: 3.21
+🟢 Forward: 0.63 ms, Backward: 1.03 ms, Backward / Forward: 1.65
+🟢 Forward: 0.32 ms, Backward: 1.04 ms, Backward / Forward: 3.22
+🟢 Forward: 0.33 ms, Backward: 1.03 ms, Backward / Forward: 3.10
+Flash Attention Varlen - seq_len = 4096 x batch_size = 2 (causal):
+- Forward: 0.41 ± 0.14 ms, Backward: 1.03 ± 0.01 ms, Backward / Forward: 2.51. Total: 1.44 ms. Output shape: torch.Size([8192, 4, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=4, tp_size=1
+============================================================
+🟢 Forward: 1.98 ms, Backward: 5.91 ms, Backward / Forward: 2.99
+🟢 Forward: 2.56 ms, Backward: 6.10 ms, Backward / Forward: 2.38
+🟢 Forward: 3.05 ms, Backward: 6.46 ms, Backward / Forward: 2.12
+🟢 Forward: 3.06 ms, Backward: 6.41 ms, Backward / Forward: 2.09
+🟢 Forward: 3.06 ms, Backward: 6.12 ms, Backward / Forward: 2.00
+🟢 Forward: 3.05 ms, Backward: 6.44 ms, Backward / Forward: 2.11
+🟢 Forward: 3.02 ms, Backward: 6.41 ms, Backward / Forward: 2.12
+🟢 Forward: 3.00 ms, Backward: 6.12 ms, Backward / Forward: 2.04
+🟢 Forward: 3.02 ms, Backward: 6.12 ms, Backward / Forward: 2.03
+🟢 Forward: 3.04 ms, Backward: 6.14 ms, Backward / Forward: 2.02
+Flash Attention Varlen - seq_len = 4096 x batch_size = 4 (causal):
+- Forward: 2.88 ± 0.33 ms, Backward: 6.22 ± 0.18 ms, Backward / Forward: 2.16. Total: 9.11 ms. Output shape: torch.Size([16384, 32, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=4, tp_size=2
+============================================================
+🟢 Forward: 0.94 ms, Backward: 4.11 ms, Backward / Forward: 4.39
+🟢 Forward: 1.47 ms, Backward: 4.27 ms, Backward / Forward: 2.90
+🟢 Forward: 1.26 ms, Backward: 4.22 ms, Backward / Forward: 3.34
+🟢 Forward: 0.97 ms, Backward: 4.21 ms, Backward / Forward: 4.35
+🟢 Forward: 1.28 ms, Backward: 4.21 ms, Backward / Forward: 3.28
+🟢 Forward: 1.29 ms, Backward: 4.23 ms, Backward / Forward: 3.29
+🟢 Forward: 0.99 ms, Backward: 4.19 ms, Backward / Forward: 4.22
+🟢 Forward: 1.28 ms, Backward: 4.21 ms, Backward / Forward: 3.28
+🟢 Forward: 1.27 ms, Backward: 4.18 ms, Backward / Forward: 3.29
+🟢 Forward: 0.96 ms, Backward: 4.20 ms, Backward / Forward: 4.35
+Flash Attention Varlen - seq_len = 4096 x batch_size = 4 (causal):
+- Forward: 1.17 ± 0.18 ms, Backward: 4.20 ± 0.04 ms, Backward / Forward: 3.59. Total: 5.38 ms. Output shape: torch.Size([16384, 16, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=4, tp_size=4
+============================================================
+🟢 Forward: 0.55 ms, Backward: 2.69 ms, Backward / Forward: 4.85
+🟢 Forward: 1.00 ms, Backward: 2.69 ms, Backward / Forward: 2.69
+🟢 Forward: 1.01 ms, Backward: 2.67 ms, Backward / Forward: 2.65
+🟢 Forward: 0.62 ms, Backward: 2.68 ms, Backward / Forward: 4.32
+🟢 Forward: 0.95 ms, Backward: 2.68 ms, Backward / Forward: 2.80
+🟢 Forward: 0.96 ms, Backward: 2.66 ms, Backward / Forward: 2.76
+🟢 Forward: 0.62 ms, Backward: 2.67 ms, Backward / Forward: 4.33
+🟢 Forward: 1.03 ms, Backward: 2.70 ms, Backward / Forward: 2.61
+🟢 Forward: 1.01 ms, Backward: 2.68 ms, Backward / Forward: 2.65
+🟢 Forward: 0.62 ms, Backward: 2.66 ms, Backward / Forward: 4.31
+Flash Attention Varlen - seq_len = 4096 x batch_size = 4 (causal):
+- Forward: 0.84 ± 0.19 ms, Backward: 2.68 ± 0.01 ms, Backward / Forward: 3.20. Total: 3.51 ms. Output shape: torch.Size([16384, 8, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=4, tp_size=8
+============================================================
+🟢 Forward: 0.37 ms, Backward: 1.84 ms, Backward / Forward: 4.94
+🟢 Forward: 0.72 ms, Backward: 1.82 ms, Backward / Forward: 2.51
+🟢 Forward: 0.76 ms, Backward: 1.78 ms, Backward / Forward: 2.34
+🟢 Forward: 0.42 ms, Backward: 1.79 ms, Backward / Forward: 4.21
+🟢 Forward: 0.74 ms, Backward: 1.80 ms, Backward / Forward: 2.43
+🟢 Forward: 0.76 ms, Backward: 1.80 ms, Backward / Forward: 2.37
+🟢 Forward: 0.43 ms, Backward: 1.77 ms, Backward / Forward: 4.08
+🟢 Forward: 0.76 ms, Backward: 1.78 ms, Backward / Forward: 2.35
+🟢 Forward: 0.74 ms, Backward: 1.79 ms, Backward / Forward: 2.44
+🟢 Forward: 0.44 ms, Backward: 1.79 ms, Backward / Forward: 4.10
+Flash Attention Varlen - seq_len = 4096 x batch_size = 4 (causal):
+- Forward: 0.61 ± 0.16 ms, Backward: 1.80 ± 0.02 ms, Backward / Forward: 2.92. Total: 2.41 ms. Output shape: torch.Size([16384, 4, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=8, tp_size=1
+============================================================
+🟢 Forward: 3.77 ms, Backward: 10.61 ms, Backward / Forward: 2.81
+🟢 Forward: 4.01 ms, Backward: 11.20 ms, Backward / Forward: 2.79
+🟢 Forward: 5.30 ms, Backward: 11.06 ms, Backward / Forward: 2.09
+🟢 Forward: 5.38 ms, Backward: 11.04 ms, Backward / Forward: 2.05
+🟢 Forward: 5.26 ms, Backward: 11.13 ms, Backward / Forward: 2.12
+🟢 Forward: 5.34 ms, Backward: 11.06 ms, Backward / Forward: 2.07
+🟢 Forward: 5.22 ms, Backward: 11.09 ms, Backward / Forward: 2.13
+🟢 Forward: 5.33 ms, Backward: 11.07 ms, Backward / Forward: 2.08
+🟢 Forward: 5.37 ms, Backward: 11.13 ms, Backward / Forward: 2.07
+🟢 Forward: 5.34 ms, Backward: 11.14 ms, Backward / Forward: 2.09
+Flash Attention Varlen - seq_len = 4096 x batch_size = 8 (causal):
+- Forward: 5.03 ± 0.57 ms, Backward: 11.05 ± 0.15 ms, Backward / Forward: 2.20. Total: 16.08 ms. Output shape: torch.Size([32768, 32, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=8, tp_size=2
+============================================================
+🟢 Forward: 1.96 ms, Backward: 6.11 ms, Backward / Forward: 3.11
+🟢 Forward: 2.49 ms, Backward: 6.12 ms, Backward / Forward: 2.46
+🟢 Forward: 3.00 ms, Backward: 6.12 ms, Backward / Forward: 2.04
+🟢 Forward: 1.95 ms, Backward: 6.06 ms, Backward / Forward: 3.11
+🟢 Forward: 3.06 ms, Backward: 6.03 ms, Backward / Forward: 1.97
+🟢 Forward: 3.01 ms, Backward: 6.11 ms, Backward / Forward: 2.03
+🟢 Forward: 2.77 ms, Backward: 6.07 ms, Backward / Forward: 2.19
+🟢 Forward: 3.07 ms, Backward: 6.04 ms, Backward / Forward: 1.97
+🟢 Forward: 3.03 ms, Backward: 6.03 ms, Backward / Forward: 1.99
+🟢 Forward: 1.94 ms, Backward: 6.06 ms, Backward / Forward: 3.12
+Flash Attention Varlen - seq_len = 4096 x batch_size = 8 (causal):
+- Forward: 2.63 ± 0.47 ms, Backward: 6.08 ± 0.04 ms, Backward / Forward: 2.31. Total: 8.70 ms. Output shape: torch.Size([32768, 16, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=8, tp_size=4
+============================================================
+🟢 Forward: 0.93 ms, Backward: 4.13 ms, Backward / Forward: 4.42
+🟢 Forward: 1.49 ms, Backward: 4.21 ms, Backward / Forward: 2.83
+🟢 Forward: 1.27 ms, Backward: 4.23 ms, Backward / Forward: 3.33
+🟢 Forward: 0.97 ms, Backward: 4.24 ms, Backward / Forward: 4.36
+🟢 Forward: 1.27 ms, Backward: 4.20 ms, Backward / Forward: 3.30
+🟢 Forward: 1.27 ms, Backward: 4.19 ms, Backward / Forward: 3.29
+🟢 Forward: 0.98 ms, Backward: 4.19 ms, Backward / Forward: 4.27
+🟢 Forward: 1.31 ms, Backward: 4.21 ms, Backward / Forward: 3.21
+🟢 Forward: 9.14 ms, Backward: 19.00 ms, Backward / Forward: 2.08
+🟢 Forward: 1.00 ms, Backward: 4.22 ms, Backward / Forward: 4.21
+Flash Attention Varlen - seq_len = 4096 x batch_size = 8 (causal):
+- Forward: 1.97 ± 2.40 ms, Backward: 5.68 ± 4.44 ms, Backward / Forward: 2.89. Total: 7.65 ms. Output shape: torch.Size([32768, 8, 128])
+
+============================================================
+Testing: seq_len=4K, batch_size=8, tp_size=8
+============================================================
+🟢 Forward: 0.58 ms, Backward: 2.69 ms, Backward / Forward: 4.67
+🟢 Forward: 0.96 ms, Backward: 2.70 ms, Backward / Forward: 2.82
+🟢 Forward: 1.01 ms, Backward: 2.71 ms, Backward / Forward: 2.67
+🟢 Forward: 0.60 ms, Backward: 2.69 ms, Backward / Forward: 4.47
+🟢 Forward: 0.98 ms, Backward: 2.70 ms, Backward / Forward: 2.76
+🟢 Forward: 0.99 ms, Backward: 2.71 ms, Backward / Forward: 2.72
+🟢 Forward: 0.61 ms, Backward: 2.67 ms, Backward / Forward: 4.35
+🟢 Forward: 1.04 ms, Backward: 2.66 ms, Backward / Forward: 2.55
+🟢 Forward: 1.01 ms, Backward: 2.68 ms, Backward / Forward: 2.65
+🟢 Forward: 0.60 ms, Backward: 2.69 ms, Backward / Forward: 4.46
+Flash Attention Varlen - seq_len = 4096 x batch_size = 8 (causal):
+- Forward: 0.84 ± 0.20 ms, Backward: 2.69 ± 0.02 ms, Backward / Forward: 3.20. Total: 3.53 ms. Output shape: torch.Size([32768, 4, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=1, tp_size=1
+============================================================
+🟢 Forward: 1.81 ms, Backward: 8.31 ms, Backward / Forward: 4.60
+🟢 Forward: 2.33 ms, Backward: 8.50 ms, Backward / Forward: 3.65
+🟢 Forward: 2.90 ms, Backward: 8.51 ms, Backward / Forward: 2.93
+🟢 Forward: 2.35 ms, Backward: 10.64 ms, Backward / Forward: 4.54
+🟢 Forward: 3.06 ms, Backward: 9.34 ms, Backward / Forward: 3.05
+🟢 Forward: 2.36 ms, Backward: 8.51 ms, Backward / Forward: 3.60
+🟢 Forward: 3.37 ms, Backward: 12.31 ms, Backward / Forward: 3.65
+🟢 Forward: 2.95 ms, Backward: 8.51 ms, Backward / Forward: 2.89
+🟢 Forward: 2.91 ms, Backward: 8.49 ms, Backward / Forward: 2.91
+🟢 Forward: 2.89 ms, Backward: 8.48 ms, Backward / Forward: 2.94
+Flash Attention Varlen - seq_len = 8192 x batch_size = 1 (causal):
+- Forward: 2.69 ± 0.44 ms, Backward: 9.16 ± 1.25 ms, Backward / Forward: 3.40. Total: 11.85 ms. Output shape: torch.Size([8192, 32, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=1, tp_size=2
+============================================================
+🟢 Forward: 0.99 ms, Backward: 5.03 ms, Backward / Forward: 5.08
+🟢 Forward: 1.61 ms, Backward: 5.10 ms, Backward / Forward: 3.16
+🟢 Forward: 1.68 ms, Backward: 5.11 ms, Backward / Forward: 3.04
+🟢 Forward: 1.06 ms, Backward: 5.10 ms, Backward / Forward: 4.79
+🟢 Forward: 1.66 ms, Backward: 5.08 ms, Backward / Forward: 3.05
+🟢 Forward: 1.66 ms, Backward: 5.07 ms, Backward / Forward: 3.06
+🟢 Forward: 1.03 ms, Backward: 5.08 ms, Backward / Forward: 4.92
+🟢 Forward: 1.65 ms, Backward: 5.08 ms, Backward / Forward: 3.07
+🟢 Forward: 1.67 ms, Backward: 5.08 ms, Backward / Forward: 3.04
+🟢 Forward: 1.00 ms, Backward: 5.07 ms, Backward / Forward: 5.08
+Flash Attention Varlen - seq_len = 8192 x batch_size = 1 (causal):
+- Forward: 1.40 ± 0.31 ms, Backward: 5.08 ± 0.02 ms, Backward / Forward: 3.62. Total: 6.48 ms. Output shape: torch.Size([8192, 16, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=1, tp_size=4
+============================================================
+🟢 Forward: 0.62 ms, Backward: 2.73 ms, Backward / Forward: 4.39
+🟢 Forward: 1.28 ms, Backward: 2.76 ms, Backward / Forward: 2.15
+🟢 Forward: 1.34 ms, Backward: 2.75 ms, Backward / Forward: 2.05
+🟢 Forward: 0.70 ms, Backward: 2.81 ms, Backward / Forward: 4.01
+🟢 Forward: 1.31 ms, Backward: 2.76 ms, Backward / Forward: 2.11
+🟢 Forward: 1.32 ms, Backward: 2.74 ms, Backward / Forward: 2.08
+🟢 Forward: 0.71 ms, Backward: 2.81 ms, Backward / Forward: 3.93
+🟢 Forward: 1.32 ms, Backward: 2.73 ms, Backward / Forward: 2.07
+🟢 Forward: 1.33 ms, Backward: 2.74 ms, Backward / Forward: 2.06
+🟢 Forward: 0.71 ms, Backward: 2.82 ms, Backward / Forward: 3.94
+Flash Attention Varlen - seq_len = 8192 x batch_size = 1 (causal):
+- Forward: 1.07 ± 0.31 ms, Backward: 2.76 ± 0.03 ms, Backward / Forward: 2.60. Total: 3.83 ms. Output shape: torch.Size([8192, 8, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=1, tp_size=8
+============================================================
+🟢 Forward: 0.45 ms, Backward: 1.77 ms, Backward / Forward: 3.92
+🟢 Forward: 1.12 ms, Backward: 1.82 ms, Backward / Forward: 1.63
+🟢 Forward: 0.51 ms, Backward: 2.06 ms, Backward / Forward: 4.07
+🟢 Forward: 0.51 ms, Backward: 2.09 ms, Backward / Forward: 4.13
+🟢 Forward: 1.12 ms, Backward: 1.85 ms, Backward / Forward: 1.65
+🟢 Forward: 0.52 ms, Backward: 2.05 ms, Backward / Forward: 3.96
+🟢 Forward: 0.51 ms, Backward: 2.07 ms, Backward / Forward: 4.07
+🟢 Forward: 1.89 ms, Backward: 1.79 ms, Backward / Forward: 0.95
+🟢 Forward: 0.51 ms, Backward: 2.05 ms, Backward / Forward: 4.00
+🟢 Forward: 0.51 ms, Backward: 2.05 ms, Backward / Forward: 4.00
+Flash Attention Varlen - seq_len = 8192 x batch_size = 1 (causal):
+- Forward: 0.76 ± 0.45 ms, Backward: 1.96 ± 0.13 ms, Backward / Forward: 2.56. Total: 2.73 ms. Output shape: torch.Size([8192, 4, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=2, tp_size=1
+============================================================
+🟢 Forward: 3.38 ms, Backward: 13.13 ms, Backward / Forward: 3.88
+🟢 Forward: 4.53 ms, Backward: 13.44 ms, Backward / Forward: 2.97
+🟢 Forward: 5.04 ms, Backward: 13.43 ms, Backward / Forward: 2.67
+🟢 Forward: 4.97 ms, Backward: 13.40 ms, Backward / Forward: 2.69
+🟢 Forward: 4.90 ms, Backward: 14.40 ms, Backward / Forward: 2.94
+🟢 Forward: 4.85 ms, Backward: 13.71 ms, Backward / Forward: 2.83
+🟢 Forward: 5.04 ms, Backward: 13.53 ms, Backward / Forward: 2.68
+🟢 Forward: 5.00 ms, Backward: 13.44 ms, Backward / Forward: 2.69
+🟢 Forward: 5.01 ms, Backward: 14.66 ms, Backward / Forward: 2.92
+🟢 Forward: 5.05 ms, Backward: 14.80 ms, Backward / Forward: 2.93
+Flash Attention Varlen - seq_len = 8192 x batch_size = 2 (causal):
+- Forward: 4.78 ± 0.49 ms, Backward: 13.79 ± 0.56 ms, Backward / Forward: 2.89. Total: 18.57 ms. Output shape: torch.Size([16384, 32, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=2, tp_size=2
+============================================================
+🟢 Forward: 1.68 ms, Backward: 8.31 ms, Backward / Forward: 4.95
+🟢 Forward: 2.29 ms, Backward: 8.50 ms, Backward / Forward: 3.71
+🟢 Forward: 2.85 ms, Backward: 8.53 ms, Backward / Forward: 2.99
+🟢 Forward: 1.75 ms, Backward: 8.48 ms, Backward / Forward: 4.85
+🟢 Forward: 2.91 ms, Backward: 8.82 ms, Backward / Forward: 3.02
+🟢 Forward: 2.90 ms, Backward: 8.65 ms, Backward / Forward: 2.98
+🟢 Forward: 1.75 ms, Backward: 8.82 ms, Backward / Forward: 5.04
+🟢 Forward: 2.88 ms, Backward: 8.77 ms, Backward / Forward: 3.04
+🟢 Forward: 2.92 ms, Backward: 11.40 ms, Backward / Forward: 3.90
+🟢 Forward: 1.72 ms, Backward: 8.81 ms, Backward / Forward: 5.14
+Flash Attention Varlen - seq_len = 8192 x batch_size = 2 (causal):
+- Forward: 2.37 ± 0.55 ms, Backward: 8.91 ± 0.85 ms, Backward / Forward: 3.77. Total: 11.27 ms. Output shape: torch.Size([16384, 16, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=2, tp_size=4
+============================================================
+🟢 Forward: 0.99 ms, Backward: 5.39 ms, Backward / Forward: 5.47
+🟢 Forward: 1.62 ms, Backward: 5.15 ms, Backward / Forward: 3.18
+🟢 Forward: 1.65 ms, Backward: 6.97 ms, Backward / Forward: 4.23
+🟢 Forward: 1.06 ms, Backward: 5.10 ms, Backward / Forward: 4.83
+🟢 Forward: 1.66 ms, Backward: 5.10 ms, Backward / Forward: 3.07
+🟢 Forward: 1.66 ms, Backward: 5.08 ms, Backward / Forward: 3.06
+🟢 Forward: 1.03 ms, Backward: 5.08 ms, Backward / Forward: 4.94
+🟢 Forward: 1.67 ms, Backward: 5.08 ms, Backward / Forward: 3.04
+🟢 Forward: 1.66 ms, Backward: 5.08 ms, Backward / Forward: 3.07
+🟢 Forward: 1.03 ms, Backward: 5.08 ms, Backward / Forward: 4.94
+Flash Attention Varlen - seq_len = 8192 x batch_size = 2 (causal):
+- Forward: 1.40 ± 0.31 ms, Backward: 5.31 ± 0.56 ms, Backward / Forward: 3.79. Total: 6.71 ms. Output shape: torch.Size([16384, 8, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=2, tp_size=8
+============================================================
+🟢 Forward: 0.65 ms, Backward: 3.04 ms, Backward / Forward: 4.64
+🟢 Forward: 1.26 ms, Backward: 2.77 ms, Backward / Forward: 2.19
+🟢 Forward: 2.71 ms, Backward: 2.70 ms, Backward / Forward: 0.99
+🟢 Forward: 0.68 ms, Backward: 2.86 ms, Backward / Forward: 4.22
+🟢 Forward: 1.33 ms, Backward: 2.77 ms, Backward / Forward: 2.07
+🟢 Forward: 1.34 ms, Backward: 2.74 ms, Backward / Forward: 2.06
+🟢 Forward: 0.72 ms, Backward: 2.82 ms, Backward / Forward: 3.91
+🟢 Forward: 1.32 ms, Backward: 2.73 ms, Backward / Forward: 2.07
+🟢 Forward: 1.33 ms, Backward: 2.74 ms, Backward / Forward: 2.05
+🟢 Forward: 0.71 ms, Backward: 2.81 ms, Backward / Forward: 3.97
+Flash Attention Varlen - seq_len = 8192 x batch_size = 2 (causal):
+- Forward: 1.21 ± 0.58 ms, Backward: 2.80 ± 0.09 ms, Backward / Forward: 2.32. Total: 4.00 ms. Output shape: torch.Size([16384, 4, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=4, tp_size=1
+============================================================
+🟢 Forward: 6.52 ms, Backward: 19.94 ms, Backward / Forward: 3.06
+🟢 Forward: 9.94 ms, Backward: 20.57 ms, Backward / Forward: 2.07
+🟢 Forward: 8.03 ms, Backward: 20.44 ms, Backward / Forward: 2.54
+🟢 Forward: 8.07 ms, Backward: 20.70 ms, Backward / Forward: 2.57
+🟢 Forward: 8.07 ms, Backward: 20.74 ms, Backward / Forward: 2.57
+🟢 Forward: 7.99 ms, Backward: 21.11 ms, Backward / Forward: 2.64
+🟢 Forward: 7.96 ms, Backward: 20.51 ms, Backward / Forward: 2.58
+🟢 Forward: 8.00 ms, Backward: 20.45 ms, Backward / Forward: 2.56
+🟢 Forward: 8.01 ms, Backward: 20.46 ms, Backward / Forward: 2.55
+🟢 Forward: 8.00 ms, Backward: 20.51 ms, Backward / Forward: 2.56
+Flash Attention Varlen - seq_len = 8192 x batch_size = 4 (causal):
+- Forward: 8.06 ± 0.77 ms, Backward: 20.54 ± 0.28 ms, Backward / Forward: 2.55. Total: 28.60 ms. Output shape: torch.Size([32768, 32, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=4, tp_size=2
+============================================================
+🟢 Forward: 3.39 ms, Backward: 13.46 ms, Backward / Forward: 3.97
+🟢 Forward: 4.59 ms, Backward: 13.82 ms, Backward / Forward: 3.01
+🟢 Forward: 5.02 ms, Backward: 13.75 ms, Backward / Forward: 2.74
+🟢 Forward: 3.33 ms, Backward: 13.70 ms, Backward / Forward: 4.11
+🟢 Forward: 5.02 ms, Backward: 13.71 ms, Backward / Forward: 2.73
+🟢 Forward: 5.08 ms, Backward: 13.68 ms, Backward / Forward: 2.69
+🟢 Forward: 3.33 ms, Backward: 13.72 ms, Backward / Forward: 4.12
+🟢 Forward: 5.05 ms, Backward: 13.70 ms, Backward / Forward: 2.71
+🟢 Forward: 5.00 ms, Backward: 15.23 ms, Backward / Forward: 3.04
+🟢 Forward: 5.76 ms, Backward: 14.67 ms, Backward / Forward: 2.55
+Flash Attention Varlen - seq_len = 8192 x batch_size = 4 (causal):
+- Forward: 4.56 ± 0.83 ms, Backward: 13.94 ± 0.53 ms, Backward / Forward: 3.06. Total: 18.50 ms. Output shape: torch.Size([32768, 16, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=4, tp_size=4
+============================================================
+🟢 Forward: 1.74 ms, Backward: 8.59 ms, Backward / Forward: 4.92
+🟢 Forward: 2.30 ms, Backward: 8.76 ms, Backward / Forward: 3.81
+🟢 Forward: 2.87 ms, Backward: 8.46 ms, Backward / Forward: 2.95
+🟢 Forward: 1.75 ms, Backward: 8.75 ms, Backward / Forward: 5.01
+🟢 Forward: 2.91 ms, Backward: 8.73 ms, Backward / Forward: 3.00
+🟢 Forward: 2.86 ms, Backward: 11.20 ms, Backward / Forward: 3.92
+🟢 Forward: 1.72 ms, Backward: 8.75 ms, Backward / Forward: 5.10
+🟢 Forward: 2.29 ms, Backward: 8.87 ms, Backward / Forward: 3.88
+🟢 Forward: 1.90 ms, Backward: 8.46 ms, Backward / Forward: 4.44
+🟢 Forward: 1.73 ms, Backward: 8.74 ms, Backward / Forward: 5.06
+Flash Attention Varlen - seq_len = 8192 x batch_size = 4 (causal):
+- Forward: 2.21 ± 0.49 ms, Backward: 8.93 ± 0.77 ms, Backward / Forward: 4.05. Total: 11.14 ms. Output shape: torch.Size([32768, 8, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=4, tp_size=8
+============================================================
+🟢 Forward: 0.96 ms, Backward: 5.36 ms, Backward / Forward: 5.61
+🟢 Forward: 1.60 ms, Backward: 5.10 ms, Backward / Forward: 3.19
+🟢 Forward: 1.67 ms, Backward: 5.10 ms, Backward / Forward: 3.06
+🟢 Forward: 1.08 ms, Backward: 5.06 ms, Backward / Forward: 4.67
+🟢 Forward: 1.66 ms, Backward: 5.08 ms, Backward / Forward: 3.06
+🟢 Forward: 1.69 ms, Backward: 5.06 ms, Backward / Forward: 2.99
+🟢 Forward: 1.01 ms, Backward: 5.06 ms, Backward / Forward: 5.00
+🟢 Forward: 1.68 ms, Backward: 5.06 ms, Backward / Forward: 3.01
+🟢 Forward: 1.63 ms, Backward: 5.07 ms, Backward / Forward: 3.11
+🟢 Forward: 1.04 ms, Backward: 5.09 ms, Backward / Forward: 4.89
+Flash Attention Varlen - seq_len = 8192 x batch_size = 4 (causal):
+- Forward: 1.40 ± 0.31 ms, Backward: 5.10 ± 0.09 ms, Backward / Forward: 3.64. Total: 6.50 ms. Output shape: torch.Size([32768, 4, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=8, tp_size=1
+============================================================
+🟢 Forward: 13.13 ms, Backward: 39.53 ms, Backward / Forward: 3.01
+🟢 Forward: 13.61 ms, Backward: 40.17 ms, Backward / Forward: 2.95
+🟢 Forward: 13.87 ms, Backward: 40.23 ms, Backward / Forward: 2.90
+🟢 Forward: 13.92 ms, Backward: 39.92 ms, Backward / Forward: 2.87
+🟢 Forward: 13.94 ms, Backward: 40.01 ms, Backward / Forward: 2.87
+🟢 Forward: 14.01 ms, Backward: 40.07 ms, Backward / Forward: 2.86
+🟢 Forward: 13.95 ms, Backward: 40.47 ms, Backward / Forward: 2.90
+🟢 Forward: 13.77 ms, Backward: 39.68 ms, Backward / Forward: 2.88
+🟢 Forward: 13.76 ms, Backward: 39.75 ms, Backward / Forward: 2.89
+🟢 Forward: 13.88 ms, Backward: 39.75 ms, Backward / Forward: 2.86
+Flash Attention Varlen - seq_len = 8192 x batch_size = 8 (causal):
+- Forward: 13.79 ± 0.24 ms, Backward: 39.96 ± 0.27 ms, Backward / Forward: 2.90. Total: 53.75 ms. Output shape: torch.Size([65536, 32, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=8, tp_size=2
+============================================================
+🟢 Forward: 7.06 ms, Backward: 20.32 ms, Backward / Forward: 2.88
+🟢 Forward: 7.77 ms, Backward: 20.83 ms, Backward / Forward: 2.68
+🟢 Forward: 8.08 ms, Backward: 20.66 ms, Backward / Forward: 2.56
+🟢 Forward: 7.09 ms, Backward: 20.52 ms, Backward / Forward: 2.90
+🟢 Forward: 8.09 ms, Backward: 20.97 ms, Backward / Forward: 2.59
+🟢 Forward: 8.10 ms, Backward: 20.54 ms, Backward / Forward: 2.54
+🟢 Forward: 7.35 ms, Backward: 21.49 ms, Backward / Forward: 2.92
+🟢 Forward: 8.29 ms, Backward: 21.19 ms, Backward / Forward: 2.56
+🟢 Forward: 8.20 ms, Backward: 22.18 ms, Backward / Forward: 2.70
+🟢 Forward: 7.51 ms, Backward: 20.97 ms, Backward / Forward: 2.79
+Flash Attention Varlen - seq_len = 8192 x batch_size = 8 (causal):
+- Forward: 7.75 ± 0.44 ms, Backward: 20.97 ± 0.52 ms, Backward / Forward: 2.70. Total: 28.72 ms. Output shape: torch.Size([65536, 16, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=8, tp_size=4
+============================================================
+🟢 Forward: 3.53 ms, Backward: 13.97 ms, Backward / Forward: 3.96
+🟢 Forward: 4.63 ms, Backward: 14.07 ms, Backward / Forward: 3.04
+🟢 Forward: 5.01 ms, Backward: 13.82 ms, Backward / Forward: 2.76
+🟢 Forward: 4.37 ms, Backward: 13.59 ms, Backward / Forward: 3.11
+🟢 Forward: 5.03 ms, Backward: 13.88 ms, Backward / Forward: 2.76
+🟢 Forward: 5.01 ms, Backward: 13.84 ms, Backward / Forward: 2.76
+🟢 Forward: 3.32 ms, Backward: 13.86 ms, Backward / Forward: 4.17
+🟢 Forward: 5.05 ms, Backward: 13.87 ms, Backward / Forward: 2.75
+🟢 Forward: 5.05 ms, Backward: 13.68 ms, Backward / Forward: 2.71
+🟢 Forward: 3.33 ms, Backward: 13.85 ms, Backward / Forward: 4.16
+Flash Attention Varlen - seq_len = 8192 x batch_size = 8 (causal):
+- Forward: 4.43 ± 0.71 ms, Backward: 13.84 ± 0.13 ms, Backward / Forward: 3.12. Total: 18.28 ms. Output shape: torch.Size([65536, 8, 128])
+
+============================================================
+Testing: seq_len=8K, batch_size=8, tp_size=8
+============================================================
+🟢 Forward: 1.65 ms, Backward: 8.64 ms, Backward / Forward: 5.23
+🟢 Forward: 2.33 ms, Backward: 8.83 ms, Backward / Forward: 3.79
+🟢 Forward: 2.90 ms, Backward: 8.85 ms, Backward / Forward: 3.05
+🟢 Forward: 1.76 ms, Backward: 8.84 ms, Backward / Forward: 5.03
+🟢 Forward: 2.91 ms, Backward: 8.53 ms, Backward / Forward: 2.93
+🟢 Forward: 2.91 ms, Backward: 8.84 ms, Backward / Forward: 3.04
+🟢 Forward: 1.77 ms, Backward: 8.83 ms, Backward / Forward: 5.00
+🟢 Forward: 2.93 ms, Backward: 8.84 ms, Backward / Forward: 3.02
+🟢 Forward: 2.87 ms, Backward: 8.82 ms, Backward / Forward: 3.07
+🟢 Forward: 1.74 ms, Backward: 8.83 ms, Backward / Forward: 5.08
+Flash Attention Varlen - seq_len = 8192 x batch_size = 8 (causal):
+- Forward: 2.38 ± 0.55 ms, Backward: 8.79 ± 0.10 ms, Backward / Forward: 3.70. Total: 11.16 ms. Output shape: torch.Size([65536, 4, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=1, tp_size=1
+============================================================
+🟢 Forward: 6.60 ms, Backward: 30.16 ms, Backward / Forward: 4.57
+🟢 Forward: 7.60 ms, Backward: 30.31 ms, Backward / Forward: 3.99
+🟢 Forward: 8.06 ms, Backward: 30.31 ms, Backward / Forward: 3.76
+🟢 Forward: 8.06 ms, Backward: 30.31 ms, Backward / Forward: 3.76
+🟢 Forward: 7.99 ms, Backward: 30.34 ms, Backward / Forward: 3.80
+🟢 Forward: 8.10 ms, Backward: 30.41 ms, Backward / Forward: 3.75
+🟢 Forward: 8.14 ms, Backward: 30.53 ms, Backward / Forward: 3.75
+🟢 Forward: 8.10 ms, Backward: 30.28 ms, Backward / Forward: 3.74
+🟢 Forward: 8.05 ms, Backward: 30.12 ms, Backward / Forward: 3.74
+🟢 Forward: 7.95 ms, Backward: 30.10 ms, Backward / Forward: 3.79
+Flash Attention Varlen - seq_len = 16384 x batch_size = 1 (causal):
+- Forward: 7.86 ± 0.45 ms, Backward: 30.29 ± 0.13 ms, Backward / Forward: 3.85. Total: 38.15 ms. Output shape: torch.Size([16384, 32, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=1, tp_size=2
+============================================================
+🟢 Forward: 3.12 ms, Backward: 17.20 ms, Backward / Forward: 5.51
+🟢 Forward: 3.78 ms, Backward: 17.51 ms, Backward / Forward: 4.63
+🟢 Forward: 3.88 ms, Backward: 17.49 ms, Backward / Forward: 4.50
+🟢 Forward: 3.21 ms, Backward: 17.48 ms, Backward / Forward: 5.44
+🟢 Forward: 3.86 ms, Backward: 17.44 ms, Backward / Forward: 4.52
+🟢 Forward: 3.83 ms, Backward: 17.47 ms, Backward / Forward: 4.57
+🟢 Forward: 3.21 ms, Backward: 17.49 ms, Backward / Forward: 5.46
+🟢 Forward: 3.79 ms, Backward: 17.44 ms, Backward / Forward: 4.60
+🟢 Forward: 3.72 ms, Backward: 17.46 ms, Backward / Forward: 4.69
+🟢 Forward: 3.29 ms, Backward: 17.48 ms, Backward / Forward: 5.31
+Flash Attention Varlen - seq_len = 16384 x batch_size = 1 (causal):
+- Forward: 3.57 ± 0.30 ms, Backward: 17.45 ± 0.08 ms, Backward / Forward: 4.89. Total: 21.02 ms. Output shape: torch.Size([16384, 16, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=1, tp_size=4
+============================================================
+🟢 Forward: 1.89 ms, Backward: 9.25 ms, Backward / Forward: 4.90
+🟢 Forward: 2.36 ms, Backward: 8.96 ms, Backward / Forward: 3.80
+🟢 Forward: 2.43 ms, Backward: 9.24 ms, Backward / Forward: 3.80
+🟢 Forward: 1.86 ms, Backward: 9.24 ms, Backward / Forward: 4.96
+🟢 Forward: 2.49 ms, Backward: 9.11 ms, Backward / Forward: 3.67
+🟢 Forward: 2.45 ms, Backward: 9.25 ms, Backward / Forward: 3.77
+🟢 Forward: 1.93 ms, Backward: 9.26 ms, Backward / Forward: 4.81
+🟢 Forward: 2.43 ms, Backward: 9.24 ms, Backward / Forward: 3.80
+🟢 Forward: 2.36 ms, Backward: 9.00 ms, Backward / Forward: 3.81
+🟢 Forward: 1.83 ms, Backward: 9.24 ms, Backward / Forward: 5.06
+Flash Attention Varlen - seq_len = 16384 x batch_size = 1 (causal):
+- Forward: 2.20 ± 0.27 ms, Backward: 9.18 ± 0.11 ms, Backward / Forward: 4.17. Total: 11.38 ms. Output shape: torch.Size([16384, 8, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=1, tp_size=8
+============================================================
+🟢 Forward: 1.20 ms, Backward: 4.24 ms, Backward / Forward: 3.53
+🟢 Forward: 1.82 ms, Backward: 4.33 ms, Backward / Forward: 2.38
+🟢 Forward: 1.76 ms, Backward: 4.42 ms, Backward / Forward: 2.52
+🟢 Forward: 1.22 ms, Backward: 4.90 ms, Backward / Forward: 4.03
+🟢 Forward: 1.80 ms, Backward: 4.34 ms, Backward / Forward: 2.42
+🟢 Forward: 1.80 ms, Backward: 4.37 ms, Backward / Forward: 2.43
+🟢 Forward: 1.24 ms, Backward: 4.86 ms, Backward / Forward: 3.93
+🟢 Forward: 1.84 ms, Backward: 4.33 ms, Backward / Forward: 2.36
+🟢 Forward: 1.85 ms, Backward: 4.34 ms, Backward / Forward: 2.34
+🟢 Forward: 1.15 ms, Backward: 4.92 ms, Backward / Forward: 4.26
+Flash Attention Varlen - seq_len = 16384 x batch_size = 1 (causal):
+- Forward: 1.57 ± 0.30 ms, Backward: 4.51 ± 0.26 ms, Backward / Forward: 2.88. Total: 6.07 ms. Output shape: torch.Size([16384, 4, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=2, tp_size=1
+============================================================
+🟢 Forward: 11.81 ms, Backward: 50.07 ms, Backward / Forward: 4.24
+🟢 Forward: 13.08 ms, Backward: 50.29 ms, Backward / Forward: 3.85
+🟢 Forward: 13.39 ms, Backward: 50.28 ms, Backward / Forward: 3.76
+🟢 Forward: 13.29 ms, Backward: 49.88 ms, Backward / Forward: 3.75
+🟢 Forward: 13.17 ms, Backward: 50.03 ms, Backward / Forward: 3.80
+🟢 Forward: 13.28 ms, Backward: 50.09 ms, Backward / Forward: 3.77
+🟢 Forward: 13.45 ms, Backward: 50.19 ms, Backward / Forward: 3.73
+🟢 Forward: 13.45 ms, Backward: 49.81 ms, Backward / Forward: 3.70
+🟢 Forward: 13.37 ms, Backward: 49.90 ms, Backward / Forward: 3.73
+🟢 Forward: 13.32 ms, Backward: 50.15 ms, Backward / Forward: 3.76
+Flash Attention Varlen - seq_len = 16384 x batch_size = 2 (causal):
+- Forward: 13.16 ± 0.46 ms, Backward: 50.07 ± 0.16 ms, Backward / Forward: 3.80. Total: 63.23 ms. Output shape: torch.Size([32768, 32, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=2, tp_size=2
+============================================================
+🟢 Forward: 6.19 ms, Backward: 30.11 ms, Backward / Forward: 4.87
+🟢 Forward: 7.70 ms, Backward: 30.22 ms, Backward / Forward: 3.92
+🟢 Forward: 8.07 ms, Backward: 30.30 ms, Backward / Forward: 3.76
+🟢 Forward: 7.08 ms, Backward: 30.29 ms, Backward / Forward: 4.28
+🟢 Forward: 8.04 ms, Backward: 30.25 ms, Backward / Forward: 3.76
+🟢 Forward: 7.98 ms, Backward: 30.31 ms, Backward / Forward: 3.80
+🟢 Forward: 7.13 ms, Backward: 30.31 ms, Backward / Forward: 4.25
+🟢 Forward: 8.02 ms, Backward: 30.33 ms, Backward / Forward: 3.78
+🟢 Forward: 8.03 ms, Backward: 30.12 ms, Backward / Forward: 3.75
+🟢 Forward: 7.02 ms, Backward: 31.68 ms, Backward / Forward: 4.51
+Flash Attention Varlen - seq_len = 16384 x batch_size = 2 (causal):
+- Forward: 7.53 ± 0.61 ms, Backward: 30.39 ± 0.44 ms, Backward / Forward: 4.04. Total: 37.92 ms. Output shape: torch.Size([32768, 16, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=2, tp_size=4
+============================================================
+🟢 Forward: 3.18 ms, Backward: 17.69 ms, Backward / Forward: 5.56
+🟢 Forward: 3.78 ms, Backward: 19.09 ms, Backward / Forward: 5.06
+🟢 Forward: 3.78 ms, Backward: 17.51 ms, Backward / Forward: 4.63
+🟢 Forward: 3.25 ms, Backward: 17.51 ms, Backward / Forward: 5.38
+🟢 Forward: 3.77 ms, Backward: 17.19 ms, Backward / Forward: 4.56
+🟢 Forward: 3.73 ms, Backward: 17.48 ms, Backward / Forward: 4.68
+🟢 Forward: 3.23 ms, Backward: 17.49 ms, Backward / Forward: 5.41
+🟢 Forward: 3.73 ms, Backward: 17.48 ms, Backward / Forward: 4.68
+🟢 Forward: 3.81 ms, Backward: 17.48 ms, Backward / Forward: 4.59
+🟢 Forward: 3.27 ms, Backward: 17.48 ms, Backward / Forward: 5.34
+Flash Attention Varlen - seq_len = 16384 x batch_size = 2 (causal):
+- Forward: 3.55 ± 0.26 ms, Backward: 17.64 ± 0.50 ms, Backward / Forward: 4.96. Total: 21.19 ms. Output shape: torch.Size([32768, 8, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=2, tp_size=8
+============================================================
+🟢 Forward: 1.85 ms, Backward: 9.14 ms, Backward / Forward: 4.94
+🟢 Forward: 2.45 ms, Backward: 9.24 ms, Backward / Forward: 3.78
+🟢 Forward: 2.51 ms, Backward: 9.25 ms, Backward / Forward: 3.69
+🟢 Forward: 1.83 ms, Backward: 9.29 ms, Backward / Forward: 5.07
+🟢 Forward: 2.45 ms, Backward: 8.94 ms, Backward / Forward: 3.65
+🟢 Forward: 2.42 ms, Backward: 9.22 ms, Backward / Forward: 3.80
+🟢 Forward: 1.86 ms, Backward: 9.22 ms, Backward / Forward: 4.96
+🟢 Forward: 2.50 ms, Backward: 9.25 ms, Backward / Forward: 3.70
+🟢 Forward: 2.41 ms, Backward: 9.23 ms, Backward / Forward: 3.83
+🟢 Forward: 1.86 ms, Backward: 9.28 ms, Backward / Forward: 4.98
+Flash Attention Varlen - seq_len = 16384 x batch_size = 2 (causal):
+- Forward: 2.21 ± 0.30 ms, Backward: 9.21 ± 0.10 ms, Backward / Forward: 4.16. Total: 11.42 ms. Output shape: torch.Size([32768, 4, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=4, tp_size=1
+============================================================
+🟢 Forward: 23.86 ms, Backward: 76.84 ms, Backward / Forward: 3.22
+🟢 Forward: 24.42 ms, Backward: 77.30 ms, Backward / Forward: 3.16
+🟢 Forward: 24.92 ms, Backward: 77.34 ms, Backward / Forward: 3.10
+🟢 Forward: 24.68 ms, Backward: 77.26 ms, Backward / Forward: 3.13
+🟢 Forward: 24.60 ms, Backward: 77.50 ms, Backward / Forward: 3.15
+🟢 Forward: 24.47 ms, Backward: 77.97 ms, Backward / Forward: 3.19
+🟢 Forward: 24.36 ms, Backward: 79.82 ms, Backward / Forward: 3.28
+🟢 Forward: 26.28 ms, Backward: 89.84 ms, Backward / Forward: 3.42
+🟢 Forward: 26.09 ms, Backward: 79.23 ms, Backward / Forward: 3.04
+🟢 Forward: 25.99 ms, Backward: 77.73 ms, Backward / Forward: 2.99
+Flash Attention Varlen - seq_len = 16384 x batch_size = 4 (causal):
+- Forward: 24.97 ± 0.80 ms, Backward: 79.08 ± 3.69 ms, Backward / Forward: 3.17. Total: 104.05 ms. Output shape: torch.Size([65536, 32, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=4, tp_size=2
+============================================================
+🟢 Forward: 12.66 ms, Backward: 49.89 ms, Backward / Forward: 3.94
+🟢 Forward: 13.11 ms, Backward: 49.81 ms, Backward / Forward: 3.80
+🟢 Forward: 13.34 ms, Backward: 49.77 ms, Backward / Forward: 3.73
+🟢 Forward: 12.46 ms, Backward: 50.15 ms, Backward / Forward: 4.02
+🟢 Forward: 13.56 ms, Backward: 49.77 ms, Backward / Forward: 3.67
+🟢 Forward: 13.42 ms, Backward: 49.70 ms, Backward / Forward: 3.70
+🟢 Forward: 12.45 ms, Backward: 49.64 ms, Backward / Forward: 3.99
+🟢 Forward: 13.29 ms, Backward: 50.12 ms, Backward / Forward: 3.77
+🟢 Forward: 13.47 ms, Backward: 49.95 ms, Backward / Forward: 3.71
+🟢 Forward: 12.39 ms, Backward: 49.82 ms, Backward / Forward: 4.02
+Flash Attention Varlen - seq_len = 16384 x batch_size = 4 (causal):
+- Forward: 13.02 ± 0.45 ms, Backward: 49.86 ± 0.16 ms, Backward / Forward: 3.83. Total: 62.88 ms. Output shape: torch.Size([65536, 16, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=4, tp_size=4
+============================================================
+🟢 Forward: 6.23 ms, Backward: 29.91 ms, Backward / Forward: 4.80
+🟢 Forward: 7.55 ms, Backward: 30.40 ms, Backward / Forward: 4.03
+🟢 Forward: 8.02 ms, Backward: 30.50 ms, Backward / Forward: 3.80
+🟢 Forward: 7.19 ms, Backward: 30.41 ms, Backward / Forward: 4.23
+🟢 Forward: 7.94 ms, Backward: 30.52 ms, Backward / Forward: 3.84
+🟢 Forward: 7.86 ms, Backward: 30.22 ms, Backward / Forward: 3.84
+🟢 Forward: 6.94 ms, Backward: 30.43 ms, Backward / Forward: 4.39
+🟢 Forward: 7.94 ms, Backward: 30.38 ms, Backward / Forward: 3.82
+🟢 Forward: 8.06 ms, Backward: 30.36 ms, Backward / Forward: 3.77
+🟢 Forward: 7.03 ms, Backward: 30.37 ms, Backward / Forward: 4.32
+Flash Attention Varlen - seq_len = 16384 x batch_size = 4 (causal):
+- Forward: 7.48 ± 0.58 ms, Backward: 30.35 ± 0.17 ms, Backward / Forward: 4.06. Total: 37.83 ms. Output shape: torch.Size([65536, 8, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=4, tp_size=8
+============================================================
+🟢 Forward: 3.20 ms, Backward: 17.41 ms, Backward / Forward: 5.44
+🟢 Forward: 3.79 ms, Backward: 17.67 ms, Backward / Forward: 4.66
+🟢 Forward: 3.66 ms, Backward: 17.66 ms, Backward / Forward: 4.83
+🟢 Forward: 3.20 ms, Backward: 17.53 ms, Backward / Forward: 5.48
+🟢 Forward: 3.84 ms, Backward: 17.50 ms, Backward / Forward: 4.56
+🟢 Forward: 3.78 ms, Backward: 17.60 ms, Backward / Forward: 4.65
+🟢 Forward: 3.25 ms, Backward: 17.59 ms, Backward / Forward: 5.42
+🟢 Forward: 3.83 ms, Backward: 17.66 ms, Backward / Forward: 4.61
+🟢 Forward: 3.83 ms, Backward: 17.60 ms, Backward / Forward: 4.60
+🟢 Forward: 3.19 ms, Backward: 17.60 ms, Backward / Forward: 5.52
+Flash Attention Varlen - seq_len = 16384 x batch_size = 4 (causal):
+- Forward: 3.56 ± 0.29 ms, Backward: 17.58 ± 0.08 ms, Backward / Forward: 4.94. Total: 21.14 ms. Output shape: torch.Size([65536, 4, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=8, tp_size=1
+============================================================
+🟢 Forward: 47.25 ms, Backward: 155.79 ms, Backward / Forward: 3.30
+🟢 Forward: 48.10 ms, Backward: 157.90 ms, Backward / Forward: 3.28
+🟢 Forward: 46.79 ms, Backward: 161.67 ms, Backward / Forward: 3.46
+🟢 Forward: 52.92 ms, Backward: 167.43 ms, Backward / Forward: 3.16
+🟢 Forward: 48.98 ms, Backward: 159.07 ms, Backward / Forward: 3.25
+🟢 Forward: 46.20 ms, Backward: 160.81 ms, Backward / Forward: 3.48
+🟢 Forward: 47.35 ms, Backward: 159.37 ms, Backward / Forward: 3.37
+🟢 Forward: 49.51 ms, Backward: 163.95 ms, Backward / Forward: 3.31
+🟢 Forward: 48.94 ms, Backward: 164.12 ms, Backward / Forward: 3.35
+🟢 Forward: 46.62 ms, Backward: 159.20 ms, Backward / Forward: 3.41
+Flash Attention Varlen - seq_len = 16384 x batch_size = 8 (causal):
+- Forward: 48.27 ± 1.88 ms, Backward: 160.93 ± 3.26 ms, Backward / Forward: 3.33. Total: 209.20 ms. Output shape: torch.Size([131072, 32, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=8, tp_size=2
+============================================================
+🟢 Forward: 24.83 ms, Backward: 76.00 ms, Backward / Forward: 3.06
+🟢 Forward: 25.76 ms, Backward: 77.85 ms, Backward / Forward: 3.02
+🟢 Forward: 25.88 ms, Backward: 77.37 ms, Backward / Forward: 2.99
+🟢 Forward: 23.84 ms, Backward: 78.08 ms, Backward / Forward: 3.27
+🟢 Forward: 24.94 ms, Backward: 78.57 ms, Backward / Forward: 3.15
+🟢 Forward: 24.83 ms, Backward: 80.17 ms, Backward / Forward: 3.23
+🟢 Forward: 24.36 ms, Backward: 78.38 ms, Backward / Forward: 3.22
+🟢 Forward: 25.14 ms, Backward: 77.81 ms, Backward / Forward: 3.09
+🟢 Forward: 24.81 ms, Backward: 81.70 ms, Backward / Forward: 3.29
+🟢 Forward: 25.20 ms, Backward: 80.16 ms, Backward / Forward: 3.18
+Flash Attention Varlen - seq_len = 16384 x batch_size = 8 (causal):
+- Forward: 24.96 ± 0.57 ms, Backward: 78.61 ± 1.56 ms, Backward / Forward: 3.15. Total: 103.57 ms. Output shape: torch.Size([131072, 16, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=8, tp_size=4
+============================================================
+🟢 Forward: 13.16 ms, Backward: 49.77 ms, Backward / Forward: 3.78
+🟢 Forward: 13.65 ms, Backward: 50.17 ms, Backward / Forward: 3.68
+🟢 Forward: 13.33 ms, Backward: 50.09 ms, Backward / Forward: 3.76
+🟢 Forward: 12.46 ms, Backward: 49.79 ms, Backward / Forward: 4.00
+🟢 Forward: 13.39 ms, Backward: 49.86 ms, Backward / Forward: 3.72
+🟢 Forward: 13.29 ms, Backward: 49.84 ms, Backward / Forward: 3.75
+🟢 Forward: 12.42 ms, Backward: 50.55 ms, Backward / Forward: 4.07
+🟢 Forward: 13.50 ms, Backward: 50.28 ms, Backward / Forward: 3.72
+🟢 Forward: 13.40 ms, Backward: 49.90 ms, Backward / Forward: 3.72
+🟢 Forward: 12.39 ms, Backward: 49.91 ms, Backward / Forward: 4.03
+Flash Attention Varlen - seq_len = 16384 x batch_size = 8 (causal):
+- Forward: 13.10 ± 0.46 ms, Backward: 50.01 ± 0.24 ms, Backward / Forward: 3.82. Total: 63.11 ms. Output shape: torch.Size([131072, 8, 128])
+
+============================================================
+Testing: seq_len=16K, batch_size=8, tp_size=8
+============================================================
+🟢 Forward: 6.28 ms, Backward: 30.06 ms, Backward / Forward: 4.79
+🟢 Forward: 7.55 ms, Backward: 30.40 ms, Backward / Forward: 4.03
+🟢 Forward: 7.98 ms, Backward: 30.36 ms, Backward / Forward: 3.80
+🟢 Forward: 7.07 ms, Backward: 30.41 ms, Backward / Forward: 4.30
+🟢 Forward: 7.98 ms, Backward: 30.36 ms, Backward / Forward: 3.81
+🟢 Forward: 7.94 ms, Backward: 30.36 ms, Backward / Forward: 3.82
+🟢 Forward: 7.13 ms, Backward: 30.46 ms, Backward / Forward: 4.27
+🟢 Forward: 8.00 ms, Backward: 30.44 ms, Backward / Forward: 3.80
+🟢 Forward: 8.02 ms, Backward: 30.41 ms, Backward / Forward: 3.79
+🟢 Forward: 7.10 ms, Backward: 30.41 ms, Backward / Forward: 4.29
+Flash Attention Varlen - seq_len = 16384 x batch_size = 8 (causal):
+- Forward: 7.50 ± 0.56 ms, Backward: 30.37 ± 0.11 ms, Backward / Forward: 4.05. Total: 37.87 ms. Output shape: torch.Size([131072, 4, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=1, tp_size=1
+============================================================
+🟢 Forward: 24.69 ms, Backward: 117.61 ms, Backward / Forward: 4.76
+🟢 Forward: 23.92 ms, Backward: 117.47 ms, Backward / Forward: 4.91
+🟢 Forward: 24.04 ms, Backward: 116.81 ms, Backward / Forward: 4.86
+🟢 Forward: 23.82 ms, Backward: 117.38 ms, Backward / Forward: 4.93
+🟢 Forward: 24.00 ms, Backward: 117.73 ms, Backward / Forward: 4.91
+🟢 Forward: 23.91 ms, Backward: 117.45 ms, Backward / Forward: 4.91
+🟢 Forward: 23.98 ms, Backward: 117.25 ms, Backward / Forward: 4.89
+🟢 Forward: 24.10 ms, Backward: 116.63 ms, Backward / Forward: 4.84
+🟢 Forward: 24.08 ms, Backward: 116.77 ms, Backward / Forward: 4.85
+🟢 Forward: 24.02 ms, Backward: 117.41 ms, Backward / Forward: 4.89
+Flash Attention Varlen - seq_len = 32768 x batch_size = 1 (causal):
+- Forward: 24.06 ± 0.23 ms, Backward: 117.25 ± 0.36 ms, Backward / Forward: 4.87. Total: 141.31 ms. Output shape: torch.Size([32768, 32, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=1, tp_size=2
+============================================================
+🟢 Forward: 12.09 ms, Backward: 65.03 ms, Backward / Forward: 5.38
+🟢 Forward: 13.31 ms, Backward: 65.25 ms, Backward / Forward: 4.90
+🟢 Forward: 13.60 ms, Backward: 65.50 ms, Backward / Forward: 4.81
+🟢 Forward: 12.23 ms, Backward: 64.96 ms, Backward / Forward: 5.31
+🟢 Forward: 13.06 ms, Backward: 65.12 ms, Backward / Forward: 4.99
+🟢 Forward: 13.30 ms, Backward: 64.85 ms, Backward / Forward: 4.87
+🟢 Forward: 12.22 ms, Backward: 65.00 ms, Backward / Forward: 5.32
+🟢 Forward: 13.49 ms, Backward: 65.36 ms, Backward / Forward: 4.84
+🟢 Forward: 13.52 ms, Backward: 65.35 ms, Backward / Forward: 4.83
+🟢 Forward: 12.19 ms, Backward: 65.39 ms, Backward / Forward: 5.37
+Flash Attention Varlen - seq_len = 32768 x batch_size = 1 (causal):
+- Forward: 12.90 ± 0.61 ms, Backward: 65.18 ± 0.21 ms, Backward / Forward: 5.05. Total: 78.08 ms. Output shape: torch.Size([32768, 16, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=1, tp_size=4
+============================================================
+🟢 Forward: 6.23 ms, Backward: 33.65 ms, Backward / Forward: 5.40
+🟢 Forward: 6.89 ms, Backward: 34.03 ms, Backward / Forward: 4.94
+🟢 Forward: 6.88 ms, Backward: 33.90 ms, Backward / Forward: 4.93
+🟢 Forward: 6.20 ms, Backward: 34.11 ms, Backward / Forward: 5.50
+🟢 Forward: 6.83 ms, Backward: 34.01 ms, Backward / Forward: 4.98
+🟢 Forward: 6.93 ms, Backward: 33.99 ms, Backward / Forward: 4.91
+🟢 Forward: 6.27 ms, Backward: 34.07 ms, Backward / Forward: 5.43
+🟢 Forward: 6.82 ms, Backward: 33.98 ms, Backward / Forward: 4.98
+🟢 Forward: 6.76 ms, Backward: 34.01 ms, Backward / Forward: 5.03
+🟢 Forward: 6.25 ms, Backward: 34.09 ms, Backward / Forward: 5.46
+Flash Attention Varlen - seq_len = 32768 x batch_size = 1 (causal):
+- Forward: 6.61 ± 0.30 ms, Backward: 33.98 ± 0.13 ms, Backward / Forward: 5.14. Total: 40.59 ms. Output shape: torch.Size([32768, 8, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=1, tp_size=8
+============================================================
+🟢 Forward: 3.43 ms, Backward: 12.21 ms, Backward / Forward: 3.56
+🟢 Forward: 4.11 ms, Backward: 12.43 ms, Backward / Forward: 3.03
+🟢 Forward: 4.09 ms, Backward: 12.33 ms, Backward / Forward: 3.01
+🟢 Forward: 3.51 ms, Backward: 13.17 ms, Backward / Forward: 3.75
+🟢 Forward: 4.11 ms, Backward: 12.61 ms, Backward / Forward: 3.07
+🟢 Forward: 4.14 ms, Backward: 12.59 ms, Backward / Forward: 3.04
+🟢 Forward: 3.57 ms, Backward: 13.18 ms, Backward / Forward: 3.70
+🟢 Forward: 4.07 ms, Backward: 12.37 ms, Backward / Forward: 3.04
+🟢 Forward: 4.07 ms, Backward: 12.49 ms, Backward / Forward: 3.07
+🟢 Forward: 3.65 ms, Backward: 12.90 ms, Backward / Forward: 3.53
+Flash Attention Varlen - seq_len = 32768 x batch_size = 1 (causal):
+- Forward: 3.87 ± 0.28 ms, Backward: 12.63 ± 0.33 ms, Backward / Forward: 3.26. Total: 16.50 ms. Output shape: torch.Size([32768, 4, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=2, tp_size=1
+============================================================
+🟢 Forward: 47.31 ms, Backward: 196.28 ms, Backward / Forward: 4.15
+🟢 Forward: 45.15 ms, Backward: 197.23 ms, Backward / Forward: 4.37
+🟢 Forward: 46.46 ms, Backward: 198.08 ms, Backward / Forward: 4.26
+🟢 Forward: 45.09 ms, Backward: 197.49 ms, Backward / Forward: 4.38
+🟢 Forward: 46.24 ms, Backward: 202.21 ms, Backward / Forward: 4.37
+🟢 Forward: 45.79 ms, Backward: 197.65 ms, Backward / Forward: 4.32
+🟢 Forward: 45.36 ms, Backward: 200.57 ms, Backward / Forward: 4.42
+🟢 Forward: 45.68 ms, Backward: 197.31 ms, Backward / Forward: 4.32
+🟢 Forward: 46.73 ms, Backward: 199.22 ms, Backward / Forward: 4.26
+🟢 Forward: 46.44 ms, Backward: 199.74 ms, Backward / Forward: 4.30
+Flash Attention Varlen - seq_len = 32768 x batch_size = 2 (causal):
+- Forward: 46.02 ± 0.69 ms, Backward: 198.58 ± 1.73 ms, Backward / Forward: 4.31. Total: 244.60 ms. Output shape: torch.Size([65536, 32, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=2, tp_size=2
+============================================================
+🟢 Forward: 23.45 ms, Backward: 120.20 ms, Backward / Forward: 5.13
+🟢 Forward: 23.99 ms, Backward: 117.20 ms, Backward / Forward: 4.89
+🟢 Forward: 24.15 ms, Backward: 116.70 ms, Backward / Forward: 4.83
+🟢 Forward: 23.23 ms, Backward: 118.36 ms, Backward / Forward: 5.09
+🟢 Forward: 24.06 ms, Backward: 117.41 ms, Backward / Forward: 4.88
+🟢 Forward: 24.03 ms, Backward: 117.48 ms, Backward / Forward: 4.89
+🟢 Forward: 23.19 ms, Backward: 117.36 ms, Backward / Forward: 5.06
+🟢 Forward: 24.15 ms, Backward: 117.48 ms, Backward / Forward: 4.86
+🟢 Forward: 24.26 ms, Backward: 116.71 ms, Backward / Forward: 4.81
+🟢 Forward: 23.21 ms, Backward: 117.38 ms, Backward / Forward: 5.06
+Flash Attention Varlen - seq_len = 32768 x batch_size = 2 (causal):
+- Forward: 23.77 ± 0.42 ms, Backward: 117.63 ± 0.96 ms, Backward / Forward: 4.95. Total: 141.40 ms. Output shape: torch.Size([65536, 16, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=2, tp_size=4
+============================================================
+🟢 Forward: 11.97 ms, Backward: 66.75 ms, Backward / Forward: 5.58
+🟢 Forward: 13.42 ms, Backward: 65.15 ms, Backward / Forward: 4.85
+🟢 Forward: 15.55 ms, Backward: 65.26 ms, Backward / Forward: 4.20
+🟢 Forward: 12.28 ms, Backward: 64.88 ms, Backward / Forward: 5.28
+🟢 Forward: 13.43 ms, Backward: 65.20 ms, Backward / Forward: 4.85
+🟢 Forward: 13.36 ms, Backward: 65.43 ms, Backward / Forward: 4.90
+🟢 Forward: 14.38 ms, Backward: 65.58 ms, Backward / Forward: 4.56
+🟢 Forward: 13.64 ms, Backward: 65.72 ms, Backward / Forward: 4.82
+🟢 Forward: 13.59 ms, Backward: 65.57 ms, Backward / Forward: 4.82
+🟢 Forward: 12.22 ms, Backward: 137.07 ms, Backward / Forward: 11.22
+Flash Attention Varlen - seq_len = 32768 x batch_size = 2 (causal):
+- Forward: 13.38 ± 1.02 ms, Backward: 72.66 ± 21.47 ms, Backward / Forward: 5.43. Total: 86.04 ms. Output shape: torch.Size([65536, 8, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=2, tp_size=8
+============================================================
+🟢 Forward: 6.25 ms, Backward: 33.39 ms, Backward / Forward: 5.34
+🟢 Forward: 6.84 ms, Backward: 33.80 ms, Backward / Forward: 4.94
+🟢 Forward: 6.87 ms, Backward: 33.78 ms, Backward / Forward: 4.92
+🟢 Forward: 6.31 ms, Backward: 33.75 ms, Backward / Forward: 5.35
+🟢 Forward: 6.84 ms, Backward: 33.69 ms, Backward / Forward: 4.93
+🟢 Forward: 6.82 ms, Backward: 33.80 ms, Backward / Forward: 4.95
+🟢 Forward: 6.27 ms, Backward: 33.73 ms, Backward / Forward: 5.38
+🟢 Forward: 6.77 ms, Backward: 33.80 ms, Backward / Forward: 4.99
+🟢 Forward: 6.71 ms, Backward: 33.72 ms, Backward / Forward: 5.02
+🟢 Forward: 6.18 ms, Backward: 33.77 ms, Backward / Forward: 5.46
+Flash Attention Varlen - seq_len = 32768 x batch_size = 2 (causal):
+- Forward: 6.59 ± 0.28 ms, Backward: 33.72 ± 0.12 ms, Backward / Forward: 5.12. Total: 40.31 ms. Output shape: torch.Size([65536, 4, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=4, tp_size=1
+============================================================
+🟢 Forward: 93.20 ms, Backward: 306.96 ms, Backward / Forward: 3.29
+🟢 Forward: 99.44 ms, Backward: 310.90 ms, Backward / Forward: 3.13
+🟢 Forward: 91.98 ms, Backward: 306.09 ms, Backward / Forward: 3.33
+🟢 Forward: 95.01 ms, Backward: 318.65 ms, Backward / Forward: 3.35
+🟢 Forward: 94.37 ms, Backward: 307.77 ms, Backward / Forward: 3.26
+🟢 Forward: 92.37 ms, Backward: 313.86 ms, Backward / Forward: 3.40
+🟢 Forward: 95.96 ms, Backward: 310.18 ms, Backward / Forward: 3.23
+🟢 Forward: 93.17 ms, Backward: 309.55 ms, Backward / Forward: 3.32
+🟢 Forward: 95.17 ms, Backward: 316.15 ms, Backward / Forward: 3.32
+🟢 Forward: 94.05 ms, Backward: 308.47 ms, Backward / Forward: 3.28
+Flash Attention Varlen - seq_len = 32768 x batch_size = 4 (causal):
+- Forward: 94.47 ± 2.04 ms, Backward: 310.86 ± 3.91 ms, Backward / Forward: 3.29. Total: 405.33 ms. Output shape: torch.Size([131072, 32, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=4, tp_size=2
+============================================================
+🟢 Forward: 46.82 ms, Backward: 201.33 ms, Backward / Forward: 4.30
+🟢 Forward: 45.76 ms, Backward: 197.48 ms, Backward / Forward: 4.32
+🟢 Forward: 46.43 ms, Backward: 198.25 ms, Backward / Forward: 4.27
+🟢 Forward: 52.13 ms, Backward: 198.16 ms, Backward / Forward: 3.80
+🟢 Forward: 46.09 ms, Backward: 198.63 ms, Backward / Forward: 4.31
+🟢 Forward: 45.59 ms, Backward: 197.98 ms, Backward / Forward: 4.34
+🟢 Forward: 44.49 ms, Backward: 196.84 ms, Backward / Forward: 4.42
+🟢 Forward: 45.89 ms, Backward: 199.38 ms, Backward / Forward: 4.35
+🟢 Forward: 46.32 ms, Backward: 197.63 ms, Backward / Forward: 4.27
+🟢 Forward: 44.70 ms, Backward: 197.20 ms, Backward / Forward: 4.41
+Flash Attention Varlen - seq_len = 32768 x batch_size = 4 (causal):
+- Forward: 46.42 ± 2.03 ms, Backward: 198.29 ± 1.23 ms, Backward / Forward: 4.27. Total: 244.71 ms. Output shape: torch.Size([131072, 16, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=4, tp_size=4
+============================================================
+🟢 Forward: 25.01 ms, Backward: 116.47 ms, Backward / Forward: 4.66
+🟢 Forward: 23.98 ms, Backward: 118.02 ms, Backward / Forward: 4.92
+🟢 Forward: 24.22 ms, Backward: 117.68 ms, Backward / Forward: 4.86
+🟢 Forward: 25.45 ms, Backward: 117.14 ms, Backward / Forward: 4.60
+🟢 Forward: 24.17 ms, Backward: 117.25 ms, Backward / Forward: 4.85
+🟢 Forward: 26.31 ms, Backward: 117.76 ms, Backward / Forward: 4.48
+🟢 Forward: 23.27 ms, Backward: 120.05 ms, Backward / Forward: 5.16
+🟢 Forward: 24.04 ms, Backward: 117.66 ms, Backward / Forward: 4.89
+🟢 Forward: 24.27 ms, Backward: 116.62 ms, Backward / Forward: 4.81
+🟢 Forward: 23.27 ms, Backward: 116.58 ms, Backward / Forward: 5.01
+Flash Attention Varlen - seq_len = 32768 x batch_size = 4 (causal):
+- Forward: 24.40 ± 0.90 ms, Backward: 117.52 ± 0.99 ms, Backward / Forward: 4.82. Total: 141.92 ms. Output shape: torch.Size([131072, 8, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=4, tp_size=8
+============================================================
+🟢 Forward: 12.24 ms, Backward: 66.08 ms, Backward / Forward: 5.40
+🟢 Forward: 16.45 ms, Backward: 67.07 ms, Backward / Forward: 4.08
+🟢 Forward: 15.59 ms, Backward: 64.96 ms, Backward / Forward: 4.17
+🟢 Forward: 13.17 ms, Backward: 64.90 ms, Backward / Forward: 4.93
+🟢 Forward: 13.16 ms, Backward: 67.40 ms, Backward / Forward: 5.12
+🟢 Forward: 13.37 ms, Backward: 64.92 ms, Backward / Forward: 4.85
+🟢 Forward: 12.07 ms, Backward: 64.92 ms, Backward / Forward: 5.38
+🟢 Forward: 13.54 ms, Backward: 69.47 ms, Backward / Forward: 5.13
+🟢 Forward: 13.46 ms, Backward: 64.99 ms, Backward / Forward: 4.83
+🟢 Forward: 12.08 ms, Backward: 64.92 ms, Backward / Forward: 5.37
+Flash Attention Varlen - seq_len = 32768 x batch_size = 4 (causal):
+- Forward: 13.51 ± 1.38 ms, Backward: 65.96 ± 1.48 ms, Backward / Forward: 4.88. Total: 79.48 ms. Output shape: torch.Size([131072, 4, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=8, tp_size=1
+============================================================
+🟢 Forward: 189.73 ms, Backward: 629.88 ms, Backward / Forward: 3.32
+🟢 Forward: 192.19 ms, Backward: 638.81 ms, Backward / Forward: 3.32
+🟢 Forward: 187.95 ms, Backward: 642.46 ms, Backward / Forward: 3.42
+🟢 Forward: 187.28 ms, Backward: 641.88 ms, Backward / Forward: 3.43
+🟢 Forward: 187.08 ms, Backward: 641.43 ms, Backward / Forward: 3.43
+🟢 Forward: 188.59 ms, Backward: 640.25 ms, Backward / Forward: 3.39
+🟢 Forward: 198.14 ms, Backward: 637.26 ms, Backward / Forward: 3.22
+🟢 Forward: 189.36 ms, Backward: 637.29 ms, Backward / Forward: 3.37
+🟢 Forward: 189.02 ms, Backward: 639.49 ms, Backward / Forward: 3.38
+🟢 Forward: 189.02 ms, Backward: 641.32 ms, Backward / Forward: 3.39
+Flash Attention Varlen - seq_len = 32768 x batch_size = 8 (causal):
+- Forward: 189.84 ± 3.09 ms, Backward: 639.01 ± 3.50 ms, Backward / Forward: 3.37. Total: 828.84 ms. Output shape: torch.Size([262144, 32, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=8, tp_size=2
+============================================================
+🟢 Forward: 97.34 ms, Backward: 306.23 ms, Backward / Forward: 3.15
+🟢 Forward: 94.42 ms, Backward: 312.00 ms, Backward / Forward: 3.30
+🟢 Forward: 95.98 ms, Backward: 312.76 ms, Backward / Forward: 3.26
+🟢 Forward: 92.73 ms, Backward: 311.37 ms, Backward / Forward: 3.36
+🟢 Forward: 94.96 ms, Backward: 314.69 ms, Backward / Forward: 3.31
+🟢 Forward: 94.33 ms, Backward: 311.25 ms, Backward / Forward: 3.30
+🟢 Forward: 93.20 ms, Backward: 313.74 ms, Backward / Forward: 3.37
+🟢 Forward: 90.94 ms, Backward: 328.45 ms, Backward / Forward: 3.61
+🟢 Forward: 94.49 ms, Backward: 312.21 ms, Backward / Forward: 3.30
+🟢 Forward: 93.91 ms, Backward: 314.91 ms, Backward / Forward: 3.35
+Flash Attention Varlen - seq_len = 32768 x batch_size = 8 (causal):
+- Forward: 94.23 ± 1.66 ms, Backward: 313.76 ± 5.41 ms, Backward / Forward: 3.33. Total: 407.99 ms. Output shape: torch.Size([262144, 16, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=8, tp_size=4
+============================================================
+🟢 Forward: 46.30 ms, Backward: 199.18 ms, Backward / Forward: 4.30
+🟢 Forward: 45.28 ms, Backward: 199.12 ms, Backward / Forward: 4.40
+🟢 Forward: 45.32 ms, Backward: 197.70 ms, Backward / Forward: 4.36
+🟢 Forward: 44.72 ms, Backward: 205.05 ms, Backward / Forward: 4.59
+🟢 Forward: 46.28 ms, Backward: 197.35 ms, Backward / Forward: 4.26
+🟢 Forward: 46.42 ms, Backward: 198.88 ms, Backward / Forward: 4.28
+🟢 Forward: 44.71 ms, Backward: 198.92 ms, Backward / Forward: 4.45
+🟢 Forward: 47.51 ms, Backward: 198.28 ms, Backward / Forward: 4.17
+🟢 Forward: 46.33 ms, Backward: 199.67 ms, Backward / Forward: 4.31
+🟢 Forward: 44.32 ms, Backward: 197.73 ms, Backward / Forward: 4.46
+Flash Attention Varlen - seq_len = 32768 x batch_size = 8 (causal):
+- Forward: 45.72 ± 0.95 ms, Backward: 199.19 ± 2.08 ms, Backward / Forward: 4.36. Total: 244.91 ms. Output shape: torch.Size([262144, 8, 128])
+
+============================================================
+Testing: seq_len=32K, batch_size=8, tp_size=8
+============================================================
+🟢 Forward: 24.58 ms, Backward: 118.05 ms, Backward / Forward: 4.80
+🟢 Forward: 26.00 ms, Backward: 117.91 ms, Backward / Forward: 4.53
+🟢 Forward: 25.99 ms, Backward: 117.63 ms, Backward / Forward: 4.53
+🟢 Forward: 23.36 ms, Backward: 117.86 ms, Backward / Forward: 5.05
+🟢 Forward: 25.74 ms, Backward: 116.66 ms, Backward / Forward: 4.53
+🟢 Forward: 24.30 ms, Backward: 119.34 ms, Backward / Forward: 4.91
+🟢 Forward: 23.11 ms, Backward: 117.78 ms, Backward / Forward: 5.10
+🟢 Forward: 24.26 ms, Backward: 117.04 ms, Backward / Forward: 4.83
+🟢 Forward: 24.21 ms, Backward: 117.21 ms, Backward / Forward: 4.84
+🟢 Forward: 24.34 ms, Backward: 116.86 ms, Backward / Forward: 4.80
+Flash Attention Varlen - seq_len = 32768 x batch_size = 8 (causal):
+- Forward: 24.59 ± 0.97 ms, Backward: 117.64 ± 0.73 ms, Backward / Forward: 4.78. Total: 142.22 ms. Output shape: torch.Size([262144, 4, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=1, tp_size=1
+============================================================
+🟢 Forward: 93.53 ms, Backward: 472.70 ms, Backward / Forward: 5.05
+🟢 Forward: 94.91 ms, Backward: 463.87 ms, Backward / Forward: 4.89
+🟢 Forward: 92.03 ms, Backward: 465.11 ms, Backward / Forward: 5.05
+🟢 Forward: 91.23 ms, Backward: 464.53 ms, Backward / Forward: 5.09
+🟢 Forward: 92.04 ms, Backward: 466.43 ms, Backward / Forward: 5.07
+🟢 Forward: 92.25 ms, Backward: 465.49 ms, Backward / Forward: 5.05
+🟢 Forward: 93.06 ms, Backward: 465.13 ms, Backward / Forward: 5.00
+🟢 Forward: 92.47 ms, Backward: 465.48 ms, Backward / Forward: 5.03
+🟢 Forward: 89.17 ms, Backward: 465.05 ms, Backward / Forward: 5.22
+🟢 Forward: 91.75 ms, Backward: 464.80 ms, Backward / Forward: 5.07
+Flash Attention Varlen - seq_len = 65536 x batch_size = 1 (causal):
+- Forward: 92.24 ± 1.42 ms, Backward: 465.86 ± 2.37 ms, Backward / Forward: 5.05. Total: 558.10 ms. Output shape: torch.Size([65536, 32, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=1, tp_size=2
+============================================================
+🟢 Forward: 46.04 ms, Backward: 255.88 ms, Backward / Forward: 5.56
+🟢 Forward: 45.98 ms, Backward: 257.81 ms, Backward / Forward: 5.61
+🟢 Forward: 46.69 ms, Backward: 257.10 ms, Backward / Forward: 5.51
+🟢 Forward: 44.77 ms, Backward: 257.77 ms, Backward / Forward: 5.76
+🟢 Forward: 46.51 ms, Backward: 259.96 ms, Backward / Forward: 5.59
+🟢 Forward: 46.17 ms, Backward: 255.96 ms, Backward / Forward: 5.54
+🟢 Forward: 47.27 ms, Backward: 256.80 ms, Backward / Forward: 5.43
+🟢 Forward: 45.50 ms, Backward: 257.98 ms, Backward / Forward: 5.67
+🟢 Forward: 46.18 ms, Backward: 259.55 ms, Backward / Forward: 5.62
+🟢 Forward: 49.66 ms, Backward: 257.98 ms, Backward / Forward: 5.19
+Flash Attention Varlen - seq_len = 65536 x batch_size = 1 (causal):
+- Forward: 46.48 ± 1.24 ms, Backward: 257.68 ± 1.27 ms, Backward / Forward: 5.54. Total: 304.16 ms. Output shape: torch.Size([65536, 16, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=1, tp_size=4
+============================================================
+🟢 Forward: 24.19 ms, Backward: 134.76 ms, Backward / Forward: 5.57
+🟢 Forward: 24.12 ms, Backward: 136.66 ms, Backward / Forward: 5.67
+🟢 Forward: 24.36 ms, Backward: 135.58 ms, Backward / Forward: 5.57
+🟢 Forward: 23.27 ms, Backward: 135.91 ms, Backward / Forward: 5.84
+🟢 Forward: 24.30 ms, Backward: 135.48 ms, Backward / Forward: 5.58
+🟢 Forward: 24.20 ms, Backward: 135.07 ms, Backward / Forward: 5.58
+🟢 Forward: 23.36 ms, Backward: 215.20 ms, Backward / Forward: 9.21
+🟢 Forward: 24.39 ms, Backward: 139.34 ms, Backward / Forward: 5.71
+🟢 Forward: 24.41 ms, Backward: 135.69 ms, Backward / Forward: 5.56
+🟢 Forward: 23.20 ms, Backward: 137.02 ms, Backward / Forward: 5.90
+Flash Attention Varlen - seq_len = 65536 x batch_size = 1 (causal):
+- Forward: 23.98 ± 0.47 ms, Backward: 144.07 ± 23.74 ms, Backward / Forward: 6.01. Total: 168.05 ms. Output shape: torch.Size([65536, 8, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=1, tp_size=8
+============================================================
+🟢 Forward: 12.18 ms, Backward: 41.35 ms, Backward / Forward: 3.39
+🟢 Forward: 12.74 ms, Backward: 44.63 ms, Backward / Forward: 3.50
+🟢 Forward: 12.61 ms, Backward: 43.93 ms, Backward / Forward: 3.48
+🟢 Forward: 12.18 ms, Backward: 42.98 ms, Backward / Forward: 3.53
+🟢 Forward: 12.86 ms, Backward: 48.74 ms, Backward / Forward: 3.79
+🟢 Forward: 12.72 ms, Backward: 44.78 ms, Backward / Forward: 3.52
+🟢 Forward: 12.13 ms, Backward: 44.38 ms, Backward / Forward: 3.66
+🟢 Forward: 12.77 ms, Backward: 44.83 ms, Backward / Forward: 3.51
+🟢 Forward: 12.81 ms, Backward: 44.71 ms, Backward / Forward: 3.49
+🟢 Forward: 12.21 ms, Backward: 44.16 ms, Backward / Forward: 3.62
+Flash Attention Varlen - seq_len = 65536 x batch_size = 1 (causal):
+- Forward: 12.52 ± 0.29 ms, Backward: 44.45 ± 1.76 ms, Backward / Forward: 3.55. Total: 56.97 ms. Output shape: torch.Size([65536, 4, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=2, tp_size=1
+============================================================
+🟢 Forward: 190.15 ms, Backward: 784.63 ms, Backward / Forward: 4.13
+🟢 Forward: 182.17 ms, Backward: 781.71 ms, Backward / Forward: 4.29
+🟢 Forward: 183.44 ms, Backward: 781.86 ms, Backward / Forward: 4.26
+🟢 Forward: 185.48 ms, Backward: 782.20 ms, Backward / Forward: 4.22
+🟢 Forward: 183.95 ms, Backward: 782.74 ms, Backward / Forward: 4.26
+🟢 Forward: 184.12 ms, Backward: 783.97 ms, Backward / Forward: 4.26
+🟢 Forward: 184.45 ms, Backward: 783.82 ms, Backward / Forward: 4.25
+🟢 Forward: 185.42 ms, Backward: 781.70 ms, Backward / Forward: 4.22
+🟢 Forward: 185.02 ms, Backward: 782.26 ms, Backward / Forward: 4.23
+🟢 Forward: 184.87 ms, Backward: 783.84 ms, Backward / Forward: 4.24
+Flash Attention Varlen - seq_len = 65536 x batch_size = 2 (causal):
+- Forward: 184.91 ± 1.99 ms, Backward: 782.87 ± 1.03 ms, Backward / Forward: 4.23. Total: 967.78 ms. Output shape: torch.Size([131072, 32, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=2, tp_size=2
+============================================================
+🟢 Forward: 93.68 ms, Backward: 464.15 ms, Backward / Forward: 4.95
+🟢 Forward: 89.17 ms, Backward: 466.01 ms, Backward / Forward: 5.23
+🟢 Forward: 92.10 ms, Backward: 467.04 ms, Backward / Forward: 5.07
+🟢 Forward: 90.46 ms, Backward: 464.50 ms, Backward / Forward: 5.13
+🟢 Forward: 92.54 ms, Backward: 462.95 ms, Backward / Forward: 5.00
+🟢 Forward: 91.71 ms, Backward: 463.04 ms, Backward / Forward: 5.05
+🟢 Forward: 91.50 ms, Backward: 464.62 ms, Backward / Forward: 5.08
+🟢 Forward: 91.52 ms, Backward: 463.89 ms, Backward / Forward: 5.07
+🟢 Forward: 91.83 ms, Backward: 473.67 ms, Backward / Forward: 5.16
+🟢 Forward: 90.72 ms, Backward: 465.86 ms, Backward / Forward: 5.13
+Flash Attention Varlen - seq_len = 65536 x batch_size = 2 (causal):
+- Forward: 91.52 ± 1.16 ms, Backward: 465.57 ± 2.97 ms, Backward / Forward: 5.09. Total: 557.10 ms. Output shape: torch.Size([131072, 16, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=2, tp_size=4
+============================================================
+🟢 Forward: 47.63 ms, Backward: 259.47 ms, Backward / Forward: 5.45
+🟢 Forward: 48.85 ms, Backward: 274.61 ms, Backward / Forward: 5.62
+🟢 Forward: 46.73 ms, Backward: 258.63 ms, Backward / Forward: 5.53
+🟢 Forward: 45.15 ms, Backward: 258.49 ms, Backward / Forward: 5.73
+🟢 Forward: 45.91 ms, Backward: 256.72 ms, Backward / Forward: 5.59
+🟢 Forward: 46.35 ms, Backward: 258.26 ms, Backward / Forward: 5.57
+🟢 Forward: 45.19 ms, Backward: 258.48 ms, Backward / Forward: 5.72
+🟢 Forward: 46.43 ms, Backward: 259.96 ms, Backward / Forward: 5.60
+🟢 Forward: 46.28 ms, Backward: 304.12 ms, Backward / Forward: 6.57
+🟢 Forward: 45.25 ms, Backward: 260.56 ms, Backward / Forward: 5.76
+Flash Attention Varlen - seq_len = 65536 x batch_size = 2 (causal):
+- Forward: 46.38 ± 1.11 ms, Backward: 264.93 ± 13.92 ms, Backward / Forward: 5.71. Total: 311.31 ms. Output shape: torch.Size([131072, 8, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=2, tp_size=8
+============================================================
+🟢 Forward: 24.50 ms, Backward: 135.83 ms, Backward / Forward: 5.54
+🟢 Forward: 24.56 ms, Backward: 136.33 ms, Backward / Forward: 5.55
+🟢 Forward: 24.50 ms, Backward: 135.96 ms, Backward / Forward: 5.55
+🟢 Forward: 23.41 ms, Backward: 135.86 ms, Backward / Forward: 5.80
+🟢 Forward: 24.53 ms, Backward: 136.40 ms, Backward / Forward: 5.56
+🟢 Forward: 24.56 ms, Backward: 136.02 ms, Backward / Forward: 5.54
+🟢 Forward: 23.43 ms, Backward: 135.48 ms, Backward / Forward: 5.78
+🟢 Forward: 24.49 ms, Backward: 136.63 ms, Backward / Forward: 5.58
+🟢 Forward: 24.55 ms, Backward: 135.81 ms, Backward / Forward: 5.53
+🟢 Forward: 24.35 ms, Backward: 135.51 ms, Backward / Forward: 5.56
+Flash Attention Varlen - seq_len = 65536 x batch_size = 2 (causal):
+- Forward: 24.29 ± 0.44 ms, Backward: 135.98 ± 0.35 ms, Backward / Forward: 5.60. Total: 160.27 ms. Output shape: torch.Size([131072, 4, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=4, tp_size=1
+============================================================
+🟢 Forward: 382.10 ms, Backward: 1220.53 ms, Backward / Forward: 3.19
+🟢 Forward: 374.94 ms, Backward: 1232.86 ms, Backward / Forward: 3.29
+🟢 Forward: 372.62 ms, Backward: 1227.85 ms, Backward / Forward: 3.30
+🟢 Forward: 366.28 ms, Backward: 1228.86 ms, Backward / Forward: 3.35
+🟢 Forward: 381.79 ms, Backward: 1233.42 ms, Backward / Forward: 3.23
+🟢 Forward: 371.04 ms, Backward: 1231.02 ms, Backward / Forward: 3.32
+🟢 Forward: 379.89 ms, Backward: 1228.19 ms, Backward / Forward: 3.23
+🟢 Forward: 376.78 ms, Backward: 1235.57 ms, Backward / Forward: 3.28
+🟢 Forward: 374.24 ms, Backward: 1231.15 ms, Backward / Forward: 3.29
+🟢 Forward: 376.46 ms, Backward: 1229.74 ms, Backward / Forward: 3.27
+Flash Attention Varlen - seq_len = 65536 x batch_size = 4 (causal):
+- Forward: 375.61 ± 4.69 ms, Backward: 1229.92 ± 3.90 ms, Backward / Forward: 3.27. Total: 1605.53 ms. Output shape: torch.Size([262144, 32, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=4, tp_size=2
+============================================================
+🟢 Forward: 186.41 ms, Backward: 787.03 ms, Backward / Forward: 4.22
+🟢 Forward: 183.85 ms, Backward: 781.47 ms, Backward / Forward: 4.25
+🟢 Forward: 186.09 ms, Backward: 779.60 ms, Backward / Forward: 4.19
+🟢 Forward: 185.20 ms, Backward: 777.38 ms, Backward / Forward: 4.20
+🟢 Forward: 194.41 ms, Backward: 779.19 ms, Backward / Forward: 4.01
+🟢 Forward: 185.51 ms, Backward: 778.41 ms, Backward / Forward: 4.20
+🟢 Forward: 183.16 ms, Backward: 780.52 ms, Backward / Forward: 4.26
+🟢 Forward: 183.47 ms, Backward: 780.75 ms, Backward / Forward: 4.26
+🟢 Forward: 186.19 ms, Backward: 781.57 ms, Backward / Forward: 4.20
+🟢 Forward: 184.05 ms, Backward: 780.13 ms, Backward / Forward: 4.24
+Flash Attention Varlen - seq_len = 65536 x batch_size = 4 (causal):
+- Forward: 185.84 ± 3.07 ms, Backward: 780.60 ± 2.48 ms, Backward / Forward: 4.20. Total: 966.44 ms. Output shape: torch.Size([262144, 16, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=4, tp_size=4
+============================================================
+🟢 Forward: 93.32 ms, Backward: 463.59 ms, Backward / Forward: 4.97
+🟢 Forward: 93.20 ms, Backward: 464.67 ms, Backward / Forward: 4.99
+🟢 Forward: 93.49 ms, Backward: 466.95 ms, Backward / Forward: 4.99
+🟢 Forward: 90.96 ms, Backward: 467.34 ms, Backward / Forward: 5.14
+🟢 Forward: 92.28 ms, Backward: 464.59 ms, Backward / Forward: 5.03
+🟢 Forward: 93.22 ms, Backward: 467.54 ms, Backward / Forward: 5.02
+🟢 Forward: 90.70 ms, Backward: 464.74 ms, Backward / Forward: 5.12
+🟢 Forward: 92.09 ms, Backward: 466.39 ms, Backward / Forward: 5.06
+🟢 Forward: 94.69 ms, Backward: 463.64 ms, Backward / Forward: 4.90
+🟢 Forward: 91.30 ms, Backward: 465.86 ms, Backward / Forward: 5.10
+Flash Attention Varlen - seq_len = 65536 x batch_size = 4 (causal):
+- Forward: 92.53 ± 1.21 ms, Backward: 465.53 ± 1.41 ms, Backward / Forward: 5.03. Total: 558.06 ms. Output shape: torch.Size([262144, 8, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=4, tp_size=8
+============================================================
+🟢 Forward: 46.71 ms, Backward: 259.19 ms, Backward / Forward: 5.55
+🟢 Forward: 48.10 ms, Backward: 257.96 ms, Backward / Forward: 5.36
+🟢 Forward: 46.59 ms, Backward: 260.16 ms, Backward / Forward: 5.58
+🟢 Forward: 44.37 ms, Backward: 257.53 ms, Backward / Forward: 5.80
+🟢 Forward: 46.81 ms, Backward: 258.30 ms, Backward / Forward: 5.52
+🟢 Forward: 46.90 ms, Backward: 258.41 ms, Backward / Forward: 5.51
+🟢 Forward: 46.66 ms, Backward: 258.39 ms, Backward / Forward: 5.54
+🟢 Forward: 46.57 ms, Backward: 260.91 ms, Backward / Forward: 5.60
+🟢 Forward: 46.29 ms, Backward: 256.97 ms, Backward / Forward: 5.55
+🟢 Forward: 44.68 ms, Backward: 258.64 ms, Backward / Forward: 5.79
+Flash Attention Varlen - seq_len = 65536 x batch_size = 4 (causal):
+- Forward: 46.37 ± 1.03 ms, Backward: 258.65 ± 1.12 ms, Backward / Forward: 5.58. Total: 305.01 ms. Output shape: torch.Size([262144, 4, 128])
+
+============================================================
+Testing: seq_len=64K, batch_size=8, tp_size=1
+============================================================
+Error: CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+============================================================
+Testing: seq_len=64K, batch_size=8, tp_size=2
+============================================================
+Error: CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+============================================================
+Testing: seq_len=64K, batch_size=8, tp_size=4
+============================================================
+Error: CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+============================================================
+Testing: seq_len=64K, batch_size=8, tp_size=8
+============================================================
+Error: CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+

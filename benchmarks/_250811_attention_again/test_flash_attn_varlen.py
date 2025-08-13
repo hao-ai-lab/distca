@@ -51,6 +51,7 @@ def test_flash_attn_varlen(batch_size=2, tp_size=8, seq_len=32768):
                 max_seqlen_k=seq_len,
                 dropout_p=0.0,
                 causal=True,
+                deterministic=True,
             )
     
     torch.cuda.synchronize()
@@ -71,7 +72,8 @@ def test_flash_attn_varlen(batch_size=2, tp_size=8, seq_len=32768):
             max_seqlen_q=seq_len,
             max_seqlen_k=seq_len,
             dropout_p=0.0,
-            causal=True
+            causal=True,
+            deterministic=True,
         )
         
         torch.cuda.synchronize()
