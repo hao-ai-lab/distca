@@ -3,6 +3,7 @@ Instantiating Megatron with ray so that we can easily create a single worker to 
 """
 import argparse
 import os
+from webbrowser import get
 
 from d2.runtime import inplace_metadata
 from megatron.core import mpu
@@ -168,10 +169,8 @@ class MegatronE2eWorker(MegatronBaseWorker):
             loss = ((output - 1)**2).mean()
             return loss, {'loss': loss}
 
-        # dummy_microbatch = microbatches[0]  # FIXME: this is important for all-to-all
-
         def wrap_iter(batch_iter):
-            yield from batch_iter  # should work for now
+            yield from batch_iter  # This is now processed when generating data
             # if False:  #mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage():
             #     # hardcode here: pipeline parallel add this number of dummy forwards
             #     for _ in range(mpu.get_data_parallel_rank()):
@@ -233,12 +232,6 @@ class MegatronE2eWorker(MegatronBaseWorker):
                 forward_only=forward_only,
             )
         print(f'{losses_reduced=}')
-        # if self.rank == 0:
-            # for params in unwrap_model(self.train_module[0]).parameters():
-            #     if params.grad is not None:
-            #         print(f'{params.name} grad: {params.grad.shape}, {params.grad.device}')
-        # print(f'{unwrap_model(self.train_module[0]).decoder.layers[0].self_attention.linear_proj.weight.main_grad=}')
-        # torch.save(unwrap_model(self.train_module[0]).decoder.layers[0].self_attention.linear_proj.weight.main_grad, f'ref_grad_{self.rank}.pt')
         ans = unwrap_model(self.train_module[0]).decoder.layers[0].self_attention.linear_proj.weight.main_grad
         
         for param in unwrap_model(self.train_module[0]).parameters():
@@ -270,16 +263,49 @@ class MegatronE2eWorker(MegatronBaseWorker):
                 forward_only=forward_only,
             )
         print(f'{losses_reduced=}')
-        # if self.rank == 0:
-            # for params in unwrap_model(self.train_module[0]).parameters():
-            #     if params.grad is not None:
-            #         print(f'{params.name} grad: {params.grad.shape}, {params.grad.device}')
-        # print(f'{unwrap_model(self.train_module[0]).decoder.layers[0].self_attention.linear_proj.weight.main_grad=}')
-        # torch.save(unwrap_model(self.train_module[0]).decoder.layers[0].self_attention.linear_proj.weight.main_grad, f'ref_grad_{self.rank}.pt')
         ref = unwrap_model(self.train_module[0]).decoder.layers[0].self_attention.linear_proj.weight.main_grad
 
-        print(f'{ans=}, {ref=}')
+        if self.as_rank == 0:
+            print(f'{ans=}, {ref=}')
         torch.testing.assert_close(ans, ref, rtol=0, atol=0)
+        
+        for param in unwrap_model(self.train_module[0]).parameters():
+            param.main_grad.zero_()
+
+
+        PingPangSingleStepPackedSeqParams.no_switch = True
+        dummy_bwd_packed_seq_params_iter = iter(dummy_bwd_packed_seq_params)
+        # remove dummy microbatches
+        batch_generator = make_batch_generator(microbatches[self.as_rank:], vpp_size=len(self.train_module))
+        batch_generator = wrap_iter(batch_generator)
+        if mpu.get_pipeline_model_parallel_world_size() > 1:
+            losses_reduced = get_forward_backward_func()(
+                forward_step_func=forward_step,
+                data_iterator=batch_generator,
+                model=self.train_module,
+                num_microbatches=n_micro_batch,
+                seq_length=total_seqlen,  # no use, since variable_seq_lengths=True
+                micro_batch_size=1,  # no use when input_shapes was set
+                forward_only=forward_only,
+            )
+        else:
+            losses_reduced = get_forward_backward_func()(
+                forward_step_func=forward_step,
+                data_iterator=batch_generator,
+                model=self.train_module,
+                num_microbatches=n_micro_batch,
+                seq_length=total_seqlen,  # in use for pp = 1
+                micro_batch_size=1,  # in use for pp = 1
+                forward_only=forward_only,
+            )
+        print(f'{losses_reduced=}')
+        megatron_ref = unwrap_model(self.train_module[0]).decoder.layers[0].self_attention.linear_proj.weight.main_grad
+
+        if self.as_rank == 0:
+            print(f'{ans=}, {megatron_ref=}')
+        torch.testing.assert_close(ans, megatron_ref, rtol=0, atol=0)
+
+
         return losses_reduced
 
     def _build_model_optimizer(self,
