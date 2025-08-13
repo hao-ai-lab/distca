@@ -258,7 +258,7 @@ def forward_backward_pipelining_without_interleaving(
                 collect_non_loss_data,
                 checkpoint_activations_microbatch,
                 check_first_val_step(first_val_step, forward_only, i == 0),
-                current_microbatch=i,
+                current_microbatch=i - rank,
                 encoder_decoder_xattn=encoder_decoder_xattn,
             )
             if not forward_only:
@@ -332,7 +332,7 @@ def forward_backward_pipelining_without_interleaving(
                 check_first_val_step(
                     first_val_step, forward_only, (i == 0) and (num_warmup_microbatches == 0)
                 ),
-                current_microbatch=i + num_microbatches,
+                current_microbatch=i + num_warmup_microbatches,
                 encoder_decoder_xattn=encoder_decoder_xattn,
             )
             total_num_tokens += num_tokens
@@ -348,7 +348,7 @@ def forward_backward_pipelining_without_interleaving(
                 # Add input_tensor and output_tensor to end of list.
                 input_tensors.append(input_tensor)
                 output_tensors.append(output_tensor)
-                deallocate_output_tensor(output_tensor[0], config.deallocate_pipeline_outputs)
+                save_output_tensor = output_tensor
 
         if forward_only:
             pass
@@ -376,14 +376,15 @@ def forward_backward_pipelining_without_interleaving(
             if parallel_state.is_pipeline_first_stage() or backward_dummy:
                 input_tensor_grad = [None]
             if parallel_state.is_pipeline_last_stage() or forward_dummy:
-                output_tensor = [None]
+                save_output_tensor = [None]
             torch.cuda.nvtx.range_push(f'send forward backward {rank=}, {i=}')
             input_tensor, output_tensor_grad = send_forward_backward_recv_forward_backward(
-                output_tensor, input_tensor_grad,
+                save_output_tensor, input_tensor_grad,
                 not parallel_state.is_pipeline_first_stage() and not next_forward_dummy,
                 not parallel_state.is_pipeline_last_stage() and not next_backward_dummy,
                 send_tensor_shapes, config
             )
+            deallocate_output_tensor(save_output_tensor[0], config.deallocate_pipeline_outputs)
             torch.cuda.nvtx.range_pop()
 
     # Run cooldown backward passes.
