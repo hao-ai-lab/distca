@@ -5,142 +5,28 @@ import argparse
 import os
 
 from megatron.core import mpu
-from megatron.core.optimizer import get_megatron_optimizer
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
-from omegaconf import OmegaConf
 import torch
-from transformers import AutoConfig, AutoTokenizer, AutoProcessor
+from transformers import AutoConfig
 
 from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
 from d2.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
 
-from test_util import MegatronBaseWorker, ParallelConfig, init_worker_torch_distributed, create_qkv_dispath_with_backward
+from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispath_with_backward
+from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
 from megatron_test_utils import (
-    get_megatron_optimizer_param_scheduler, get_model, get_torch_device, gptmodel_forward,
-    hf_to_mcore_config, init_mcore_model, init_megatron_optim_config,
-    make_batch_generator, print_model_size, update_model_config, unwrap_model,
+    gptmodel_forward, make_batch_generator, unwrap_model,
 )
 
 
-def set_random_seed(seed, set_megatron: bool=True):
-    """Set worker side random seed."""
-    import random
-
-    import numpy as np
-    import torch
-
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    if get_torch_device().device_count() > 0 and set_megatron:
-        from megatron.core import tensor_parallel
-
-        tensor_parallel.model_parallel_cuda_manual_seed(seed)
-
-
-class MegatronE2eWorker(MegatronBaseWorker):
+class MegatronE2eWorker(BaseMegatronE2eWorker):
     def __init__(self, rank: int, world_size: int):
         super().__init__(rank, world_size)
         local_rank = int(os.getenv("LOCAL_RANK"))
         torch.cuda.set_device(local_rank)
         torch.set_default_device(torch.device("cuda", local_rank))
-        self.dtype = torch.bfloat16
-        self.enable_gradient_checkpointing = False
-        self.gradient_checkpointing_kwargs = {}
-
-    def init_comm(self, stride_q: int, stride_kv: int, max_tokens_query: int, max_tokens_key_value: int,
-                  parallel_config: ParallelConfig):
-        super().init_comm(
-            stride_q, stride_kv, max_tokens_query,
-            max_tokens_key_value, parallel_config
-        )
-
-    def init_comm(self, *args, **kwargs):
-        super().init_comm(*args, **kwargs)
-
-    def set_config(self, dtype=torch.bfloat16, enable_gradient_checkpointing=False, gradient_checkpointing_kwargs={}):
-        self.dtype = dtype
-        self.enable_gradient_checkpointing = enable_gradient_checkpointing
-        self.gradient_checkpointing_kwargs = gradient_checkpointing_kwargs
-
-    def init(self, model_path, seed=42):
-        set_random_seed(seed)
-        self.model_path = model_path
-        override_model_config = OmegaConf.create()
-        override_transformer_config = OmegaConf.create()
-        # A default optim config
-        optim_config = OmegaConf.create({
-            "clip_grad": 1.0,
-            "lr": 1e-5,
-            "lr_warmup_init": 1e-5,
-            "lr_decay_steps": 1000000,
-            "lr_decay_style": 'constant',
-            "lr_warmup_steps": 1000,
-            "lr_warmup_steps_ratio": 0.0,
-            "min_lr": 1e-6,
-            "min_lr_ratio": None,
-            "total_training_steps": -1,
-            "warmup_style": "constant",
-            "weight_decay": 0.01,
-            "weight_decay_incr_style": "constant",
-            "use_checkpoint_opt_param_scheduler": False,
-            "lr_wsd_decay_style": "linear",
-
-        })
-        self._build_model_optimizer(model_path, optim_config, override_model_config, override_transformer_config)
-        assert self.device is not None
-        for module in self.train_module:
-            unwrap_model(module).init_ping_pong_communication_ctx(self.device)
-
-    def _init_hf_config_and_tf_config(
-        self,
-        model_path,
-        dtype,
-        override_model_config,
-        override_transformer_config,
-        trust_remote_code=True,
-    ):
-
-        # Step 1: initialize the tokenizer
-        self.local_path = model_path
-        self.tokenizer = AutoTokenizer.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
-        self.processor = AutoProcessor.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
-
-        # Step 2: get the hf
-        hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
-
-        # Step 3: override the hf config
-        override_config_kwargs = {
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "pad_token_id": self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config.get("model_config", {}))
-        self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
-        update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
-        self.architectures = getattr(hf_config, "architectures", None)
-        if self.rank == 0:
-            print(f"Model config after override: {hf_config}")
-        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
-
-        def add_optimization_config_to_tf_config(tf_config):
-            # add optimization config to tf_config, e.g. checkpointing
-            if self.enable_gradient_checkpointing:
-                gradient_checkpointing_cfg = dict(self.gradient_checkpointing_kwargs)
-                tf_config.recompute_method = gradient_checkpointing_cfg.get("activations_checkpoint_method", "full")
-                tf_config.recompute_granularity = gradient_checkpointing_cfg.get(
-                    "activations_checkpoint_granularity", "full"
-                )
-                tf_config.recompute_num_layers = gradient_checkpointing_cfg.get("activations_checkpoint_num_layers", -1)
-
-        add_optimization_config_to_tf_config(tf_config)
-
-        if self.rank == 0:
-            print(f"TF config: {tf_config}")
-        self.hf_config = hf_config
-        self.tf_config = tf_config
 
     def forward_backward_batch(self, microbatches: list[dict], forward_only: bool=False, normal_forward_fn: bool=False):
 
@@ -162,21 +48,6 @@ class MegatronE2eWorker(MegatronBaseWorker):
             # NOTE: this is a dummy loss function.
             loss = ((output - 1)**2).mean()
             return loss, {'loss': loss}
-
-        def wrap_iter(batch_iter):
-            yield from batch_iter  # This is now processed when generating data
-            # if False:  #mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage():
-            #     # hardcode here: pipeline parallel add this number of dummy forwards
-            #     for _ in range(mpu.get_data_parallel_rank()):
-            #         print('yield pre dummy')
-            #         yield dummy_microbatch
-            #     yield from batch_iter
-            #     for _ in range(mpu.get_pipeline_model_parallel_world_size() - mpu.get_data_parallel_rank() - 1):
-            #         print('yield post dummy')
-            #         yield dummy_microbatch
-            # else:
-            #     while True:
-                    # yield dummy_microbatch
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
@@ -203,7 +74,6 @@ class MegatronE2eWorker(MegatronBaseWorker):
         PingPangSingleStepPackedSeqParams.no_switch = False
         dummy_bwd_packed_seq_params_iter = iter(dummy_bwd_packed_seq_params)
         batch_generator = make_batch_generator(microbatches, vpp_size=len(self.train_module))
-        batch_generator = wrap_iter(batch_generator)
         if mpu.get_pipeline_model_parallel_world_size() > 1:
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
@@ -234,7 +104,6 @@ class MegatronE2eWorker(MegatronBaseWorker):
         PingPangSingleStepPackedSeqParams.no_switch = True
         dummy_bwd_packed_seq_params_iter = iter(dummy_bwd_packed_seq_params)
         batch_generator = make_batch_generator(microbatches, vpp_size=len(self.train_module))
-        batch_generator = wrap_iter(batch_generator)
         if mpu.get_pipeline_model_parallel_world_size() > 1:
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
@@ -271,7 +140,6 @@ class MegatronE2eWorker(MegatronBaseWorker):
         dummy_bwd_packed_seq_params_iter = iter(dummy_bwd_packed_seq_params)
         # remove dummy microbatches
         batch_generator = make_batch_generator(microbatches[self.as_rank:], vpp_size=len(self.train_module))
-        batch_generator = wrap_iter(batch_generator)
         if mpu.get_pipeline_model_parallel_world_size() > 1:
             losses_reduced = get_forward_backward_func()(
                 forward_step_func=forward_step,
@@ -301,64 +169,6 @@ class MegatronE2eWorker(MegatronBaseWorker):
 
 
         return losses_reduced
-
-    def _build_model_optimizer(self,
-        model_path, optim_config, override_model_config, override_transformer_config
-    ):
-
-        self._init_hf_config_and_tf_config(
-            model_path,
-            self.dtype,
-            override_model_config,
-            override_transformer_config,
-            True, # trust_remote_code
-        )
-
-        def make_model(wrap_with_ddp=False):
-            def megatron_actor_model_provider(pre_process, post_process):
-
-                parallel_model = init_mcore_model(
-                    self.tf_config,
-                    self.hf_config,
-                    pre_process,
-                    post_process,
-                    share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
-                    value=False,
-                    freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
-                )
-                parallel_model.to("cuda")
-                return parallel_model
-
-            override_ddp_config = OmegaConf.to_container(
-                OmegaConf.create(), resolve=True
-            )
-            return get_model(
-                megatron_actor_model_provider,
-                wrap_with_ddp=wrap_with_ddp,
-                use_distributed_optimizer=True,
-                override_ddp_config=override_ddp_config,
-            )
-
-        train_module = make_model(wrap_with_ddp=True)
-        print(f"train_module: {len(train_module)}")
-        # load_megatron_gptmodel_weights
-
-        if self.rank == 0:
-            print_model_size(train_module[0])
-
-        optim_config_megatron = init_megatron_optim_config(optim_config)
-        optimizer = get_megatron_optimizer(
-            model_chunks=train_module, config=optim_config_megatron)
-        optimizer_scheduler = get_megatron_optimizer_param_scheduler(
-            optimizer=optimizer, config=optim_config
-        )
-
-
-        self.train_module = train_module
-        self.optimizer = optimizer
-        self.optimizer_scheduler = optimizer_scheduler
-        self.hf_config = self.hf_config
-        self.optim_config = optim_config
 
 
 def init_megatron_e2e_test(
@@ -451,12 +261,6 @@ def test(args):
         )
         actual_total_seq_len = seq_lens[rank].sum().item()
 
-        # set_random_seed(seed, set_megatron=False)
-        # input_ids = torch.randint(0, 100, (as_world_size, total_seq_len))
-        # position_ids = torch.arange(total_seq_len).repeat(as_world_size, 1)
-        # input_ids_local = input_ids[as_rank]
-        # position_ids_local = position_ids[as_rank]
-        # print(input_ids_local.shape, position_ids_local.shape)
         rev_rank = as_world_size - rank - 1
         input_ids_local = torch.randint(0, 100, (actual_total_seq_len,))
         position_ids_local = torch.arange(actual_total_seq_len)
@@ -486,24 +290,7 @@ def test(args):
         bwd_metadata.append(
             (qkv_bwd_fa2a_metadata.get_slice(rank), attn_out_qkv_bwd_fa2a_metadata.get_slice(rank), bwd_packed_seq_params)
         )
-        # ping_pang_params_0 = get_single_step_packed_seq_params(
-        #     fa2a_metadata_0, attn_metadata_0, as_rank
-        # )
-        # ping_pang_params_1 = get_single_step_packed_seq_params(
-        #     fa2a_metadata_1, attn_metadata_1, as_rank
-        # )
 
-        # NOTE: we don't consider that seq_lens var has padding because our data generation
-        # guarantees so. However, in practice, this is not true.
-        # mlp_seq_params_0 = mlp_layout_packed_params(raw_seq_lens_0[as_rank])
-        # mlp_seq_params_1 = mlp_layout_packed_params(raw_seq_lens_1[as_rank])
-        # ping_pang_params = PingPangPackedSeqParams(
-        #     seq_params=[ping_pang_params_0, ping_pang_params_1],
-        #     mlp_layout_seq_params=[mlp_seq_params_0, mlp_seq_params_1],
-        #     max_seqlen_q=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
-        #     max_seqlen_kv=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
-        #     qkv_format="thd",
-        # )
         microbatch = {
             "input_ids": input_ids_local,
             "position_ids": position_ids_local,
@@ -511,7 +298,7 @@ def test(args):
         }
         return microbatch
     # print(rank, microbatch["packed_seq_params"])
-    microbatches = [get_microbatch(dummy_first=False) for _ in range(8)] + [
+    microbatches = [get_microbatch(dummy_first=False) for _ in range(args.num_microbatch)] + [
         get_microbatch(dummy_first=True) for _ in range(as_world_size - 1)
     ]
     for i, microbatch in enumerate(microbatches):
@@ -525,12 +312,7 @@ def test(args):
         normal_forward_fn=False,
         forward_only=False,
     )
-    # microbatches = [microbatch, microbatch, microbatch, microbatch, microbatch, microbatch, microbatch, microbatch]
-    # worker.forward_backward_batch(
-    #     microbatches=microbatches,
-    #     normal_forward_fn=False,
-    #     forward_only=False,
-    # )
+
     print("=" * 20 + "forward_backward_batch attention server, done")
 
 
@@ -544,5 +326,6 @@ if __name__ == "__main__":
     parser.add_argument("--num-gpus-per-node", type=int, default=4)
     parser.add_argument("--tp-size", type=int, default=1)
     parser.add_argument("--pp-size", type=int, default=4)
+    parser.add_argument("--num-microbatch", type=int, default=2)
     args = parser.parse_args()
     test(args)
