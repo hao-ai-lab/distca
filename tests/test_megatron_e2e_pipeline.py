@@ -3,7 +3,6 @@ Instantiating Megatron with ray so that we can easily create a single worker to 
 """
 import argparse
 import os
-from webbrowser import get
 
 from d2.runtime import inplace_metadata
 from megatron.core import mpu
