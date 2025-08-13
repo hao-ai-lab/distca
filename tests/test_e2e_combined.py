@@ -25,22 +25,22 @@ torchrun --nnodes=1 --nproc_per_node=4 --node_rank=0 --master_addr=$(hostname) \
 
 # 🟢 Passed: Node = 2, TP = 8, DP = 2, SeqLen = 16k (Baseline)
 ```bash
-NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
     test_e2e_combined.py --mode=baseline --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384 --num-layers 4
 
-NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
     test_e2e_combined.py --mode=baseline --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384 --num-layers 4
 ```
 
 # 🟢 Passed: Node = 2, TP = 8, CPDP = 2, SeqLen = 16k (D2)
 ```bash
-NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 --master_addr=<master_addr> --master_port=29500 \
     test_e2e_combined.py --mode=d2 --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384 --num-layers 4
 
-NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
+NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 \
 torchrun --nnodes=2 --nproc_per_node=8 --node_rank=1 --master_addr=<master_addr> --master_port=29500 \
     test_e2e_combined.py --mode=d2 --num-nodes=2 --num-gpus-per-node=8 --tp-size=8 --num-tokens 16384 --num-layers 4
 ```
@@ -116,7 +116,13 @@ class MegatronE2eWorker(MegatronBaseWorker):
         set_random_seed(seed)
         self.model_path = model_path
         override_model_config = OmegaConf.create()
-        override_transformer_config = OmegaConf.create()
+        override_transformer_config = OmegaConf.create({
+            "apply_rope_fusion": True,
+            # "bias_swiglu_fusion": True,
+            # "bias_gelu_fusion": True,
+            "bias_activation_fusion": True,
+            "bias_dropout_fusion": True,
+        })
         # A default optim config
         optim_config = OmegaConf.create({
             "clip_grad": 1.0,
