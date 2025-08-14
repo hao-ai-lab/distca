@@ -21,9 +21,11 @@ class PingPangSingleStepPackedSeqParams(PackedSeqParams):
     attn_out_fwd_metadata: FastAlltoAllMetadata = None
     attn_out_bwd_metadata: FastAlltoAllMetadata = None
     bwd_packed_seq_params: PackedSeqParams = None
-    mlp_packed_seq_params: PackedSeqParams = None  # for per-layer debug
     stream: torch.cuda.Stream = None
     dispatcher_id: int = None
+    #### DEBUG members. Should be None
+    # TODO: remove it by redesigning test files.
+    mlp_packed_seq_params: PackedSeqParams = None
 
     def to_device(self):
         return PingPangSingleStepPackedSeqParams(
@@ -39,9 +41,9 @@ class PingPangSingleStepPackedSeqParams(PackedSeqParams):
             attn_out_fwd_metadata=self.attn_out_fwd_metadata.normalize(),
             attn_out_bwd_metadata=self.attn_out_bwd_metadata.normalize(),
             bwd_packed_seq_params=arg_to_cuda(self.bwd_packed_seq_params),
-            mlp_packed_seq_params=arg_to_cuda(self.mlp_packed_seq_params),
             stream=self.stream,
             dispatcher_id=self.dispatcher_id,
+            mlp_packed_seq_params=arg_to_cuda(self.mlp_packed_seq_params),
         )
 
 

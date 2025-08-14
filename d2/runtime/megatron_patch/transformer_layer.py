@@ -424,38 +424,7 @@ class TransformerLayer(BaseTransformerLayer):
             rotary_pos_emb = None
             warnings.warn("forward_one_stage is only to debug a single ping-pong "
                           "stage's correctness, and does not have RoPE supported")
-        if getattr(PingPangSingleStepPackedSeqParams, "no_switch", False):
-            simple_output, context, *_ = self.forward_no_switch(
-                hidden_states,
-                attention_mask,
-                context,
-                context_mask,
-                rotary_pos_emb,
-                rotary_pos_cos,
-                rotary_pos_sin,
-                attention_bias,
-                inference_context,
-                packed_seq_params.mlp_packed_seq_params,
-                sequence_len_offset,
-                inference_params=inference_params,
-            )
-            return simple_output, context
-        else:
-            with torch.no_grad():
-                simple_output, context, *_ = self.forward_no_switch(
-                    hidden_states,
-                    attention_mask,
-                    context,
-                    context_mask,
-                    rotary_pos_emb,
-                    rotary_pos_cos,
-                    rotary_pos_sin,
-                    attention_bias,
-                    inference_context,
-                    packed_seq_params.mlp_packed_seq_params,
-                    sequence_len_offset,
-                    inference_params=inference_params,
-                )
+
         query, key, value, residual, attn_mask_type = self._forward_pre_core_attn(
             hidden_states,
             rotary_pos_emb,
@@ -524,8 +493,6 @@ class TransformerLayer(BaseTransformerLayer):
             context,
             context_mask,
         )
-
-        torch.testing.assert_close(mlp_output, simple_output)
 
         return mlp_output, context
 
