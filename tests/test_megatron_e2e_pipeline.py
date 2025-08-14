@@ -17,7 +17,7 @@ from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangSin
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
 from d2.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
 
-from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispath_with_backward
+from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispatch_pipeline_tick
 from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
 from megatron_test_utils import (
     gptmodel_forward, make_batch_generator, unwrap_model,
@@ -190,6 +190,8 @@ def test(args):
 
     hidden_size_q_tp = hidden_size_q // tp_size
     hidden_size_k_tp = hidden_size_kv // tp_size
+    num_head_in_dtype = (hf_config.num_attention_heads *
+                         torch.float32.itemsize // element_size)
 
     seq_lens = None
     bwd_metadata = []
@@ -197,21 +199,15 @@ def test(args):
     def get_microbatch(dummy_first):
         nonlocal seq_lens
         (
-            # fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
-            # attention_metadata_attn_layout, intermediates, seq_lens
-            fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,
             fa_fwd_params, fa_bwd_params,
             qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
             attn_out_fwd_fa2a_metadata, attn_out_qkv_bwd_fa2a_metadata,
             seq_lens,
-        ) = create_qkv_dispath_with_backward(
+        ) = create_qkv_dispatch_pipeline_tick(
             world_size, total_seq_len, num_seqs, max_cp_degree,
-            hidden_size_q_tp, hidden_size_k_tp, element_size, hf_config.num_attention_heads * torch.float32.itemsize // element_size,
-            return_mlp_no_shard_seq_lens=True,
-            last_seq_lens=seq_lens,
-            dummy_first=dummy_first,
-            dummy_except_first=seq_lens is None,
-            reverse=True,
+            hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
+            ref_seq_lens=seq_lens,
+            add_dummy=dummy_first,
         )
         actual_total_seq_len = seq_lens[rank].sum().item()
 
