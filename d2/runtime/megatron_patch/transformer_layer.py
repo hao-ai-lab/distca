@@ -1,4 +1,4 @@
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import functools
 from typing import Any, Dict, List, Optional, Union
 import types
@@ -811,38 +811,38 @@ class PingPangGPTModel(GPTModel):
     # 2. ensure to have a dummy hidden_states with correct shape
     #    - this prevents error in decoder.final_layernorm
     #    - this make layer.forward easier
+    @contextmanager
+    def _reset_stage_for_dummy_forward(self, reset):
+        if not reset:
+            yield
+        else:
+            decoder_pre_process = self.decoder.pre_process
+            post_process = self.post_process
+            self.decoder.pre_process = True
+            self.post_process = False
+            yield
+            self.post_process = post_process
+            self.decoder.pre_process = decoder_pre_process
+
     @functools.wraps(GPTModel.forward)
     def forward(self, input_ids, *args, **kwargs):
         # print(f'{len(self.decoder.layers)=}')
-        if getattr(self.decoder.layers[0], "current_microbatch", 0) < 0:
-            if not self.pre_process:
-                if self.decoder.final_layernorm is not None:
-                    if hasattr(self.decoder.final_layernorm, 'weight'):
-                        dtype = self.decoder.final_layernorm.weight.dtype
-                    else:
-                        dtype = torch.bfloat16
-                else:
-                    dtype = torch.bfloat16
-                sl = input_ids.shape[-1]
-                hs = self.config.hidden_size
-                kwargs['decoder_input'] = torch.zeros((sl, 1, hs), dtype=dtype, device='cuda')
-            if self.post_process:
-                post_process_flag = True
-                self.post_process = False
-            else:
-                post_process_flag = False
-            if not self.decoder.pre_process:
-                decoder_pre_process_flag = True
-                self.decoder.pre_process = True
-            else:
-                decoder_pre_process_flag = False
-        else:
-            post_process_flag = decoder_pre_process_flag = False
-        output = super().forward(input_ids, *args, **kwargs)
-        if post_process_flag:
-            self.post_process = True
-        if decoder_pre_process_flag:
-            self.decoder.pre_process = False
+        is_dummy_forward = getattr(self.decoder.layers[0], "current_microbatch", 0) < 0
+        if is_dummy_forward and not self.pre_process:
+            # get dtype
+            dtype = (
+                torch.bfloat16 if self.config.bf16
+                else torch.float16 if self.config.fp16
+                else self.config.params_dtype
+            )
+            # create a dummy decoder_input
+            sl = input_ids.shape[-1]
+            hs = self.config.hidden_size
+            kwargs['decoder_input'] = torch.zeros((sl, 1, hs), dtype=dtype, device='cuda')
+
+        with self._reset_stage_for_dummy_forward(reset=is_dummy_forward):
+            output = super().forward(input_ids, *args, **kwargs)
+
         return output
 
     def dummy_backward(self, packed_seq_params: PingPangPackedSeqParams):
