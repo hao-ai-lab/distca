@@ -502,7 +502,6 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         assert not self.ping_pong_comm_initialized
         self.comm_stream = torch.cuda.Stream(device=device, priority=-1)
         self._ping_pang_debug = True
-        self._debug_forward_impl = "orig"
         self.ping_pong_comm_initialized = True
 
     def ping_pang_forward(
@@ -603,6 +602,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         return hidden_states
 
+    # TODO: rename forward_layers -> forward_layer_ping_pong
     def forward_layers(
         self,
         l_no: int,
@@ -784,6 +784,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         assert self.ping_pong_comm_initialized
         return self.ping_pang_forward(*args, **kwargs)
 
+    block._debug_forward_impl = "orig"
     block.forward_layers = types.MethodType(forward_layers, block)
     block.init_ping_pang_communication_ctx = types.MethodType(init_ping_pang_communication_ctx, block)
     block.ping_pang_forward = types.MethodType(ping_pang_forward, block)
@@ -845,6 +846,11 @@ class PingPangGPTModel(GPTModel):
         return output
 
     def dummy_backward(self, packed_seq_params: PingPangPackedSeqParams):
+        """
+        A dummy backward that runs #layer times of decoder layer's backward.
+        When the device is idle (at pipeline pre-fill or drain-out period),
+        this makes it serve as a remote Core-Attention Server.
+        """
         dtype = self.decoder.layers[0].self_attention.linear_qkv.weight.dtype
         device = self.decoder.layers[0].self_attention.linear_qkv.weight.device
         for _ in self.decoder.layers:
