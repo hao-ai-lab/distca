@@ -394,8 +394,7 @@ class TransformerLayer(BaseTransformerLayer):
         return output, context
 
     #### Debug use.
-    # TODO: rename forward_one_stage -> forward_ping_pong_single_sided
-    def forward_one_stage(
+    def forward_ping_pong_single_sided(
         self,
         hidden_states: Tensor,
         attention_mask: Optional[Tensor] = None,
@@ -410,6 +409,7 @@ class TransformerLayer(BaseTransformerLayer):
         sequence_len_offset: Optional[Tensor] = None,
         *,
         inference_params: Optional[Any] = None,
+        return_debug: bool = False,
     ):
         """Debug use. Single side of Ping-Pang parallel."""
         assert inference_params is None, "inference not supported yet"
@@ -422,7 +422,7 @@ class TransformerLayer(BaseTransformerLayer):
 
         if rotary_pos_emb is not None:
             rotary_pos_emb = None
-            warnings.warn("forward_one_stage is only to debug a single ping-pong "
+            warnings.warn("forward_ping_pong_single_sided is only to debug a single ping-pong "
                           "stage's correctness, and does not have RoPE supported")
 
         query, key, value, residual, attn_mask_type = self._forward_pre_core_attn(
@@ -494,7 +494,9 @@ class TransformerLayer(BaseTransformerLayer):
             context_mask,
         )
 
-        return mlp_output, context, debug_tensors
+        return (mlp_output, context,) + (
+            (debug_tensors,) if return_debug else ()
+        )
 
 
 def add_ping_pang_forward(block: MegatronTransformerBlock):
@@ -761,7 +763,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
             self._layer_forward_impl = layer_forward_impl
         def __enter__(self):
             self.backup_forward = TransformerLayer.forward
-            TransformerLayer.forward = lambda *args, **kwargs: self._layer_forward_impl(*args, **kwargs)[:2]
+            TransformerLayer.forward = self._layer_forward_impl
         def __exit__(self, exc_type, exc_value, traceback):
             TransformerLayer.forward = self.backup_forward
 
@@ -773,9 +775,9 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         if self._ping_pang_debug:
             assert self._debug_forward_impl in ["orig", "single_sided", "orig_reimpl"], self._debug_forward_impl
             if self._debug_forward_impl == "single_sided":
-                ctx = _debug_monkey_patch(TransformerLayer.forward_one_stage)
+                ctx = _debug_monkey_patch(TransformerLayer.forward_ping_pong_single_sided)
             elif self._debug_forward_impl == "orig_reimpl":
-                ctx = _debug_monkey_patch(TransformerLayer.forward_no_switch)
+                ctx = _debug_monkey_patch(TransformerLayer.forward_orig_impl)
             else:
                 ctx = nullcontext()
             with ctx:
