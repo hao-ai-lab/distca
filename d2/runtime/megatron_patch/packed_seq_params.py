@@ -23,6 +23,9 @@ class PingPangSingleStepPackedSeqParams(PackedSeqParams):
     bwd_packed_seq_params: PackedSeqParams = None
     stream: torch.cuda.Stream = None
     dispatcher_id: int = None
+    #### DEBUG members. Should be None
+    # TODO: remove it by redesigning test files.
+    mlp_packed_seq_params: PackedSeqParams = None
 
     def to_device(self):
         return PingPangSingleStepPackedSeqParams(
@@ -40,6 +43,7 @@ class PingPangSingleStepPackedSeqParams(PackedSeqParams):
             bwd_packed_seq_params=arg_to_cuda(self.bwd_packed_seq_params),
             stream=self.stream,
             dispatcher_id=self.dispatcher_id,
+            mlp_packed_seq_params=arg_to_cuda(self.mlp_packed_seq_params),
         )
 
 

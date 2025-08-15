@@ -13,6 +13,8 @@ from d2.runtime.attn_kernels.ops import (
     nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, FastDispatcherWrapper
 )
 from d2.runtime.fast_alltoall_metadata import (
+    compute_backward_resend_e2e_metadata,
+    compute_e2e_fa2a_metadata,
     compute_fa2a_metadata_from_logical_metadata,
     forward_backward_with_resend_e2e_metadata,
 )
@@ -240,17 +242,62 @@ def gen_seq_lens(world_size: int, num_seqs: int, total_len: int) -> torch.Tensor
     return seq_len
 
 
+def create_pipeline_seqlens(
+    ref_seq_lens: Optional[torch.Tensor],
+    add_dummy: bool,
+    is_backward: bool,
+    world_size: int,
+    total_seq_len: int,
+    num_seqs: int,
+    max_cp_degree: int,
+):
+    """
+    For a forward tick, its sequence length follows:
+        [new_microbatch, last_tick_seq_len[:PP_stage_-1]]
+
+        The new_microbatch is either generated, or a dummy one. (controlled by add_dummy)
+        A special case is that, the first tick does not have a previous one.
+        In this way, we make all stages' microbatch dummy, except for the first one.
+
+    For a backward tick, its sequence length is the reverse of a forward tick.
+    """
+    if is_backward:
+        return ref_seq_lens.flip(0)
+    # TODO: handle DP+PP
+    dp_degree = 1
+    # Create new microbatches for the first PP stage
+    if add_dummy:
+        new_seqlen = gen_seq_lens(dp_degree, 1, 1).long().reshape(dp_degree, 1).repeat(1, num_seqs)
+    else:
+        assert total_seq_len % max_cp_degree == 0
+        _num_tokens_shard = total_seq_len // (max_cp_degree)
+        new_seqlen = gen_seq_lens(dp_degree, num_seqs, _num_tokens_shard).long()
+    new_seqlen *= max_cp_degree
+    # Get existing microbatch seqlens
+    if ref_seq_lens is not None:
+        # Not the first microbatch
+        prev_seqlen = ref_seq_lens[:-dp_degree]
+    else:
+        dummy_fwd_num = world_size - dp_degree
+        prev_seqlen = gen_seq_lens(dummy_fwd_num, 1, 1).long().reshape(dummy_fwd_num, 1).repeat(1, num_seqs)
+        prev_seqlen *= max_cp_degree
+    seq_len = torch.cat([new_seqlen, prev_seqlen], dim=0)
+    return seq_len
+
+
 def create_raw_qkv_dispatch(
     world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
     return_mlp_no_shard_seq_lens: bool=False,
+    seq_lens = None,
 ):
     """NOTE: this is currently a dispatch tensor of not consider the 2CP optimization."""
     # init sequence
-    assert total_seq_len % (max_cp_degree) == 0
-    _num_tokens_shard = total_seq_len // (max_cp_degree)
-    seq_lens = gen_seq_lens(world_size, num_seqs, _num_tokens_shard).long()
-    # make sure each sequence is divisible by max_cp_degree.
-    seq_lens *= max_cp_degree
+    if seq_lens is None:
+        assert total_seq_len % (max_cp_degree) == 0
+        _num_tokens_shard = total_seq_len // (max_cp_degree)
+        seq_lens = gen_seq_lens(world_size, num_seqs, _num_tokens_shard).long()
+        # make sure each sequence is divisible by max_cp_degree.
+        seq_lens *= max_cp_degree
 
     # init cp degree for each sequence
     log_cp_num = torch.randint(0, int(math.log2(max_cp_degree)) + 1, (world_size, num_seqs))
@@ -339,8 +386,7 @@ def create_raw_qkv_dispatch(
         cp_seq_lens, num_cp_shards, cp_query_dst,
         kv_to_q_mapping, kv_to_q_rank, kv_context_size,
         q_to_num_kv_seq, q_to_num_kv_tokens,
-        (seq_lens, ) if return_mlp_no_shard_seq_lens else (),
-    )
+    ) + ((seq_lens, ) if return_mlp_no_shard_seq_lens else ())
 
 
 def create_qkv_dispath_with_backward(
@@ -348,7 +394,7 @@ def create_qkv_dispath_with_backward(
     hidden_size_q: int, hidden_size_k: int,
     element_size: int, # dtype's size
     softmax_lse_size: int, # size of the softmax_lse tensor, should be num_heads
-    return_mlp_no_shard_seq_lens: bool=False
+    return_mlp_no_shard_seq_lens: bool=False,
 ):
     (mlp_seq_len, mlp_num_seqs, mlp_q_dispatch_fwd,
      kv_to_q_mapping, kv_to_q_rank, kv_context_size,
@@ -369,6 +415,72 @@ def create_qkv_dispath_with_backward(
     )
     ret += seq_lens
     return ret
+
+
+def create_qkv_dispatch_pipeline_tick(
+    world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
+    hidden_size_q: int, hidden_size_k: int,
+    element_size: int, # dtype's size
+    softmax_lse_size: int, # size of the softmax_lse tensor, should be num_heads
+    ref_seq_lens: Optional[torch.Tensor],
+    add_dummy: bool,
+):
+    create_pp_seqlen_kwargs = dict(
+        world_size=world_size,
+        total_seq_len=total_seq_len,
+        num_seqs=num_seqs,
+        max_cp_degree=max_cp_degree,
+    )
+    seq_lens = create_pipeline_seqlens(
+        ref_seq_lens, add_dummy, is_backward=False,
+        **create_pp_seqlen_kwargs
+    )
+    (mlp_seq_len, mlp_num_seqs, mlp_q_dispatch_fwd,
+     kv_to_q_mapping, kv_to_q_rank, kv_context_size,
+     q_to_num_kv_seq, q_to_num_kv_tokens
+    ) = create_raw_qkv_dispatch(
+        world_size, total_seq_len, num_seqs, max_cp_degree,
+        return_mlp_no_shard_seq_lens=False,
+        seq_lens=seq_lens,
+    )
+
+    (_, _, _, _,
+     fa_fwd_params, fa2a_fwd_metadata) = compute_e2e_fa2a_metadata(
+        mlp_seq_len, mlp_num_seqs, mlp_q_dispatch_fwd,
+        kv_to_q_mapping, kv_to_q_rank,
+        kv_context_size, q_to_num_kv_seq, q_to_num_kv_tokens,
+        hidden_size_q, hidden_size_k,
+        element_size, softmax_lse_size
+    )
+    (qkv_fwd_fa2a_metadata, _, attn_out_fwd_fa2a_metadata, _,
+    ) = fa2a_fwd_metadata
+
+    reversed_seqlens = create_pipeline_seqlens(
+        seq_lens, add_dummy=False, is_backward=True,
+        **create_pp_seqlen_kwargs
+    )
+    # NOTE: those begin with bwd_ is mostly the filp of the original
+    # value's flip.
+    (bwd_mlp_seq_len, bwd_mlp_num_seqs, mlp_q_dispatch_bwd,
+     bwd_kv_to_q_mapping, bwd_kv_to_q_rank, bwd_kv_context_size,
+     bwd_q_to_num_kv_seq, bwd_q_to_num_kv_tokens
+    ) = create_raw_qkv_dispatch(
+        world_size, total_seq_len, num_seqs, max_cp_degree,
+        return_mlp_no_shard_seq_lens=False,
+        seq_lens=reversed_seqlens,
+    )
+
+    (fa_bwd_params, attn_out_qkv_bwd_fa2a_metadata, qkv_bwd_fa2a_metadata
+     ) = compute_backward_resend_e2e_metadata(
+        bwd_mlp_seq_len, bwd_mlp_num_seqs, mlp_q_dispatch_bwd,
+        bwd_kv_to_q_mapping, bwd_kv_to_q_rank, bwd_kv_context_size,
+        bwd_q_to_num_kv_seq, bwd_q_to_num_kv_tokens,
+        hidden_size_q, hidden_size_k, element_size, softmax_lse_size,
+    )
+    return (fa_fwd_params, fa_bwd_params,
+            qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
+            attn_out_fwd_fa2a_metadata, attn_out_qkv_bwd_fa2a_metadata,
+            seq_lens,)
 
 
 def create_qkv_dispatch(

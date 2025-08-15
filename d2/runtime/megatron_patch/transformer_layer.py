@@ -1,11 +1,13 @@
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
+import functools
 from typing import Any, Dict, List, Optional, Union
 import types
+import warnings
 
 import torch
 from torch import Tensor
 
-from megatron.core import tensor_parallel
+from megatron.core import tensor_parallel, parallel_state
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.transformer.transformer_block import (
@@ -13,7 +15,7 @@ from megatron.core.transformer.transformer_block import (
 )
 from megatron.core.utils import WrappedTensor, make_viewless_tensor
 
-from d2.runtime.megatron_patch.fused_comm_attn import FlashAttnArgs, FusedCommAttn, post_a2a_attn_out_with_lse
+from d2.runtime.megatron_patch.fused_comm_attn import FlashAttnArgs, FusedCommAttn, dummy_backward, post_a2a_attn_out_with_lse
 from d2.runtime.megatron_patch.base_transformer_layer import TransformerLayer as BaseTransformerLayer
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron_patch.stream_sync_fn import TickSync
@@ -392,6 +394,7 @@ class TransformerLayer(BaseTransformerLayer):
         return output, context
 
     #### Debug use.
+    # TODO: rename forward_one_stage -> forward_ping_pong_single_sided
     def forward_one_stage(
         self,
         hidden_states: Tensor,
@@ -407,18 +410,21 @@ class TransformerLayer(BaseTransformerLayer):
         sequence_len_offset: Optional[Tensor] = None,
         *,
         inference_params: Optional[Any] = None,
-        backward_resend_qkv: bool = False,
     ):
-        """Debug use. Single stage of Ping-Pang parallel."""
+        """Debug use. Single side of Ping-Pang parallel."""
         assert inference_params is None, "inference not supported yet"
         assert inference_context is None, "inference not supported yet"
         assert context is None, "cross-attention not supported yet"
         assert context_mask is None, "cross-attention not supported yet"
 
         setattr(packed_seq_params, "stream", torch.cuda.current_stream())
+        backward_resend_qkv = packed_seq_params.bwd_packed_seq_params is not None
 
-        # FIXME: support RoPE in this test.
-        assert rotary_pos_emb is None, "RoPE needs the MLP layout packed seq params."
+        if rotary_pos_emb is not None:
+            rotary_pos_emb = None
+            warnings.warn("forward_one_stage is only to debug a single ping-pong "
+                          "stage's correctness, and does not have RoPE supported")
+
         query, key, value, residual, attn_mask_type = self._forward_pre_core_attn(
             hidden_states,
             rotary_pos_emb,
@@ -447,6 +453,7 @@ class TransformerLayer(BaseTransformerLayer):
                     num_heads_kv=self.config.num_query_groups // self.config.tensor_model_parallel_size,
                     head_dim=self.config.hidden_size // self.config.num_attention_heads,
                     return_attn_probs=True,
+                    deterministic=True,
                 ),
             )
         else:
@@ -595,6 +602,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         return hidden_states
 
+    # TODO: rename forward_layers -> forward_layer_ping_pong
     def forward_layers(
         self,
         l_no: int,
@@ -748,12 +756,35 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         for key, out_tensor in zip(keys_1, out_tensors_1):
             arg_group_1[key] = out_tensor
 
+    class _debug_monkey_patch:
+        def __init__(self, layer_forward_impl):
+            self._layer_forward_impl = layer_forward_impl
+        def __enter__(self):
+            self.backup_forward = TransformerLayer.forward
+            TransformerLayer.forward = lambda *args, **kwargs: self._layer_forward_impl(*args, **kwargs)[:2]
+        def __exit__(self, exc_type, exc_value, traceback):
+            TransformerLayer.forward = self.backup_forward
+
     def forward(self, *args, **kwargs):
+        # print(f'{self._ping_pang_debug=}')
+        """
+        For Pipeline Parallel debugging, we use single-sided to ease debugging.
+        """
         if self._ping_pang_debug:
-            return self._normal_forward(*args, **kwargs)
+            assert self._debug_forward_impl in ["orig", "single_sided", "orig_reimpl"], self._debug_forward_impl
+            if self._debug_forward_impl == "single_sided":
+                ctx = _debug_monkey_patch(TransformerLayer.forward_one_stage)
+            elif self._debug_forward_impl == "orig_reimpl":
+                ctx = _debug_monkey_patch(TransformerLayer.forward_no_switch)
+            else:
+                ctx = nullcontext()
+            with ctx:
+                return self._normal_forward(*args, **kwargs)
+
         assert self.ping_pong_comm_initialized
         return self.ping_pang_forward(*args, **kwargs)
 
+    block._debug_forward_impl = "orig"
     block.forward_layers = types.MethodType(forward_layers, block)
     block.init_ping_pang_communication_ctx = types.MethodType(init_ping_pang_communication_ctx, block)
     block.ping_pang_forward = types.MethodType(ping_pang_forward, block)
@@ -768,8 +799,61 @@ class PingPangGPTModel(GPTModel):
         super().__init__(*args, **kwargs)
         add_ping_pang_forward(self.decoder)
 
-    def set_debug(self, debug: bool):
+    def set_debug(self, debug: bool, debug_fwd_impl: str = None):
         self.decoder._ping_pang_debug = debug
+        if debug_fwd_impl:
+            self.decoder._debug_forward_impl = debug_fwd_impl
+
+    # very ugly hardcode here:
+    # If the forward is a dummy forward, then:
+    # 1. ensure to skip calculating the loss
+    # 2. ensure to have a dummy hidden_states with correct shape
+    #    - this prevents error in decoder.final_layernorm
+    #    - this make layer.forward easier
+    @contextmanager
+    def _reset_stage_for_dummy_forward(self, reset):
+        if not reset:
+            yield
+        else:
+            decoder_pre_process = self.decoder.pre_process
+            post_process = self.post_process
+            self.decoder.pre_process = True
+            self.post_process = False
+            yield
+            self.post_process = post_process
+            self.decoder.pre_process = decoder_pre_process
+
+    @functools.wraps(GPTModel.forward)
+    def forward(self, input_ids, *args, **kwargs):
+        # print(f'{len(self.decoder.layers)=}')
+        is_dummy_forward = getattr(self.decoder.layers[0], "current_microbatch", 0) < 0
+        if is_dummy_forward and not self.pre_process:
+            # get dtype
+            dtype = (
+                torch.bfloat16 if self.config.bf16
+                else torch.float16 if self.config.fp16
+                else self.config.params_dtype
+            )
+            # create a dummy decoder_input
+            sl = input_ids.shape[-1]
+            hs = self.config.hidden_size
+            kwargs['decoder_input'] = torch.zeros((sl, 1, hs), dtype=dtype, device='cuda')
+
+        with self._reset_stage_for_dummy_forward(reset=is_dummy_forward):
+            output = super().forward(input_ids, *args, **kwargs)
+
+        return output
+
+    def dummy_backward(self, packed_seq_params: PingPangPackedSeqParams):
+        """
+        A dummy backward that runs #layer times of decoder layer's backward.
+        When the device is idle (at pipeline pre-fill or drain-out period),
+        this makes it serve as a remote Core-Attention Server.
+        """
+        dtype = self.decoder.layers[0].self_attention.linear_qkv.weight.dtype
+        device = self.decoder.layers[0].self_attention.linear_qkv.weight.device
+        for _ in self.decoder.layers:
+            dummy_backward(self.config, packed_seq_params, dtype, device)
 
     def init_ping_pong_communication_ctx(self, device: torch.device):
         self.decoder.init_ping_pang_communication_ctx(device)

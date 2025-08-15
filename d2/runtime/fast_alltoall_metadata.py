@@ -71,20 +71,26 @@ class LogicalShape:
     @staticmethod
     def get_shape(
         mlp_to_attn_metadata: Metadata, hidden_size: int,
-        mlp_num_tokens: int
+        mlp_num_tokens: list[int]
     ):
         world_size = mlp_to_attn_metadata.world_size
+
+        if isinstance(mlp_num_tokens, int):
+            # For a PP tick, dummy stages have fewer tokens than others
+            # For pure DP-CP, each rank has the same number of tokens.
+            mlp_num_tokens = [mlp_num_tokens] * world_size
+
         assert mlp_to_attn_metadata.dst_rank.shape[0] == world_size
         if mlp_to_attn_metadata.dst_rank.ndim == 2:
-            token_layout = (mlp_num_tokens,)
+            token_layout = [(i,) for i in mlp_num_tokens]
         else:
             assert mlp_to_attn_metadata.dst_rank.ndim == 3
             max_cp = mlp_to_attn_metadata.dst_rank.shape[2]
-            token_layout = (max_cp, mlp_num_tokens)
+            token_layout = [(max_cp, i) for i in mlp_num_tokens]
 
         send_shape = tuple(
-            token_layout + (hidden_size,)
-            for _ in range(world_size)
+            layout + (hidden_size,)
+            for layout in token_layout
         )
         recv_shape = tuple(
             (nt, hidden_size)
@@ -483,7 +489,7 @@ def compute_fa2a_metadata_from_logical_metadata(
     fwd_metadata_kv: Metadata,
     bwd_metadata_kv: Metadata,
     intermediates,
-    mlp_num_tokens: int,
+    mlp_num_tokens: list[int],
     hidden_size_q: int,
     hidden_size_k: int,
     element_size: int,  # dtype's size
@@ -595,7 +601,7 @@ def compute_e2e_fa2a_metadata(
         q_to_num_kv_token,
         return_intermediate=True
     )
-    mlp_num_tokens = mlp_seq_len.sum(dim=1).max().item()
+    mlp_num_tokens = mlp_seq_len.sum(dim=1).tolist()
     fa2a_metadata = compute_fa2a_metadata_from_logical_metadata(
         fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,
         intermediates, mlp_num_tokens, hidden_size_q, hidden_size_k,
@@ -612,7 +618,7 @@ def compute_backward_resend_qkv_from_logical_metadata(
     fwd_metadata_kv: Metadata,
     bwd_metadata_kv: Metadata,
     intermediates,
-    mlp_num_tokens: int,
+    mlp_num_tokens: list[int],
     hidden_size_q: int,
     hidden_size_k: int,
     element_size: int,  # dtype's size
@@ -633,6 +639,45 @@ def compute_backward_resend_qkv_from_logical_metadata(
         element_size, qkv_only=True
     )
     return grad_fwd_fa2a_metadata_qkv, grad_bwd_fa2a_metadata_qkv
+
+
+def compute_backward_resend_e2e_metadata(
+    mlp_seq_len: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
+    mlp_num_seqs: torch.Tensor,
+    # Forward side dispatching order from MLP to ATTN
+    mlp_q_dispatch_bwd: torch.Tensor,  # shape of (world_size, max_num_local_seqs)
+    kv_to_q_mapping: torch.Tensor,
+    kv_to_q_rank: torch.Tensor,
+    kv_context_size: torch.Tensor,
+    q_to_num_kv_seq: torch.Tensor,
+    q_to_num_kv_token: torch.Tensor,
+    hidden_size_q: int,
+    hidden_size_k: int,
+    element_size: int,  # dtype's size
+    softmax_lse_size: int,  # size of the softmax_lse tensor, should be num_heads
+):
+    (attn_out_grad_fwd_metadata_q, attn_out_grad_bwd_metadata_q,
+     attn_out_grad_fwd_metadata_kv, attn_out_grad_bwd_metadata_kv,
+     fa_bwd_params, attn_out_grad_intermediates
+     ) = compute_e2e_metadata(
+        mlp_seq_len, mlp_num_seqs,
+        mlp_q_dispatch_bwd,
+        kv_to_q_mapping,
+        kv_to_q_rank,
+        kv_context_size,
+        q_to_num_kv_seq,
+        q_to_num_kv_token,
+        return_intermediate=True,
+    )
+    mlp_num_tokens = mlp_seq_len.sum(dim=1).tolist()
+    (attn_out_qkv_bwd_fa2a_metadata, qkv_bwd_fa2a_metadata
+     ) = compute_backward_resend_qkv_from_logical_metadata(
+        attn_out_grad_fwd_metadata_q, attn_out_grad_bwd_metadata_q,
+        attn_out_grad_fwd_metadata_kv, attn_out_grad_bwd_metadata_kv,
+        attn_out_grad_intermediates, mlp_num_tokens,
+        hidden_size_q, hidden_size_k, element_size, softmax_lse_size,
+    )
+    return fa_bwd_params, attn_out_qkv_bwd_fa2a_metadata, qkv_bwd_fa2a_metadata
 
 
 def forward_backward_with_resend_e2e_metadata(
@@ -664,10 +709,8 @@ def forward_backward_with_resend_e2e_metadata(
     (qkv_fwd_fa2a_metadata, _, attn_out_fwd_fa2a_metadata, _,
     ) = fa2a_fwd_metadata
     # Step 2: compute backward communication
-    (attn_out_grad_fwd_metadata_q, attn_out_grad_bwd_metadata_q,
-     attn_out_grad_fwd_metadata_kv, attn_out_grad_bwd_metadata_kv,
-     fa_bwd_params, attn_out_grad_intermediates
-     ) = compute_e2e_metadata(
+    (fa_bwd_params, attn_out_qkv_bwd_fa2a_metadata, qkv_bwd_fa2a_metadata
+    ) = compute_backward_resend_e2e_metadata(
         mlp_seq_len, mlp_num_seqs,
         mlp_q_dispatch_bwd,
         kv_to_q_mapping,
@@ -675,15 +718,10 @@ def forward_backward_with_resend_e2e_metadata(
         kv_context_size,
         q_to_num_kv_seq,
         q_to_num_kv_token,
-        return_intermediate=True,
-    )
-    mlp_num_tokens=mlp_seq_len.sum(dim=1).max().item()
-    (attn_out_qkv_bwd_fa2a_metadata, qkv_bwd_fa2a_metadata
-     ) = compute_backward_resend_qkv_from_logical_metadata(
-        attn_out_grad_fwd_metadata_q, attn_out_grad_bwd_metadata_q,
-        attn_out_grad_fwd_metadata_kv, attn_out_grad_bwd_metadata_kv,
-        attn_out_grad_intermediates, mlp_num_tokens,
-        hidden_size_q, hidden_size_k, element_size, softmax_lse_size,
+        hidden_size_q,
+        hidden_size_k,
+        element_size,
+        softmax_lse_size
     )
     return (
         fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,

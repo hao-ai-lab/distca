@@ -3,10 +3,12 @@ import math
 from typing import Tuple
 
 from flash_attn.flash_attn_interface import (
-    _wrapped_flash_attn_varlen_forward, _wrapped_flash_attn_varlen_backward,
-    flash_attn_varlen_func
+    _wrapped_flash_attn_varlen_forward, _wrapped_flash_attn_varlen_backward
 )
+from d2.runtime.attn_kernels.ops import FastDispatcherWrapper, fast_a2a
+from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from megatron.core.packed_seq_params import PackedSeqParams
+from megatron.core.transformer.transformer_config import TransformerConfig
 import torch
 from torch import Tensor
 
@@ -316,5 +318,143 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
             instance_id=ctx.dispatcher_id
         )
 
-        signal_grad = grad_attn_out.new_empty((1,))
+        signal_grad = grad_attn_out.new_zeros((1,))
         return signal_grad, *((None,) * 7)
+
+
+@torch.no_grad()
+def dummy_backward_single_sided(
+    config: TransformerConfig,
+    packed_seq_params: PingPangSingleStepPackedSeqParams,
+    dtype: torch.dtype,
+    device: torch.device,
+    attn_out_grad_all2all: bool=True,
+    qkv_grad_all2all: bool=True,
+):
+    """
+    Dummy backward for a single layer. This is exactly the backward of FusedCommAttn + All2All.
+    TODO(yonghao): make it ping-pong.
+    """
+    assert packed_seq_params.bwd_packed_seq_params is not None
+
+    # create some dummy data
+    num_heads = config.num_attention_heads // config.tensor_model_parallel_size
+
+    dispatcher_id = packed_seq_params.dispatcher_id
+
+    bwd_attn_out_qkv_metadata = packed_seq_params.attn_out_bwd_metadata
+    bwd_qkv_metadata = packed_seq_params.qkv_bwd_metadata
+    bwd_fa_params = packed_seq_params.bwd_packed_seq_params
+
+    if attn_out_grad_all2all:
+        with torch.cuda.stream(packed_seq_params.stream):
+            fast_a2a(
+                *bwd_attn_out_qkv_metadata.fa2a_metadata,
+                bwd_attn_out_qkv_metadata.my_rank_send_offset,
+                bwd_attn_out_qkv_metadata.my_rank_recv_offset,
+                bwd_attn_out_qkv_metadata.my_rank_send_sz,
+                instance_id=dispatcher_id,
+            )
+        if packed_seq_params.stream is not None:
+            torch.cuda.current_stream().wait_stream(packed_seq_params.stream)
+    else:
+        assert dispatcher_id is not None
+
+    recv_k_shape = bwd_attn_out_qkv_metadata.tensor_shape[1].recv_shape
+    recv_k = torch.empty(recv_k_shape, dtype=dtype, device=device)
+    recv_v = torch.empty_like(recv_k)
+    recv_q_len = bwd_attn_out_qkv_metadata.seq_lens[0].recv_seqlens.sum().item()
+    recv_q_shape = recv_q_len, config.hidden_size // config.tensor_model_parallel_size
+    softmax_lse_shape = recv_q_len, num_heads
+    (recv_attn_out_grad, recv_attn_out, recv_lse, recv_q, recv_k, recv_v
+    ) = post_fast_a2a_attn_out_grad_resend_qkv(
+        recv_q_shape, softmax_lse_shape, recv_q_shape, torch.float32,
+        recv_k, recv_v,
+        None,
+        bwd_attn_out_qkv_metadata.seq_lens[0].recv_seqlens,
+        bwd_attn_out_qkv_metadata.seq_lens[1].recv_seqlens,
+        *bwd_attn_out_qkv_metadata.recv_memcpy_metadata,
+        is_fwd=True,
+        switch_buffer=dispatcher_id is None,
+        instance_id=dispatcher_id,
+    )
+
+    recv_lse = recv_lse.T.contiguous()
+    dq, dk, dv = _qkv_to_attn_out_bwd(
+        recv_q, recv_k, recv_v, recv_attn_out, recv_attn_out_grad,
+        recv_lse,
+        FlashAttnArgs(
+            num_heads_q=config.num_attention_heads // config.tensor_model_parallel_size,
+            num_heads_kv=config.num_query_groups // config.tensor_model_parallel_size,
+            head_dim=config.hidden_size // config.num_attention_heads,
+            return_attn_probs=True,
+            deterministic=True,
+        ),
+        bwd_fa_params.cu_seqlens_q, bwd_fa_params.cu_seqlens_kv,
+        bwd_fa_params.max_seqlen_q, bwd_fa_params.max_seqlen_kv,
+    )
+
+    pre_fast_a2a_qkv(
+        dq, dk, dv, None,
+        bwd_qkv_metadata.seq_lens[0].send_seqlens,
+        bwd_qkv_metadata.seq_lens[1].send_seqlens,
+        *bwd_qkv_metadata.send_memcpy_metadata,
+        is_fwd=False,
+        instance_id=dispatcher_id,
+    )
+
+    if qkv_grad_all2all:
+        with torch.cuda.stream(packed_seq_params.stream):
+            fast_a2a(
+                *bwd_qkv_metadata.fa2a_metadata,
+                bwd_qkv_metadata.my_rank_send_offset,
+                bwd_qkv_metadata.my_rank_recv_offset,
+                bwd_qkv_metadata.my_rank_send_sz,
+                instance_id=dispatcher_id,
+            )
+        if dispatcher_id is None:
+            FastDispatcherWrapper.switch_buffer()
+    else:
+        assert dispatcher_id is not None
+
+
+def dummy_backward_send_qkv(packed_seq_params: PingPangSingleStepPackedSeqParams):
+    dispatcher_id = packed_seq_params.dispatcher_id
+    assert dispatcher_id is not None
+
+    bwd_qkv_metadata = packed_seq_params.qkv_bwd_metadata
+    with torch.cuda.stream(packed_seq_params.stream):
+        fast_a2a(
+            *bwd_qkv_metadata.fa2a_metadata,
+            bwd_qkv_metadata.my_rank_send_offset,
+            bwd_qkv_metadata.my_rank_recv_offset,
+            bwd_qkv_metadata.my_rank_send_sz,
+            instance_id=dispatcher_id,
+        )
+
+
+@torch.no_grad()
+def dummy_backward(
+    config: TransformerConfig,
+    packed_seq_params,
+    dtype: torch.dtype,
+    device: torch.device,
+):
+    if isinstance(packed_seq_params, PingPangSingleStepPackedSeqParams):
+        dummy_backward_single_sided(config, packed_seq_params, dtype, device,)
+        return
+    assert isinstance(packed_seq_params, PingPangPackedSeqParams)
+    # PingPong schedule:
+    # Compute:              Attn_1      Attn_0
+    # Comm:     out_grad_1  out_grad_0  qkv_grad_1  qkv_grad_0
+    # Launch out_grad_1 and Attn_1
+    dummy_backward_single_sided(config, packed_seq_params.seq_params[1],
+                                dtype, device,
+                                qkv_grad_all2all=False)
+    # Launch out_grad_0 and Attn_0
+    dummy_backward_single_sided(config, packed_seq_params.seq_params[0],
+                                dtype, device,
+                                qkv_grad_all2all=False)
+    # Launch qkv_grad_1
+    dummy_backward_send_qkv(packed_seq_params.seq_params[1])
+    dummy_backward_send_qkv(packed_seq_params.seq_params[0])
