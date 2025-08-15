@@ -218,16 +218,14 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
 
     # put bwd metadata to the corresponding side
     for i, microbatch in enumerate(microbatches):
-        # When mb i is computed on rank at forward tick t, assume the backward right after it
-        # is at tick t'.
-        # it requires another (pp_degree - 1 - rank) forward steps to reach the last PP stage,
-        # and another (pp_degree - 1 - rank) + 1 backward steps to compute its own backward.
-        # Since in 1F1B, a forward follows a backward, so at backward tick
-        # t' + 2 * (pp_degree - 1 - rank) + 1, it starts to compute this microbatch's backward
-        # at this rank.
+        # When mb_i is computed on rank at forward tick t, assume the backward right after this forward is at tick t'.
+        # mb_i requires another (pp_degree - 1 - rank) forward steps to start mb_i backward,
+        # and another (pp_degree - 1 - rank) backward steps to compute mb_i backward on this rank.
+        # Since in 1F1B, every forward follows a backward, so backward tick
+        # t' + 2 * (pp_degree - 1 - rank) is the one to compute mb_i on this rank.
         # Note that at the end of PP warmup, forward tick is pp_degree - 1, while backward tick
         # is 0. Therefore, t - t' = pp_degree - 1, and thus
-        # t' + 2 * (pp_degree - 1 - rank) + 1 == t + pp_degree - 1 - rank * 2
+        # t' + 2 * (pp_degree - 1 - rank) == t + pp_degree - 1 - rank * 2
         bwd_metadata_idx = (i + pp_degree - 1 - rank * 2) % len(bwd_metadata)
         qkv_bwd_metadata, attn_out_bwd_metadata, bwd_packed_seq_params = bwd_metadata[bwd_metadata_idx]
         packed_seq_params = microbatch["packed_seq_params"]

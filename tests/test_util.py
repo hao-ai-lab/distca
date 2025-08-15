@@ -243,7 +243,7 @@ def gen_seq_lens(world_size: int, num_seqs: int, total_len: int) -> torch.Tensor
 
 
 def create_pipeline_seqlens(
-    ref_seq_lens: torch.Tensor,
+    ref_seq_lens: Optional[torch.Tensor],
     add_dummy: bool,
     is_backward: bool,
     world_size: int,
@@ -386,8 +386,7 @@ def create_raw_qkv_dispatch(
         cp_seq_lens, num_cp_shards, cp_query_dst,
         kv_to_q_mapping, kv_to_q_rank, kv_context_size,
         q_to_num_kv_seq, q_to_num_kv_tokens,
-        *((seq_lens, ) if return_mlp_no_shard_seq_lens else ()),
-    )
+    ) + ((seq_lens, ) if return_mlp_no_shard_seq_lens else ())
 
 def create_qkv_dispath_with_backward(
     world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
