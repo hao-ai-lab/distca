@@ -296,6 +296,8 @@ def test(args):
         mb_1_psp = mb_1["packed_seq_params"]
         mb_0_mlp_psp = mb_0_psp.mlp_packed_seq_params
         mb_1_mlp_psp = mb_1_psp.mlp_packed_seq_params
+        mb_0_psp.dispatcher_id = 0
+        mb_1_psp.dispatcher_id = 1
         ping_pong_params = PingPangPackedSeqParams(
             seq_params = [mb_0_psp, mb_1_psp],
             mlp_layout_seq_params = [mb_0_mlp_psp, mb_1_mlp_psp],
@@ -326,6 +328,14 @@ def test(args):
         }
         orig_impl_microbatches.append(orig_mb)
 
+    loss_reduced, grad_sample = worker.forward_backward_batch(
+        microbatches=microbatches,
+        forward_only=False,
+        mode="ping_pong",
+        with_dummy=True,
+    )
+    torch.cuda.synchronize()
+    print("finish pingpong")
     loss_orig_reimpl, grad_orig_reimpl = worker.forward_backward_batch(
         microbatches=orig_impl_microbatches,
         forward_only=False,
@@ -339,12 +349,6 @@ def test(args):
         with_dummy=False,
     )
     print("finish baseline")
-    loss_reduced, grad_sample = worker.forward_backward_batch(
-        microbatches=microbatches,
-        forward_only=False,
-        mode="ping_pong",
-        with_dummy=True,
-    )
     print(f"{loss_reduced=}, {loss_orig_reimpl=}, {loss_orig=}")
     torch.testing.assert_close(grad_orig_reimpl, grad_orig)
     torch.testing.assert_close(grad_orig_reimpl, grad_sample, rtol=1e-3, atol=1e-3)
