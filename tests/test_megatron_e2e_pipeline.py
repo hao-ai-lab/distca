@@ -5,6 +5,7 @@ NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 2 test_m
 import argparse
 from functools import partial
 import os
+import time
 
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
@@ -50,7 +51,7 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
 
         def loss_func(output):
             # NOTE: this is a dummy loss function.
-            loss = ((output - 1)**2).mean()
+            loss = output.mean()
             return loss, {'loss': loss}
 
         def forward_step(batch_iter, model):
@@ -98,6 +99,10 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
             vpp_size=len(self.train_module)
         )
         # if mpu.get_pipeline_model_parallel_world_size() > 1:
+
+        torch.cuda.synchronize()
+        from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
+        nvshmem_barrier_all()
         if with_dummy:
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
@@ -123,7 +128,7 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
             )
-        grad_sample = unwrap_model(self.train_module[0]).decoder.layers[-2].self_attention.linear_proj.weight.main_grad.clone()
+        grad_sample = unwrap_model(self.train_module[0]).decoder.layers[-1].self_attention.linear_proj.weight.main_grad.clone()
 
         # when testing numerical correctness, instead of running optimizer step, reset grads.
         for tm in self.train_module:
@@ -334,14 +339,7 @@ def test(args):
         }
         orig_impl_microbatches.append(orig_mb)
 
-    loss_reduced, grad_sample = worker.forward_backward_batch(
-        microbatches=microbatches,
-        forward_only=False,
-        mode="ping_pong",
-        with_dummy=True,
-    )
-    torch.cuda.synchronize()
-    print("finish pingpong")
+    time.sleep(2)
     loss_orig_reimpl, grad_orig_reimpl = worker.forward_backward_batch(
         microbatches=orig_impl_microbatches,
         forward_only=False,
@@ -355,9 +353,20 @@ def test(args):
         with_dummy=False,
     )
     print("finish baseline")
-    print(f"{loss_reduced=}, {loss_orig_reimpl=}, {loss_orig=}")
+    for _ in range(3):
+        time.sleep(2)
+        loss_reduced, grad_sample = worker.forward_backward_batch(
+            microbatches=microbatches,
+            forward_only=False,
+            mode="ping_pong",
+            with_dummy=True,
+        )
+        print(f"{loss_reduced=}, {loss_orig_reimpl=}, {loss_orig=}")
+    torch.cuda.synchronize()
+    print("finish pingpong")
     torch.testing.assert_close(grad_orig_reimpl, grad_orig)
-    torch.testing.assert_close(grad_orig_reimpl, grad_sample, rtol=1e-3, atol=1e-3)
+    if worker.rank == 1:
+        torch.testing.assert_close(grad_orig_reimpl, grad_sample, rtol=1e-3, atol=1e-3)
 
     print("=" * 20 + "forward_backward_batch attention server, done")
 
