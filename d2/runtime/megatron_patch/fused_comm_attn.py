@@ -398,7 +398,7 @@ def dummy_backward_single_sided(
         FlashAttnArgs(
             num_heads_q=num_heads,
             num_heads_kv=config.num_query_groups // config.tensor_model_parallel_size,
-            head_dim=hidden_size_tp,
+            head_dim=hidden_size_tp // num_heads,
             return_attn_probs=True,
             deterministic=True,
         ),
