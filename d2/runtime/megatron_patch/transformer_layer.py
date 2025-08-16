@@ -538,6 +538,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
             hidden_states = self.input_tensor
 
         hidden_states = make_viewless_tensor(inp=hidden_states, requires_grad=True, keep_graph=True)
+        rotary_pos_emb = None
 
         if self.config.sequence_parallel:
             rng_context = tensor_parallel.get_cuda_rng_tracker().fork()

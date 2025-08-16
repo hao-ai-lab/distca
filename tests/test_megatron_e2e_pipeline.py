@@ -65,6 +65,8 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
                 model, input_ids, attention_mask, position_ids, self.tf_config.sequence_parallel,
                 packed_seq_params, labels=input_ids.unsqueeze(0),
             )
+            # FIXME: why we need a sync here to avoid nan loss in ping-pong pp?
+            torch.cuda.synchronize()
             return output, loss_func
 
         def dummy_backward_step(model, dummy_bwd_iter, skip: bool):
@@ -206,10 +208,11 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
             mlp_packed_seq_params=mlp_packed_seq_params,
         )
 
-        input_ids_local = torch.randint(0, 100, (this_rank_num_tokens,))
+        # NOTE: we init input_ids at the end after creating dispatching strategy
+        # and seq lens of each iteration. This is to ensure that each
+        # rank has the same randomly initialized strategy.
         position_ids_local = torch.arange(this_rank_num_tokens)
         microbatch = {
-            "input_ids": input_ids_local,
             "position_ids": position_ids_local,
             "packed_seq_params": ping_pang_params,
         }
@@ -269,7 +272,7 @@ def test(args):
     worker.set_config(dtype=dtype)
     worker.init(model_path, seed=seed)
     # set again to potentially adapt to the ray launch case.
-    set_random_seed(seed, set_megatron=True)
+    set_random_seed(seed, set_megatron=False)
 
     rank = as_rank = worker.as_rank
     as_world_size = worker.as_world_size
@@ -289,6 +292,7 @@ def test(args):
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype
     )
+    set_random_seed(seed, set_megatron=True)
     microbatches = []
     orig_impl_microbatches = []
     for mb_0, mb_1 in zip(microbatches_0, microbatches_1):
@@ -304,8 +308,10 @@ def test(args):
             max_seqlen_q = max(mb_0_mlp_psp.max_seqlen_q, mb_1_mlp_psp.max_seqlen_q),
             max_seqlen_kv = max(mb_0_mlp_psp.max_seqlen_kv, mb_1_mlp_psp.max_seqlen_kv),
         )
+        num_tokens = sum(mb["position_ids"].numel() for mb in [mb_0, mb_1])
+        input_ids = torch.randint(10, 1000, (num_tokens,))
         mb = {
-            "input_ids": torch.concat([mb_0["input_ids"], mb_1["input_ids"]]),
+            "input_ids": input_ids,
             "position_ids": torch.concat([mb_0["position_ids"], mb_1["position_ids"]]),
             "packed_seq_params": ping_pong_params,
         }
