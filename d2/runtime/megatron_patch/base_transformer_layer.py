@@ -232,8 +232,7 @@ class TransformerLayer(MegatronTransformerLayer):
         return mlp_output, context
 
     ######## Debug ########
-    # TODO: rename forward_no_switch -> forward_orig_impl
-    def forward_no_switch(
+    def forward_orig_impl(
         self,
         hidden_states: Tensor,
         attention_mask: Optional[Tensor] = None,
@@ -248,6 +247,7 @@ class TransformerLayer(MegatronTransformerLayer):
         sequence_len_offset: Optional[Tensor] = None,
         *,
         inference_params: Optional[Any] = None,
+        return_debug: bool = False,
     ):
         """Debug use. normal forward with output hooked."""
         assert inference_params is None, "inference not supported yet"
@@ -286,5 +286,7 @@ class TransformerLayer(MegatronTransformerLayer):
             context_mask,
         )
 
-        return mlp_output, context, debug_tensors
+        return (mlp_output, context,) + (
+            (debug_tensors,) if return_debug else ()
+        )
 
