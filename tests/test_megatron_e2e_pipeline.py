@@ -5,13 +5,14 @@ NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 2 test_m
 import argparse
 from functools import partial
 import os
+import time
 
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
 import torch
 from transformers import AutoConfig
 
-from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams
+from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
 from d2.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
 
@@ -37,7 +38,11 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         } for microbatch in microbatches]
         if "orig" in mode:
             for mb in microbatches:
-                mb["packed_seq_params"] = mb["packed_seq_params"].mlp_packed_seq_params
+                psp = mb["packed_seq_params"]
+                if isinstance(psp, PingPangSingleStepPackedSeqParams):
+                    mb["packed_seq_params"] = mb["packed_seq_params"].mlp_packed_seq_params
+                else:
+                    assert isinstance(psp, PackedSeqParams)
 
         # forward_backward_func = get_forward_backward_func()
         n_micro_batch = len(microbatches) - self.as_world_size + 1
@@ -46,11 +51,12 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
 
         def loss_func(output):
             # NOTE: this is a dummy loss function.
-            loss = ((output - 1)**2).mean()
+            loss = output.mean()
             return loss, {'loss': loss}
 
         def forward_step(batch_iter, model):
             batch = next(batch_iter)
+            torch.cuda.nvtx.range_push("forward_step")
             input_ids = batch['input_ids']
             position_ids = batch['position_ids']
             attention_mask = None
@@ -61,6 +67,7 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
                 model, input_ids, attention_mask, position_ids, self.tf_config.sequence_parallel,
                 packed_seq_params, labels=input_ids.unsqueeze(0),
             )
+            torch.cuda.nvtx.range_pop()
             return output, loss_func
 
         def dummy_backward_step(model, dummy_bwd_iter, skip: bool):
@@ -92,6 +99,10 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
             vpp_size=len(self.train_module)
         )
         # if mpu.get_pipeline_model_parallel_world_size() > 1:
+
+        torch.cuda.synchronize()
+        from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
+        nvshmem_barrier_all()
         if with_dummy:
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
@@ -117,7 +128,7 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
                 micro_batch_size=1,  # no use when input_shapes was set
                 forward_only=forward_only,
             )
-        grad_sample = unwrap_model(self.train_module[0]).decoder.layers[-2].self_attention.linear_proj.weight.main_grad.clone()
+        grad_sample = unwrap_model(self.train_module[0]).decoder.layers[-1].self_attention.linear_proj.weight.main_grad.clone()
 
         # when testing numerical correctness, instead of running optimizer step, reset grads.
         for tm in self.train_module:
@@ -133,8 +144,8 @@ def init_megatron_e2e_test(
 ):
     token_bytes_q = hidden_size_q * dtype.itemsize
     token_bytes_kv = hidden_size_kv * dtype.itemsize
-    max_tokens_query = num_tokens * world_size
-    max_tokens_key_value = num_tokens * world_size
+    max_tokens_query = num_tokens * (world_size // tp_size)
+    max_tokens_key_value = num_tokens * (world_size // tp_size)
     buffer_size = (
         token_bytes_q * max_tokens_query * 3 +
         # lse_norm. TODO: the factor of 2 might be removed
@@ -184,8 +195,8 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
         bwd_packed_seq_params = PackedSeqParams(
             cu_seqlens_q=cu_seqlens_q[rank],
             cu_seqlens_kv=cu_seqlens_kv[rank],
-            max_seqlen_q=max_seqlen_q[rank],
-            max_seqlen_kv=max_seqlen_kv[rank],
+            max_seqlen_q=max_seqlen_q[rank].item(),
+            max_seqlen_kv=max_seqlen_kv[rank].item(),
         )
         mlp_packed_seq_params = mlp_layout_packed_params(tick_seq_lens[rank][:num_seqs])
         (cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv, *_) = fa_fwd_params
@@ -195,17 +206,18 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
             qkv_format="thd",
             cu_seqlens_q=cu_seqlens_q[rank],
             cu_seqlens_kv=cu_seqlens_kv[rank],
-            max_seqlen_q=max_seqlen_q[rank],
-            max_seqlen_kv=max_seqlen_kv[rank],
+            max_seqlen_q=max_seqlen_q[rank].item(),
+            max_seqlen_kv=max_seqlen_kv[rank].item(),
             qkv_fwd_metadata=qkv_fwd_fa2a_metadata.get_slice(rank),
             attn_out_fwd_metadata=attn_out_fwd_fa2a_metadata.get_slice(rank),
             mlp_packed_seq_params=mlp_packed_seq_params,
         )
 
-        input_ids_local = torch.randint(0, 100, (this_rank_num_tokens,))
+        # NOTE: we init input_ids at the end after creating dispatching strategy
+        # and seq lens of each iteration. This is to ensure that each
+        # rank has the same randomly initialized strategy.
         position_ids_local = torch.arange(this_rank_num_tokens)
         microbatch = {
-            "input_ids": input_ids_local,
             "position_ids": position_ids_local,
             "packed_seq_params": ping_pang_params,
         }
@@ -265,7 +277,7 @@ def test(args):
     worker.set_config(dtype=dtype)
     worker.init(model_path, seed=seed)
     # set again to potentially adapt to the ray launch case.
-    set_random_seed(seed, set_megatron=True)
+    set_random_seed(seed, set_megatron=False)
 
     rank = as_rank = worker.as_rank
     as_world_size = worker.as_world_size
@@ -275,32 +287,86 @@ def test(args):
     num_head_in_dtype = (hf_config.num_attention_heads *
                          torch.float32.itemsize // element_size)
 
-    microbatches = create_pp_microbatches(
+    microbatches_0 = create_pp_microbatches(
         args.num_microbatch, pp_size, worker.as_rank,
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype
     )
-    loss_one_sided, grad_one_sided = worker.forward_backward_batch(
-        microbatches=microbatches,
-        forward_only=False,
-        mode="single_sided",
-        with_dummy=True,
+    microbatches_1 = create_pp_microbatches(
+        args.num_microbatch, pp_size, worker.as_rank,
+        as_world_size, total_seq_len, num_seqs, max_cp_degree,
+        hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype
     )
+    set_random_seed(seed, set_megatron=True)
+    microbatches = []
+    orig_impl_microbatches = []
+    for mb_0, mb_1 in zip(microbatches_0, microbatches_1):
+        mb_0_psp = mb_0["packed_seq_params"]
+        mb_1_psp = mb_1["packed_seq_params"]
+        mb_0_mlp_psp = mb_0_psp.mlp_packed_seq_params
+        mb_1_mlp_psp = mb_1_psp.mlp_packed_seq_params
+        mb_0_psp.dispatcher_id = 0
+        mb_1_psp.dispatcher_id = 1
+        ping_pong_params = PingPangPackedSeqParams(
+            seq_params = [mb_0_psp, mb_1_psp],
+            mlp_layout_seq_params = [mb_0_mlp_psp, mb_1_mlp_psp],
+            max_seqlen_q = max(mb_0_mlp_psp.max_seqlen_q, mb_1_mlp_psp.max_seqlen_q),
+            max_seqlen_kv = max(mb_0_mlp_psp.max_seqlen_kv, mb_1_mlp_psp.max_seqlen_kv),
+        )
+        num_tokens = sum(mb["position_ids"].numel() for mb in [mb_0, mb_1])
+        input_ids = torch.randint(10, 1000, (num_tokens,))
+        mb = {
+            "input_ids": input_ids,
+            "position_ids": torch.concat([mb_0["position_ids"], mb_1["position_ids"]]),
+            "packed_seq_params": ping_pong_params,
+        }
+        microbatches.append(mb)
+        packed_seq_params = PackedSeqParams(
+            qkv_format="thd",
+            cu_seqlens_q = torch.concat([
+                mb_0_mlp_psp.cu_seqlens_q, mb_1_mlp_psp.cu_seqlens_q[1:] + mb_0_mlp_psp.cu_seqlens_q[-1]
+            ]),
+            cu_seqlens_kv = torch.concat([
+                mb_0_mlp_psp.cu_seqlens_kv, mb_1_mlp_psp.cu_seqlens_kv[1:] + mb_0_mlp_psp.cu_seqlens_kv[-1]
+            ]),
+            max_seqlen_q = ping_pong_params.max_seqlen_q,
+            max_seqlen_kv = ping_pong_params.max_seqlen_kv,
+        )
+        orig_mb = {
+            "input_ids": mb["input_ids"],
+            "position_ids": mb["position_ids"],
+            "packed_seq_params": packed_seq_params,
+        }
+        orig_impl_microbatches.append(orig_mb)
+
+    time.sleep(2)
     loss_orig_reimpl, grad_orig_reimpl = worker.forward_backward_batch(
-        microbatches=microbatches,
+        microbatches=orig_impl_microbatches,
         forward_only=False,
         mode="orig_reimpl",
         with_dummy=True,
     )
     loss_orig, grad_orig = worker.forward_backward_batch(
-        microbatches=microbatches,
+        microbatches=orig_impl_microbatches,
         forward_only=False,
         mode="orig_reimpl",
         with_dummy=False,
     )
-    print(f"{loss_one_sided=}, {loss_orig_reimpl=}, {loss_orig=}")
+    print("finish baseline")
+    for _ in range(3):
+        time.sleep(2)
+        loss_reduced, grad_sample = worker.forward_backward_batch(
+            microbatches=microbatches,
+            forward_only=False,
+            mode="ping_pong",
+            with_dummy=True,
+        )
+        print(f"{loss_reduced=}, {loss_orig_reimpl=}, {loss_orig=}")
+    torch.cuda.synchronize()
+    print("finish pingpong")
     torch.testing.assert_close(grad_orig_reimpl, grad_orig)
-    torch.testing.assert_close(grad_orig_reimpl, grad_one_sided, rtol=1e-3, atol=1e-3)
+    if worker.rank == 1:
+        torch.testing.assert_close(grad_orig_reimpl, grad_sample, rtol=1e-3, atol=1e-3)
 
     print("=" * 20 + "forward_backward_batch attention server, done")
 

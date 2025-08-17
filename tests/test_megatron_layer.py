@@ -67,8 +67,8 @@ class MegatronLayerWorker(MegatronBaseWorker):
         else:
             ctx = nullcontext()
         with ctx:
-            mlp_output, context, debug = self.layer.forward_no_switch(
-                tensor_input, packed_seq_params=packed_seq_params
+            mlp_output, context, debug = self.layer.forward_orig_impl(
+                tensor_input, packed_seq_params=packed_seq_params, return_debug=True,
             )
             if return_grad:
                 mlp_output.sum().backward()
@@ -95,12 +95,13 @@ class MegatronLayerWorker(MegatronBaseWorker):
         else:
             ctx = nullcontext()
         with ctx:
-            mlp_output, context, debug_tensors = self.layer.forward_one_stage(
+            mlp_output, context, debug_tensors = self.layer.forward_ping_pong_single_sided(
                 tensor_input, packed_seq_params=packed_seq_params,
-                backward_resend_qkv=backward_resend_qkv
+                backward_resend_qkv=backward_resend_qkv,
+                return_debug=True,
             )
             if return_grad:
-                mlp_output.SUM().backward()
+                mlp_output.sum().backward()
 
         torch.cuda.synchronize()
         print(self.rank, "ping-pong one stage forward done")
