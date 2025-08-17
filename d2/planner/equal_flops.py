@@ -674,6 +674,8 @@ def item_to_metadata(
 
 
 def calculate_flops_factor_in_each_gpu(items):
+    """Calculate the flops (factor) in each GPU. 
+    This is a constant away from the real theoretic FLOPS."""
     ngpus = set(
         item["gpuid"] for item in items
     )

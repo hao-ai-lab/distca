@@ -6,21 +6,8 @@ from d2.planner.equal_flops import (
     plan_relocation,
     item_to_intermediate_tensors,
     postprocess_items,
-    # calculate_flops_factor_in_each_gpu,
+    calculate_flops_factor_in_each_gpu,
 )
-
-def calculate_flops_factor_in_each_gpu(items):
-    ngpus = set(
-        item["gpuid"] for item in items
-    )
-    gpu_flops = [0] * len(ngpus)
-    for item in items:
-        q = item["q"]
-        kv = item["kv"]
-        gpuid = item["gpuid"]
-        gpu_flops[gpuid] += (kv + kv - q) * q / 2
-    return gpu_flops
-
 
 # %%
 items_list =  [[10188, 19948, 100936], [131072], [131072], [10756, 20492, 14428, 2924, 16044, 1084,

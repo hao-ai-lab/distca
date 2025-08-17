@@ -457,19 +457,6 @@ def create_qkv_dispatch(
 
 # ========== D2 Specific Functions ==========
 
-def calculate_flops_factor_in_each_gpu(items):
-    ngpus = set(
-        item["gpuid"] for item in items
-    )
-    gpu_flops = [0] * len(ngpus)
-    for item in items:
-        q = item["q"]
-        kv = item["kv"]
-        gpuid = item["gpuid"]
-        gpu_flops[gpuid] += (kv + kv - q) * q / 2
-    return gpu_flops
-
-
 def test_create_qkv_dispatch_balanced_flops(
     world_size_, total_seq_len_, seq_lens, max_cp_degree_, 
     verbose=False, return_intermediate=False, return_mlp_no_shard_seq_lens=False,
@@ -482,6 +469,8 @@ def test_create_qkv_dispatch_balanced_flops(
         plan_relocation,
         item_to_intermediate_tensors,
         postprocess_items,
+        calculate_flops_factor_in_each_gpu
+
     )
 
     items_list = seq_lens
