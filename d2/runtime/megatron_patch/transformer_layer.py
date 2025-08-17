@@ -622,39 +622,39 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         arg_group_1: Dict[str, Any],
         compute_stream: torch.cuda.Stream,
     ):
+        nvtx_range_push(f"PingPang.forward_layers[{l_no}]")
+
         if getattr(self, "rank", None) is None:
             self.rank = torch.distributed.get_rank()
 
-        nvtx_range_push(f"PingPang.forward_layers[{l_no}]")
+        # nvtx_range_push(f"PingPang.forward_layers[{l_no}]")
         layer = self.layers[l_no]
         prev_layer = self.layers[l_no - 1] if l_no > 0 else None
         
         
         
         # tick 0, second half
-        with torch.cuda.nvtx.range("pre_core_attn.0"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].pre_core_attn.0"):
             arg_group_0 = _forward_pre_core_attn(layer, arg_group_0)
-        with torch.cuda.nvtx.range("sync_tick.0"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].sync_tick.0"):
             _tick_sync(
                 compute_stream, self.comm_stream,
                 arg_group_0, "signal",  # compute out
                 # prev layer's comm out, or anything if it's the first layer
                 arg_group_1, "signal" if l_no > 0 else "hidden_states",
             )
-            nvtx_range_pop(f"PingPang.forward_layers[{l_no}].tick_0.tick_sync")
-        nvtx_range_pop(f"PingPang.forward_layers[{l_no}].tick_0")
 
         # tick 1
         # communication
-        with torch.cuda.nvtx.range("all2all_mlp_to_attn.0"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].all2all_mlp_to_attn.0"):
             arg_group_0 = _layout_mlp_to_attn(layer, arg_group_0)
         # compute
         if l_no > 0:
-            with torch.cuda.nvtx.range("post_core_attn.1"):
+            with torch.cuda.nvtx.range(f"forward_layers[{l_no}].post_core_attn.1"):
                 arg_group_1 = _forward_post_core_attn(prev_layer, arg_group_1)
-        with torch.cuda.nvtx.range("pre_core_attn.1"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].pre_core_attn.1"):
             arg_group_1 = _forward_pre_core_attn(layer, arg_group_1)
-        with torch.cuda.nvtx.range("sync_tick.1"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].sync_tick.1"):
             _tick_sync(
                 compute_stream, self.comm_stream,
                 arg_group_0, "signal",  # comm out
@@ -663,12 +663,12 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         # tick 2
         # communication
-        with torch.cuda.nvtx.range("all2all_mlp_to_attn.1"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].all2all_mlp_to_attn.1"):
             arg_group_1 = _layout_mlp_to_attn(layer, arg_group_1)
         # compute
-        with torch.cuda.nvtx.range("core_attn.0"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].core_attn.0"):
             arg_group_0 = _forward_core_attn(layer, arg_group_0)
-        with torch.cuda.nvtx.range("sync_tick.2"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].sync_tick.2"):
             _tick_sync(
                 compute_stream, self.comm_stream,
                 arg_group_0, "signal",  # compute out
@@ -677,12 +677,12 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         # tick 3
         # communication
-        with torch.cuda.nvtx.range("all2all_attn_to_mlp.0"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].all2all_attn_to_mlp.0"):
             arg_group_0 = _layout_attn_to_mlp(layer, arg_group_0)
         # compute
-        with torch.cuda.nvtx.range("core_attn_1"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].core_attn_1"):
             arg_group_1 = _forward_core_attn(layer, arg_group_1)
-        with torch.cuda.nvtx.range("sync_tick.3"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].sync_tick.3"):
             _tick_sync(
                 compute_stream, self.comm_stream,
                 arg_group_0, "signal",  # comm out
@@ -691,35 +691,34 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         # tick 4, also the tick 0 of the next layer
         # communication
-        with torch.cuda.nvtx.range("all2all_attn_to_mlp.1"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].all2all_attn_to_mlp.1"):
             arg_group_1 = _layout_attn_to_mlp(layer, arg_group_1)
         # compute
-        with torch.cuda.nvtx.range("post_core_attn.0"):
+        with torch.cuda.nvtx.range(f"forward_layers[{l_no}].post_core_attn.0"):
             arg_group_0 = _forward_post_core_attn(layer, arg_group_0)
         # NOTE: sync of this tick is at the next layer.
 
         # if the last layer, do the other half of tick 4 and tick 5
-        if l_no == len(self.layers) - 1:
-            nvtx_range_push(f"PingPang.forward_layers[{l_no}].tick_4.last_layer")
-            
+        if l_no == len(self.layers) - 1:            
             # No next layer, do the sync here.
-            with torch.cuda.nvtx.range("sync_tick.4"):
+            with torch.cuda.nvtx.range(f"forward_layers[{l_no}].sync_tick.4"):
                 _tick_sync(
                     compute_stream, self.comm_stream,
                     arg_group_0, "hidden_states",   # place holder
                     arg_group_1, "signal",          # comm out
                 )
-            with torch.cuda.nvtx.range("post_core_attn.1"):
+            with torch.cuda.nvtx.range(f"forward_layers[{l_no}].post_core_attn.1"):
                 arg_group_1 = _forward_post_core_attn(layer, arg_group_1)
             # gathering the result
-            with torch.cuda.nvtx.range("gather_ping_pong"):
+            with torch.cuda.nvtx.range(f"forward_layers[{l_no}].gather_ping_pong"):
                 hidden_states = _gather_tensor([arg_group_0["hidden_states"], arg_group_1["hidden_states"]], 2)
                 context = _gather_tensor([arg_group_0["context"],arg_group_1["context"]], 2)
         else:
             hidden_states = None
             context = None
-        
+
         nvtx_range_pop(f"PingPang.forward_layers[{l_no}]")
+        
         return arg_group_0, arg_group_1, hidden_states, context
 
     def _forward_pre_core_attn(layer: TransformerLayer, args: Dict[str, Any]):
