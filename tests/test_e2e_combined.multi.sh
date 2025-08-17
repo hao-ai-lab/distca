@@ -5,42 +5,53 @@ export NVSHMEM_IB_ENABLE_IBGDA=true
 export NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-NNODES=4
+NNODES=2
 NPROC_PER_NODE=8
 RZV_BACKEND=c10d
-RZV_ENDPOINT=fs-mbz-gpu-022:29400
-RZV_ID=megatron_d2_unique_id_6
+RZV_ENDPOINT=$1
+if [ -z "${RZV_ENDPOINT}" ]; then
+    echo "Usage: bash $0 <rzv_endpoint>"
+    echo "   - rzv_endpoint: the endpoint of the master node. For example, <node_address:29400>"
+    exit 1
+fi
+
+echo
+echo "bash $0 $1"
+echo
+
+RZV_ID=megatron_d2_unique_id
+
+# Tweek the mode between baseline vs d2.
 MODE=baseline
 # MODE=d2
 REPLAN_ITER=10
+NUM_TOKENS=32768
 # NUM_TOKENS=65536
-NUM_TOKENS=131072
+# NUM_TOKENS=131072
 # NUM_TOKENS=174080
 NUM_LAYERS=4
 # NUM_LAYERS=32
 # NUM_LAYERS=4
-# UP_SAMPLE_FACTOR=4
-UP_SAMPLE_FACTOR=32
+UP_SAMPLE_FACTOR=4
+# UP_SAMPLE_FACTOR=32
 ELONGATE_FACTOR=1
 FILTER_THRESHOLD=65536
 FILTER_RATIO=0.10
-MAX_SAMPLE_ID=20
+# MAX_SAMPLE_ID=20
+MAX_SAMPLE_ID=4
 # MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
 MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Llama-8B
 
 THIS_HOST=$(hostname)
-mkdir -p nsys-profile-15
-NSYS_PROFILE_PATH=nsys-profile-15/${MODE}${REPLAN_ITER}.${THIS_HOST}.t${NUM_TOKENS}.elong${ELONGATE_FACTOR}.up${UP_SAMPLE_FACTOR}.ft${FILTER_THRESHOLD}.fr${FILTER_RATIO}.nsys-rep
 
+OUTPUT_DIR=nsys-profile
+mkdir -p ${OUTPUT_DIR}
+NSYS_PROFILE_PATH=${OUTPUT_DIR}/${MODE}${REPLAN_ITER}.${THIS_HOST}.t${NUM_TOKENS}.elong${ELONGATE_FACTOR}.up${UP_SAMPLE_FACTOR}.ft${FILTER_THRESHOLD}.fr${FILTER_RATIO}.nsys-rep
 
+ENABLE_NSYS=0
 
-# nsys profile \
-#   --show-output=true \
-#   --force-overwrite=true \
-#   -o ${NSYS_PROFILE_PATH} \
-#   --sample=none \
-#   -t cuda,nvtx \
-torchrun \
+# Prepare the common torchrun command and arguments
+TORCHRUN_CMD=(
   --nnodes=${NNODES} \
   --nproc_per_node=${NPROC_PER_NODE} \
   --rdzv_backend=${RZV_BACKEND} \
@@ -61,5 +72,18 @@ torchrun \
     --elongate-factor ${ELONGATE_FACTOR} \
     --filter-threshold ${FILTER_THRESHOLD} \
     --filter-ratio ${FILTER_RATIO} \
-    --force-exit
+)
 
+set -x
+if [ ${ENABLE_NSYS} -eq 1 ]; then
+    nsys profile \
+      --show-output=true \
+      --force-overwrite=true \
+      -o ${NSYS_PROFILE_PATH} \
+      --sample=none \
+      -t cuda,nvtx \
+    torchrun "${TORCHRUN_CMD[@]}"
+else
+    torchrun "${TORCHRUN_CMD[@]}" --force-exit
+fi
+set +x
