@@ -264,7 +264,7 @@ def create_pipeline_seqlens(
     For a backward tick, its sequence length is the reverse of a forward tick.
     """
     if is_backward:
-        return ref_seq_lens.flip(0)
+        return ref_seq_lens.reshape(-1, dp_size, num_seqs).flip(0).reshape(-1, num_seqs)
     # Create new microbatches for the first PP stage
     if add_dummy:
         # should be at least 'tp_size' tokens
@@ -469,8 +469,7 @@ def create_qkv_dispatch_pipeline_tick(
         tp_size=tp_size,
         dp_size=dp_size,
     )
-    # NOTE: those begin with bwd_ is mostly the filp of the original
-    # value's flip.
+    # NOTE: those begin with bwd_ is mostly the flip of the original value.
     (bwd_mlp_seq_len, bwd_mlp_num_seqs, mlp_q_dispatch_bwd,
      bwd_kv_to_q_mapping, bwd_kv_to_q_rank, bwd_kv_context_size,
      bwd_q_to_num_kv_seq, bwd_q_to_num_kv_tokens
