@@ -142,8 +142,8 @@ def init_megatron_e2e_test(
     world_size: int, max_cp_degree: int, tp_size: int, pp_size: int,
     dtype, worker_cls=MegatronE2eWorker
 ):
-    token_bytes_q = hidden_size_q * dtype.itemsize
-    token_bytes_kv = hidden_size_kv * dtype.itemsize
+    token_bytes_q = hidden_size_q * dtype.itemsize // tp_size
+    token_bytes_kv = hidden_size_kv * dtype.itemsize // tp_size
     max_tokens_query = num_tokens * (world_size // tp_size)
     max_tokens_key_value = num_tokens * (world_size // tp_size)
     buffer_size = (
@@ -169,7 +169,7 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
                            as_world_size: int, total_seq_len: int, num_seqs: int,
                            max_cp_degree: int, hidden_size_q_tp: int,
                            hidden_size_k_tp: int, element_size: int,
-                           num_head_in_dtype: int):
+                           num_head_in_dtype: int, tp_size: int,):
     tick_seq_lens = None
     bwd_metadata = []
     microbatches = []
@@ -188,6 +188,7 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
             hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
             ref_seq_lens=tick_seq_lens,
             add_dummy=add_dummy_forward,
+            tp_size=tp_size,
         )
         this_rank_num_tokens = tick_seq_lens[rank].sum().item()
 
@@ -279,23 +280,24 @@ def test(args):
     # set again to potentially adapt to the ray launch case.
     set_random_seed(seed, set_megatron=False)
 
-    rank = as_rank = worker.as_rank
     as_world_size = worker.as_world_size
 
     hidden_size_q_tp = hidden_size_q // tp_size
     hidden_size_k_tp = hidden_size_kv // tp_size
     num_head_in_dtype = (hf_config.num_attention_heads *
-                         torch.float32.itemsize // element_size)
+                         torch.float32.itemsize // element_size // tp_size)
 
     microbatches_0 = create_pp_microbatches(
         args.num_microbatch, pp_size, worker.as_rank,
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
-        hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype
+        hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
+        tp_size,
     )
     microbatches_1 = create_pp_microbatches(
         args.num_microbatch, pp_size, worker.as_rank,
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
-        hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype
+        hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
+        tp_size,
     )
     set_random_seed(seed, set_megatron=True)
     microbatches = []

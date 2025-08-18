@@ -912,6 +912,8 @@ class PingPangGPTModel(GPTModel):
             # create a dummy decoder_input
             sl = input_ids.shape[-1]
             hs = self.config.hidden_size
+            if self.config.sequence_parallel:
+                sl //= self.config.tensor_model_parallel_size
             kwargs['decoder_input'] = torch.zeros((sl, 1, hs), dtype=dtype, device='cuda')
 
         with self._reset_stage_for_dummy_forward(reset=is_dummy_forward):
