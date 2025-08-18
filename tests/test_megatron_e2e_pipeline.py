@@ -7,6 +7,7 @@ from functools import partial
 import os
 import time
 
+import megatron.core.parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
 import torch
@@ -169,7 +170,7 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
                            as_world_size: int, total_seq_len: int, num_seqs: int,
                            max_cp_degree: int, hidden_size_q_tp: int,
                            hidden_size_k_tp: int, element_size: int,
-                           num_head_in_dtype: int, tp_size: int,):
+                           num_head_in_dtype: int, tp_size: int, dp_size: int,):
     tick_seq_lens = None
     bwd_metadata = []
     microbatches = []
@@ -189,6 +190,7 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
             ref_seq_lens=tick_seq_lens,
             add_dummy=add_dummy_forward,
             tp_size=tp_size,
+            dp_size=dp_size,
         )
         this_rank_num_tokens = tick_seq_lens[rank].sum().item()
 
@@ -250,13 +252,17 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, rank: int,
 
 def test(args):
     seed = args.seed
+    # test scale
     num_tokens = args.num_tokens
     max_cp_degree = args.cp_degree
     num_seqs = args.num_seqs
+    total_seq_len = args.num_tokens
+    # parallelization
     tp_size = args.tp_size
     pp_size = args.pp_size
     world_size = args.num_nodes * args.num_gpus_per_node
-    total_seq_len = args.num_tokens
+    assert world_size % (tp_size * pp_size) == 0
+    dp_size = world_size // (tp_size * pp_size)
 
     dtype = torch.bfloat16
     element_size = dtype.itemsize
@@ -281,6 +287,12 @@ def test(args):
     set_random_seed(seed, set_megatron=False)
 
     as_world_size = worker.as_world_size
+    as_rank = worker.as_rank
+
+    # Check rank correctness
+    dp_rank = mpu.get_data_parallel_rank()
+    pp_rank = mpu.get_pipeline_model_parallel_rank()
+    assert as_rank == dp_rank + pp_rank * dp_size, f"{as_rank=}, {dp_rank=}, {pp_rank=}, {dp_size=}"
 
     hidden_size_q_tp = hidden_size_q // tp_size
     hidden_size_k_tp = hidden_size_kv // tp_size
@@ -291,13 +303,13 @@ def test(args):
         args.num_microbatch, pp_size, worker.as_rank,
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
-        tp_size,
+        tp_size, dp_size,
     )
     microbatches_1 = create_pp_microbatches(
         args.num_microbatch, pp_size, worker.as_rank,
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
-        tp_size,
+        tp_size, dp_size,
     )
     set_random_seed(seed, set_megatron=True)
     microbatches = []
