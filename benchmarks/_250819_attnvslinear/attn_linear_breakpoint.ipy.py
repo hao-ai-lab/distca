@@ -62,6 +62,8 @@ def compute_linear_vs_attention(model_name, n_qo, n_kv, h_d, d, k, n_experts=1, 
     Returns:
         pandas.DataFrame: Table with tokens, linear_time, attn_time, and component breakdowns
     """
+    TFLOPS = 1e12
+    H100_peak_flops = 1 * TFLOPS
     
     # Helper functions
     def linear_flops(t):
@@ -81,11 +83,14 @@ def compute_linear_vs_attention(model_name, n_qo, n_kv, h_d, d, k, n_experts=1, 
             "linear_time": total
         }
 
+    def linear_time(t):
+        return linear_flops(t)["linear_time"] / H100_peak_flops
+
     def attn_flops(t):
         return 4 * (t**2) * n_qo * h_d
 
     def attn_time(t):
-        return attn_ratio * attn_flops(t)
+        return attn_ratio * attn_flops(t) / H100_peak_flops
     
     # Print parameters if verbose
     if verbose:
@@ -105,7 +110,7 @@ def compute_linear_vs_attention(model_name, n_qo, n_kv, h_d, d, k, n_experts=1, 
         A = attn_flops(t)
         rows.append({
             "tokens": t,
-            "linear_time": L["linear_time"],
+            "linear_time": linear_time(t),
             "attn_flops": A,
             "attn_time": attn_time(t),
             # Component columns for inspection
@@ -129,19 +134,36 @@ def compute_linear_vs_attention(model_name, n_qo, n_kv, h_d, d, k, n_experts=1, 
         plt.figure(figsize=(10, 6))
         plt.plot(df["tokens"], df["linear_time"], label="Linear time (sum of FLOPs)", linewidth=2)
         plt.plot(df["tokens"], df["attn_time"], label=f"Attention time ({attn_ratio:.2f} · attn FLOPs)", linewidth=2)
+        
+        # Find intersection point where attn_time = linear_time
+        diff = np.abs(df["attn_time"] - df["linear_time"])
+        min_idx = np.argmin(diff)
+        intersection_tokens = df.iloc[min_idx]["tokens"]
+        intersection_time = df.iloc[min_idx]["linear_time"]
+        
+        # Add vertical line at intersection
+        plt.axvline(x=intersection_tokens, color='red', linestyle='--', alpha=0.7, 
+                   label=f'Intersection at {intersection_tokens} tokens')
+        
+        # Optionally add a point marker at intersection
+        plt.plot(intersection_tokens, intersection_time, 'ro', markersize=8, 
+                label=f'Crossover point')
+        
         plt.xlabel("tokens (t)")
         plt.ylabel("duration (arbitrary units)")
         plt.title(f"{model_name}: Linear time vs Attention time")
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
+        plt.savefig(f"{model_name}.png")
         plt.show()
     
     return df
 
 # %%
 
-# Example usage - Qwen235B
+# Qwen235B
+# https://huggingface.co/Qwen/Qwen3-235B-A22B/blob/main/config.json
 df_qwen = compute_linear_vs_attention(
     model_name="Qwen235B",
     n_qo=64,
@@ -155,7 +177,8 @@ df_qwen = compute_linear_vs_attention(
 
 # %%
 
-# Example usage - Llama8B
+# Llama8B
+# https://huggingface.co/meta-llama/Meta-Llama-3-8B/blob/main/config.json
 df_llama8b = compute_linear_vs_attention(
     model_name="Llama8B",
     n_qo=32,  # num_attention_heads
@@ -169,7 +192,8 @@ df_llama8b = compute_linear_vs_attention(
 
 # %%
 
-# Example usage - Llama70B (commented out)
+# Llama70B
+# https://huggingface.co/meta-llama/Meta-Llama-3-70B/blob/main/config.json
 df_llama70b = compute_linear_vs_attention(
     model_name="Llama70B",
     n_qo=64,  # num_attention_heads
@@ -177,6 +201,21 @@ df_llama70b = compute_linear_vs_attention(
     h_d=128,  # hidden_size / num_attention_heads = 8192 / 64
     d=8192,   # hidden_size
     k=3.5,    # intermediate_size / hidden_size = 28672 / 8192
+    n_experts=1,  # dense model
+    c=1,
+    t_max=128*1024
+)
+
+# %%
+# Mistral7B
+# https://huggingface.co/mistralai/Mistral-7B-v0.1/blob/main/config.json
+df_mistral7b = compute_linear_vs_attention(
+    model_name="Mistral7B",
+    n_qo=32,  # num_attention_heads
+    n_kv=8,   # num_key_value_heads
+    h_d=128,  # hidden_size / num_attention_heads = 4096 / 32
+    d=4096,   # hidden_size
+    k=3.5,    # intermediate_size / hidden_size = 14336 / 4096
     n_experts=1,  # dense model
     c=1
 )
