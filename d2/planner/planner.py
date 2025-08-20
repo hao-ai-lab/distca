@@ -3,11 +3,11 @@ from copy import deepcopy
 from typing import List
 
 import rich
+from d2.runtime.shard_info import (handle_planner_metadata,
+                                   items_into_shardinfos, plan_to_metadata)
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-
-from d2.runtime.shard_info import items_into_shardinfos, plan_to_metadata
 
 K = 1024
 
@@ -639,18 +639,7 @@ class Planner:
         items = self.plan_items(items_, verbose, plot)
         items = self.postprocess_items(items)
         shard_infos = self.items_into_shardinfos(items)
-        from d2.runtime.shard_info import handle_planner_metadata
         
-        # (
-        # mlp_num_seqs,
-        # mlp_q_dispatch,
-        # mlp_seq_lens,
-        # kv_to_q_mapping,
-        # kv_to_q_rank,
-        # kv_context_size,
-        # q_to_num_kv_seq,
-        # q_to_num_kv_tokens,
-        # ) 
         ret = handle_planner_metadata(self.num_dispatch_instances, shard_infos)
         return ret
     

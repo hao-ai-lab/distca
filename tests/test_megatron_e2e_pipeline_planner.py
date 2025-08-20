@@ -1,6 +1,6 @@
 """
 Debug example:
-NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_pipeline.py --num-gpus-per-node 2 --pp-size 2 --num-microbatch 2
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_pipeline_planner.py --num-gpus-per-node 2 --pp-size 2 --num-microbatch 2
 """
 import argparse
 from functools import partial
@@ -17,7 +17,7 @@ from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangSin
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
 from d2.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
 
-from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispatch_pipeline_tick, create_qkv_dispatch_pipeline_tick_planned
+from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispatch_pipeline_tick_planned
 from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
 from megatron_test_utils import (
     gptmodel_forward, make_batch_generator, unwrap_model,
