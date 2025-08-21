@@ -679,7 +679,7 @@ def calculate_flops_factor_in_each_gpu(items):
     ngpus = set(
         item["gpuid"] for item in items
     )
-    print("ngpus", ngpus)
+    # print("ngpus", ngpus)
     gpu_flops = [0] * len(ngpus)
     for item in items:
         q = item["q"]
