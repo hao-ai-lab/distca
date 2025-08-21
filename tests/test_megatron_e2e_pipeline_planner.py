@@ -1,6 +1,6 @@
 """
 Debug example:
-NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_pipeline_planner.py --num-gpus-per-node 2 --pp-size 2 --num-microbatch 2
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_pipeline_planner.py --num-gpus-per-node 4 --pp-size 2 --num-microbatch 2 --tp-size 2
 """
 import argparse
 from functools import partial
@@ -24,6 +24,7 @@ from megatron_test_utils import (
 )
 from typing import Optional
 
+# PP Megatron Worker. Need to add optimizer.
 class MegatronE2eWorker(BaseMegatronE2eWorker):
     def __init__(self, rank: int, world_size: int):
         super().__init__(rank, world_size)
@@ -169,6 +170,26 @@ def init_megatron_e2e_test(
     print("Communication groups initialized")
     return worker
 
+
+
+# We need a new method to get batch document length. 
+# Similar to Junda' s DP Sequence length sampling.
+# Each tick, will have DP * List. Each List is the sequence length on that rank.(MLP DP for now. CP is a little different.)
+
+from test_e2e_combined import setup_global_batch
+
+
+
+setup_global_batch(total_seq_len=32 * 1024)
+
+
+# 1. Figure out junda's dataloader.
+# num_microbatch, 
+# world_size, 
+# parallel_config,
+# total_seq_len,
+# model_config,
+
 def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
                            as_world_size: int, total_seq_len: int, num_seqs: int,
                            max_cp_degree: int, hidden_size_q_tp: int,
@@ -183,20 +204,8 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
         # For the last few ticks (drain-out ticks)
         # add a dummy forward microbatch at PP rank 0.
         add_dummy_forward = i >= num_microbatch
-        
-        # (
-        #     fa_fwd_params, fa_bwd_params,
-        #     qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
-        #     attn_out_fwd_fa2a_metadata, attn_out_qkv_bwd_fa2a_metadata,
-        #     tick_seq_lens,
-        # ) = create_qkv_dispatch_pipeline_tick(
-        #     as_world_size, total_seq_len, num_seqs, max_cp_degree,
-        #     hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
-        #     ref_seq_lens=tick_seq_lens,
-        #     add_dummy=add_dummy_forward,
-        #     tp_size=tp_size,
-        #     dp_size=dp_size,
-        # )
+
+        # Update the tick_seq_lens for the next iteration.
         (
             fa_fwd_params, fa_bwd_params,
             qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
@@ -209,6 +218,7 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
             add_dummy=add_dummy_forward,
             tp_size=tp_size,
             dp_size=dp_size,
+            pp_size= pp_degree,
             hf_config=hf_config,
         )
         this_rank_num_tokens = tick_seq_lens[as_rank].sum().item()
@@ -270,6 +280,9 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
         packed_seq_params.attn_out_bwd_metadata = attn_out_bwd_metadata
         packed_seq_params.bwd_packed_seq_params = bwd_packed_seq_params
     return microbatches
+
+
+
 
 
 def test(args):

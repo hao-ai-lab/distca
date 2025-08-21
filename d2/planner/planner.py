@@ -625,6 +625,7 @@ class Planner:
         self.world_size = world_size
         self.parallel_config = parallel_config
         self.data_parallel = world_size // (parallel_config.pipeline_model_parallel_size * parallel_config.tensor_model_parallel_size)
+        rich.print(f"[bold green] world_size: {self.world_size}, DP: {self.data_parallel}[/bold green], PP: {parallel_config.pipeline_model_parallel_size}, TP: {parallel_config.tensor_model_parallel_size}")
         self.num_dispatch_instances = self.data_parallel * parallel_config.pipeline_model_parallel_size
         self.tolerance_factor = tolerance_factor
 

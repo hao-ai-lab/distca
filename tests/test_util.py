@@ -279,6 +279,10 @@ def create_pipeline_seqlens(
         _num_tokens_shard = total_seq_len // (max_cp_degree)
         new_seqlen = gen_seq_lens(dp_size, num_seqs, _num_tokens_shard).long()
     new_seqlen *= max_cp_degree
+
+    #  new_seqlen : shape : [dp, num_seqs]  We should sample seq_len here.
+    # And add the sampled seq_len to the batch. 
+    # Next step is based on the previous batch, move the batch. 
     # Get existing microbatch seqlens
     if ref_seq_lens is not None:
         # Not the first microbatch
@@ -502,7 +506,7 @@ def create_qkv_dispatch_pipeline_tick_planned(
     softmax_lse_size: int, # size of the softmax_lse tensor, should be num_heads
     ref_seq_lens: Optional[torch.Tensor],
     add_dummy: bool,
-    tp_size: int, dp_size: int,
+    tp_size: int, dp_size: int, pp_size: int,
     hf_config: Optional[AutoConfig] = None,
 ):
     create_pp_seqlen_kwargs = dict(
@@ -517,16 +521,15 @@ def create_qkv_dispatch_pipeline_tick_planned(
         tp_size=tp_size,
         dp_size=dp_size,
     )
+    
     # Create parallel config for the planner.
     parallel_config = ParallelConfig(
         tensor_model_parallel_size=tp_size,
-        pipeline_model_parallel_size=dp_size,
-        context_parallel_size=1,
+        pipeline_model_parallel_size=pp_size,
     )
-    
-
+    planner_ws = tp_size * dp_size * pp_size
     planner = Planner(
-            world_size=world_size,
+            world_size=planner_ws,  # Should be the number of GPU. Not Attention server world size.
             parallel_config = parallel_config,
             tolerance_factor = 0.1,
             model_config = None)
