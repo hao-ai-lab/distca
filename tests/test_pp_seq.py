@@ -68,34 +68,26 @@ def setup_global_batch(
             [total_seq_len // 8] * 8,
         ]
         GLOBAL_BATCH = manual_case * 4 + GLOBAL_BATCH 
-    # GLOBAL_BATCH = [
-    #         [total_seq_len/2, total_seq_len/2, 4, 4],
-    #         [total_seq_len/2, total_seq_len/4, total_seq_len/8, total_seq_len/8],
-    #     ]
-    # GLOBAL_BATCH = GLOBAL_BATCH * 100
+    GLOBAL_BATCH = [
+            [total_seq_len/4, total_seq_len/4] * 2,
+            [total_seq_len/2, total_seq_len/4, total_seq_len/8, total_seq_len/8],
+        ]
+    GLOBAL_BATCH = GLOBAL_BATCH * 100
     GLOBAL_BATCH = iter(GLOBAL_BATCH)
     return
 
 def run_batch_setup_example():
-    """
-    这个函数展示了如何调用 setup_global_batch。
-    """
-    # 场景1：基本调用，只传入必需的参数
     print("--- 场景1: 基本调用 ---")
-    # 设置总序列长度
     sequence_length = 32 * 1024
-    # 调用函数
     setup_global_batch(total_seq_len=sequence_length)
     
-    # 验证结果：尝试从全局迭代器中获取一个批次
     try:
         first_batch = next(GLOBAL_BATCH)
         sec_batch = next(GLOBAL_BATCH)
         thi_batch = next(GLOBAL_BATCH)
         four_batch = next(GLOBAL_BATCH)
         fif_batch = next(GLOBAL_BATCH)
-        breakpoint()
-        print(f"成功获取第一个批次，包含 {len(first_batch)} 个文档。\n")
+        print(f" {len(first_batch)} 个文档。\n")
     except StopIteration:
         print("数据批次为空。\n")
 
@@ -157,7 +149,7 @@ def create_pipeline_seqlens(
         assert total_seq_len % max_cp_degree == 0
         _num_tokens_shard = total_seq_len // (max_cp_degree)
         new_seqlen = gen_seq_lens(dp_size, num_seqs, _num_tokens_shard).long()
-
+    
     # Change to torch tensor for later concat.
     new_seqlen_list = get_next_batch(dp_size, )
     # Change to even 
@@ -175,14 +167,12 @@ def create_pipeline_seqlens(
         for s in seq:
             assert(s % 2 == 0)
     # pad real sequence and dummy sequence.
-    pad_num = 8 #max(1, tp_size)
-    print("new_seq_len_list is : ", new_seqlen_list)
+    pad_num = tp_size
     max_cols = max(len(x) for x in new_seqlen_list)
     new_seqlen_list = [x + [pad_num] * (max_cols - len(x)) for x in new_seqlen_list]
     
     new_seqlen = torch.tensor(new_seqlen_list, dtype=torch.long) # Padded Tensor.
 
-    print("Next tick sequence length is :", new_seqlen)
     #  new_seqlen : shape : [dp, num_seqs]  We should sample seq_len here.
     # And add the sampled seq_len to the batch. 
     # Next step is based on the previous batch, move the batch. 
@@ -213,7 +203,7 @@ def create_pipeline_seqlens(
     seq_len = torch.cat([new_seqlen, prev_seqlen], dim=0)
 
     assert torch.all(seq_len.sum(-1) % tp_size == 0), f"tot_seqlen_on_rank % tp_size should be 0 for sequence parallel, seq_sum : {seq_len.sum(-1)}, {seq_len.sum(-1) % tp_size}"
-    print("Output seq_len:\n", seq_len)
+
     # expected : total_seq_len
     for rank_seq in seq_len:
         current_token = sum(rank_seq)
@@ -224,6 +214,7 @@ def create_pipeline_seqlens(
         max_index = rank_seq.argmax().item()
         rank_seq[max_index] -= gap
         assert sum(rank_seq) == total_seq_len, f"current_token : {sum(rank_seq)}, max_index : {max_index}, rank_seq : {rank_seq}"
+    
     return seq_len
 
 
@@ -253,7 +244,8 @@ def create_qkv_dispatch_pipeline_tick_planned(
         tp_size=tp_size,
         dp_size=dp_size,
     )
-    
+    print("Current tick seq_lens is:")
+    print(seq_lens)
     # Create parallel config for the planner.
     parallel_config = ParallelConfig(
         tensor_model_parallel_size=tp_size,
@@ -268,13 +260,6 @@ def create_qkv_dispatch_pipeline_tick_planned(
 
     # Post processing seq_len. Remove padded zero.
     batch = seq_lens.tolist()
-    # result = []
-
-    # for row in batch:
-    #     row = [i for i in row if i!=0]
-    #     result.append(row)
-    # batch = result
-
 
     print("batch =", batch)
     
@@ -289,7 +274,7 @@ def create_qkv_dispatch_pipeline_tick_planned(
         kv_context_size,
         q_to_num_kv_seq,
         q_to_num_kv_tokens
-    ) = planner.plan_to_raw_qkv_dispatch(items, verbose=True)
+    ) = planner.plan_to_raw_qkv_dispatch(items, verbose=False)
 
     (_, _, _, _,
      fa_fwd_params, fa2a_fwd_metadata) = compute_e2e_fa2a_metadata(
@@ -309,7 +294,7 @@ def create_qkv_dispatch_pipeline_tick_planned(
         dp_size=dp_size,
     )
     # NOTE: those begin with bwd_ is mostly the flip of the original value.
-
+    print("reversed_seqlens is : ", reversed_seqlens)
     (bwd_mlp_seq_len, bwd_mlp_num_seqs, mlp_q_dispatch_bwd,
      bwd_kv_to_q_mapping, bwd_kv_to_q_rank, bwd_kv_context_size,
      bwd_q_to_num_kv_seq, bwd_q_to_num_kv_tokens
@@ -346,9 +331,7 @@ if __name__ == "__main__":
     max_cp_degree = 2
     total_seq_len = 10 * 1024
 
-    ref_seq_lens =  None
-    add_dummy = False
-    is_backward = False
+
 
     # for i in range(5):
     #     print(f"\n---  {i+1} th call ---")
@@ -374,6 +357,11 @@ if __name__ == "__main__":
     #         tp_size=tp_size,
     #         dp_size=dp_size,
     #     )
+
+    ref_seq_lens =  None
+    add_dummy = True
+    is_backward = False
+
     tick_seq_lens = None
     bwd_metadata = []
     microbatches = []
@@ -389,7 +377,7 @@ if __name__ == "__main__":
             fa_fwd_params, fa_bwd_params,
             qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
             attn_out_fwd_fa2a_metadata, attn_out_qkv_bwd_fa2a_metadata,
-            tick_seq_lens,
+            ref_seq_lens,
         ) = create_qkv_dispatch_pipeline_tick_planned(
             world_size=as_world_size,
             total_seq_len=total_seq_len,

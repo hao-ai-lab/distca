@@ -199,7 +199,6 @@ def setup_global_batch(
         ), max_ctx_length=total_seq_len
     )
 
-    
     if should_add_debug_cases:
         GLOBAL_BATCH = list(GLOBAL_BATCH)
         # DP2 case
@@ -301,6 +300,7 @@ def create_qkv_dispatch_pipeline_tick_planned(
         tp_size=tp_size,
         dp_size=dp_size,
     )
+
     # NOTE: those begin with bwd_ is mostly the flip of the original value.
 
     (bwd_mlp_seq_len, bwd_mlp_num_seqs, mlp_q_dispatch_bwd,
@@ -410,6 +410,7 @@ def get_next_batch(dp_size):
 #     assert torch.all(seq_len.sum(-1) % tp_size == 0), "tot_seqlen_on_rank % tp_size should be 0 for sequence parallel"
 #     return seq_len
 
+
 def create_pipeline_seqlens(
     ref_seq_lens: Optional[torch.Tensor],
     add_dummy: bool,
@@ -444,7 +445,7 @@ def create_pipeline_seqlens(
         assert total_seq_len % max_cp_degree == 0
         _num_tokens_shard = total_seq_len // (max_cp_degree)
         new_seqlen = gen_seq_lens(dp_size, num_seqs, _num_tokens_shard).long()
-
+    
     # Change to torch tensor for later concat.
     new_seqlen_list = get_next_batch(dp_size, )
     # Change to even 
@@ -462,14 +463,13 @@ def create_pipeline_seqlens(
         for s in seq:
             assert(s % 2 == 0)
     # pad real sequence and dummy sequence.
-    pad_num = 8 #max(1, tp_size)
-    print("new_seq_len_list is : ", new_seqlen_list)
+    pad_num = max(1, tp_size // max_cp_degree)
+    pad_num *= max_cp_degree
     max_cols = max(len(x) for x in new_seqlen_list)
     new_seqlen_list = [x + [pad_num] * (max_cols - len(x)) for x in new_seqlen_list]
     
     new_seqlen = torch.tensor(new_seqlen_list, dtype=torch.long) # Padded Tensor.
 
-    print("Next tick sequence length is :", new_seqlen)
     #  new_seqlen : shape : [dp, num_seqs]  We should sample seq_len here.
     # And add the sampled seq_len to the batch. 
     # Next step is based on the previous batch, move the batch. 
@@ -500,7 +500,7 @@ def create_pipeline_seqlens(
     seq_len = torch.cat([new_seqlen, prev_seqlen], dim=0)
 
     assert torch.all(seq_len.sum(-1) % tp_size == 0), f"tot_seqlen_on_rank % tp_size should be 0 for sequence parallel, seq_sum : {seq_len.sum(-1)}, {seq_len.sum(-1) % tp_size}"
-    print("Output seq_len:\n", seq_len)
+
     # expected : total_seq_len
     for rank_seq in seq_len:
         current_token = sum(rank_seq)
@@ -511,6 +511,7 @@ def create_pipeline_seqlens(
         max_index = rank_seq.argmax().item()
         rank_seq[max_index] -= gap
         assert sum(rank_seq) == total_seq_len, f"current_token : {sum(rank_seq)}, max_index : {max_index}, rank_seq : {rank_seq}"
+    
     return seq_len
 
 
@@ -751,7 +752,7 @@ def test(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num-tokens", type=int, default=16384)
+    parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=2)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
@@ -759,6 +760,6 @@ if __name__ == "__main__":
     parser.add_argument("--num-gpus-per-node", type=int, default=4)
     parser.add_argument("--tp-size", type=int, default=1)
     parser.add_argument("--pp-size", type=int, default=4)
-    parser.add_argument("--num-microbatch", type=int, default=2)
+    parser.add_argument("--num-microbatch", type=int, default=5)
     args = parser.parse_args()
     test(args)
