@@ -268,6 +268,7 @@ def create_qkv_dispatch_pipeline_tick_planned(
             tolerance_factor = 0.1,
             model_config = None)
     batch = seq_lens.tolist()
+
     print("batch =", batch)
     
     items = batch_to_items_class(batch,model_config=hf_config)
@@ -500,7 +501,18 @@ def create_pipeline_seqlens(
 
     assert torch.all(seq_len.sum(-1) % tp_size == 0), f"tot_seqlen_on_rank % tp_size should be 0 for sequence parallel, seq_sum : {seq_len.sum(-1)}, {seq_len.sum(-1) % tp_size}"
     print("Output seq_len:\n", seq_len)
+    # expected : total_seq_len
+    for rank_seq in seq_len:
+        current_token = sum(rank_seq)
+        gap = current_token - total_seq_len
+        if gap < 0 :
+            continue
+
+        max_index = rank_seq.argmax().item()
+        rank_seq[max_index] -= gap
+        assert sum(rank_seq) == total_seq_len, f"current_token : {sum(rank_seq)}, max_index : {max_index}, rank_seq : {rank_seq}"
     return seq_len
+
 
 
 def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,

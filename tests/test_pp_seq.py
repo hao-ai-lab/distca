@@ -214,6 +214,16 @@ def create_pipeline_seqlens(
 
     assert torch.all(seq_len.sum(-1) % tp_size == 0), f"tot_seqlen_on_rank % tp_size should be 0 for sequence parallel, seq_sum : {seq_len.sum(-1)}, {seq_len.sum(-1) % tp_size}"
     print("Output seq_len:\n", seq_len)
+    # expected : total_seq_len
+    for rank_seq in seq_len:
+        current_token = sum(rank_seq)
+        gap = current_token - total_seq_len
+        if gap < 0 :
+            continue
+
+        max_index = rank_seq.argmax().item()
+        rank_seq[max_index] -= gap
+        assert sum(rank_seq) == total_seq_len, f"current_token : {sum(rank_seq)}, max_index : {max_index}, rank_seq : {rank_seq}"
     return seq_len
 
 
@@ -334,7 +344,7 @@ if __name__ == "__main__":
     as_world_size = dp_size * pp_size
     num_seqs = 4
     max_cp_degree = 2
-    total_seq_len = 1024
+    total_seq_len = 10 * 1024
 
     ref_seq_lens =  None
     add_dummy = False
