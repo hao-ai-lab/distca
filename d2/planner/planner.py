@@ -625,8 +625,9 @@ class Planner:
         self.world_size = world_size
         self.parallel_config = parallel_config
         self.data_parallel = world_size // (parallel_config.pipeline_model_parallel_size * parallel_config.tensor_model_parallel_size)
-        rich.print(f"[bold green] world_size: {self.world_size}, DP: {self.data_parallel}[/bold green], PP: {parallel_config.pipeline_model_parallel_size}, TP: {parallel_config.tensor_model_parallel_size}")
         self.num_dispatch_instances = self.data_parallel * parallel_config.pipeline_model_parallel_size
+        rich.print(f"[bold green] world_size: {self.world_size}, DP: {self.data_parallel}[/bold green], PP: {parallel_config.pipeline_model_parallel_size}, TP: {parallel_config.tensor_model_parallel_size}, num_dispatch_instances: {self.num_dispatch_instances}")
+        
         self.tolerance_factor = tolerance_factor
 
     def plan(self, items_: list[Item], verbose=False, plot=False):
@@ -653,6 +654,7 @@ class Planner:
 
         flops_per_gpu = [0.0] * self.num_dispatch_instances
         for item in items:
+            print(f"item.gpuid: {item.gpuid}, item.total_flops: {item.total_flops}")
             flops_per_gpu[item.gpuid] += item.total_flops
         total_flops = sum(flops_per_gpu)
         
@@ -683,6 +685,8 @@ class Planner:
                 for item in items:
                     if item.gpuid in donor_gpus:
                         donor_id = item.gpuid
+                        if item.total_flops <= 0:
+                            continue
                         priority = item.get_priority(surplus_deficit[donor_id], needed_flops)
                         max_flops_to_move = min(needed_flops, item.total_flops, surplus_deficit[donor_id])
                         
