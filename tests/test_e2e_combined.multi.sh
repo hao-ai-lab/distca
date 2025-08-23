@@ -5,7 +5,7 @@
 #
 
 # export CUDA_LAUNCH_BLOCKING=1 
-export D2_DEBUG_PRINT=1
+# export D2_DEBUG_PRINT=1
 # export WLBLLM_DISABLE_LSE=1
 # export WLBLLM_SYNC_TIME_FLASH_ATTN=1
 
