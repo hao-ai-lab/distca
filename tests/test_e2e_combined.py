@@ -653,11 +653,6 @@ def test(args):
         wlbllm.megatron_patch.backends.monkey_patch()
         pass
 
-
-    # Create for wlbllm
-    # cp_stream = torch.cuda.Stream()
-    cp_stream = torch.cuda.current_stream()
-
     dtype = torch.bfloat16
     element_size = dtype.itemsize
 
@@ -923,6 +918,11 @@ def test(args):
 
             
             # Now save some context for the use of WLBLLM function
+
+
+            # Create for wlbllm
+            # cp_stream = torch.cuda.Stream()
+            cp_stream = torch.cuda.current_stream()
 
             wlbllm.registry.clear()
             wlbllm.registry.set("doc_lens", doc_lens)
