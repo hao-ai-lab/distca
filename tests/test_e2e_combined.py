@@ -393,12 +393,18 @@ def setup_global_batch(
     if should_add_debug_cases:
         GLOBAL_BATCH = list(GLOBAL_BATCH)
         # DP2 case
+        # manual_case = [
+        #     [total_seq_len],
+        #     [total_seq_len // 2] * 2,
+        #     # [total_seq_len],
+        #     # [total_seq_len // 8] * 8,
+        # ]
+        # 🔴 Failed: Cross 3 GPU + non cross for the others
         manual_case = [
-            [total_seq_len],
-            [total_seq_len // 2] * 2,
-            # [total_seq_len],
-            # [total_seq_len // 8] * 8,
+            [total_seq_len // 4 * 3 - 512, 512, total_seq_len // 4],
+            [total_seq_len // 4 * 3 - 512, 512, total_seq_len // 4],
         ]
+
         # manual_case = [
         #     [2 * K] * (total_seq_len // (2 * K)),
         # ] * 8
@@ -995,10 +1001,12 @@ def test(args):
 
             from d2.runtime.fast_alltoall_metadata import compute_e2e_fa2a_metadata
 
+            d2_should_replan = os.environ.get("D2_SHOULD_REPLAN", "0") == "1"
+
             def items_to_metadata(items: list[Item]):
                 # TODO(FIX) should_plan=True will actually do replanning, 
                 # but get stuck for some cases.
-                ret = planner.plan_to_raw_qkv_dispatch(items, should_plan=False)
+                ret = planner.plan_to_raw_qkv_dispatch(items, should_plan=d2_should_replan)
                 (
                     mlp_num_seqs,
                     mlp_q_dispatch,
@@ -1076,7 +1084,7 @@ def test(args):
             
             pass
         
-        elif mode == "d2":
+        elif mode == "d2-old":
             setup_global_batch(
                 total_seq_len, 
                 up_sample_factor=up_sample_factor,
