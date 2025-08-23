@@ -391,11 +391,7 @@ def from_shard_info(
             world_size, scheduler_output, q_bytes, k_bytes, element_size,
             compute_attn_out_metadata=True, attn_out_bytes=out_bytes,
         )
-        # backward 1: out_grad & out & q & k & v
-        q_bytes, k_bytes, _ = get_per_token_bytes(
-            hidden_size_q, hidden_size_kv, lse_size_in_hidden_dtype, element_size,
-            is_resend_qkv_in_bwd=True, is_send_lse_in_fwd=False,
-        )
+        # backward
         (qkv_resend_and_out_grad_linear_to_attn,
          qkv_grad_attn_to_linear) = backward_from_shard_info(
              world_size, scheduler_output_bwd,
