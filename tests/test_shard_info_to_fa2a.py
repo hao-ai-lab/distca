@@ -5,6 +5,7 @@ import random
 import torch
 
 from d2.runtime.compute_metadata import from_shard_info
+from d2.runtime.fast_alltoall_metadata import FastAlltoAllMetadata
 from d2.runtime.shard_info import ShardInfo
 
 from test_util import set_random_seed
@@ -49,6 +50,78 @@ def create_random_shard_info(
             has_shard_dst[rank] = True
             src_num_token[rank] += min_shard_len
     return scheduler_output, src_num_token
+
+
+def simulate_all2all(
+    q: list[torch.Tensor], k: list[torch.Tensor], v: list[torch.Tensor],
+    metadata: FastAlltoAllMetadata,
+    element_size: int, hidden_q: int, hidden_k: int,
+    is_fwd: bool
+):
+    world_size = len(q)
+    assert world_size == len(k) == len(v)
+    # sender transfer sz
+    tot_send_bytes = metadata.fa2a_metadata[1].sum(dim=1) // element_size
+    max_send_bytes = int(torch.max(tot_send_bytes).item())
+    tot_recv_bytes = metadata.fa2a_metadata[3].sum(dim=1) // element_size
+    max_recv_bytes = int(torch.max(tot_recv_bytes).item())
+    src_buffer = torch.empty(
+        (world_size, max_send_bytes), dtype=q.dtype, device=q.device
+    )
+    dst_buffer = torch.empty(
+        (world_size, max_recv_bytes), dtype=q.dtype, device=q.device
+    )
+    for rank in range(world_size):
+        metadata_local = metadata.get_slice(rank)
+        max_cp = metadata_local.kv_replica_mask.shape[1]
+        fwd_args = ()
+        if is_fwd:
+            fn = simulate_fa2a_send_qkv
+            fwd_args = (max_cp, metadata_local.kv_replica_mask)
+        else:
+            fn = simulate_fa2a_send_qkv_rev
+        assert q[rank].shape == metadata_local.tensor_shape[0].send_shape
+        assert k[rank].shape == metadata_local.tensor_shape[1].send_shape
+        assert v[rank].shape == k[rank].shape
+        src_buffer[rank] = fn(
+            q[rank], k[rank], v[rank], src_buffer[rank],
+            *metadata_local.send_memcpy_metadata,
+            metadata_local.seq_lens[0].send_seqlens,
+            metadata_local.seq_lens[1].send_seqlens,
+            hidden_q, hidden_k, element_size,
+            *fwd_args,
+        )
+    dst_buffer = simulate_fa2a(
+        src_buffer, dst_buffer, metadata.fa2a_metadata, element_size
+    )
+    dst_qs = []
+    dst_ks = []
+    dst_vs = []
+    for rank in range(world_size):
+        metadata_local = metadata.get_slice(rank)
+        q_shape = metadata_local.tensor_shape[0].recv_shape
+        k_shape = metadata_local.tensor_shape[1].recv_shape
+        dst_q = torch.empty(q_shape, dtype=q[rank].dtype, device=q[rank].device)
+        dst_k = torch.empty(k_shape, dtype=k[rank].dtype, device=k[rank].device)
+        dst_v = torch.empty(k_shape, dtype=v[rank].dtype, device=v[rank].device)
+        bwd_args = ()
+        max_cp = metadata_local.kv_replica_mask.shape[1]
+        if is_fwd:
+            fn = simulate_fa2a_recv_qkv
+        else:
+            bwd_args = (max_cp, metadata_local.kv_replica_mask)
+            fn = simulate_fa2a_recv_qkv_rev
+        dst_q, dst_k, dst_v = fn(
+            dst_q, dst_k, dst_v, dst_buffer[rank],
+            *metadata_local.recv_memcpy_metadata,
+            metadata_local.seq_lens[1].recv_seqlens,
+            hidden_q, hidden_k, element_size,
+            *bwd_args,
+        )
+        dst_qs.append(dst_q)
+        dst_ks.append(dst_k)
+        dst_vs.append(dst_v)
+    return dst_qs, dst_ks, dst_vs
 
 
 def create_redispatch_info(
@@ -104,8 +177,16 @@ def test(args):
         torch.rand((src_num_token[rank], hidden_size_k), dtype=torch.bfloat16)
         for rank in range(world_size)
     ]
-    # TODO: verify this by:
     # without pp, send with fwd_qkv_metadata and bwd_qkv_metadata, examine if received is the same as sent
+    dst_qs, dst_ks, dst_vs = simulate_all2all(
+        src_q, src_k, src_v, fwd_qkv_metadata, element_size, hidden_size_q, hidden_size_k, is_fwd=True
+    )
+    rev_qs, rev_ks, rev_vs = simulate_all2all(
+        dst_qs, dst_ks, dst_vs, bwd_qkv_metadata, element_size, hidden_size_q, hidden_size_k, is_fwd=False
+    )
+    torch.testing.assert_close(src_q, rev_qs)
+    # TODO: verify k and v
+    # TODO: verify the following:
     # without pp, send with fwd_attn_out_metadata and bwd_att_out_metadata, examine if received is the same as sent
     # with pp, send with the four metadata, examine if received is the same as sent.
 

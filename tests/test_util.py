@@ -1,8 +1,9 @@
 from dataclasses import dataclass
+import logging
+import math
 import os
 import socket
 from typing import Optional
-import math
 
 
 from megatron.core import parallel_state as mpu
@@ -29,8 +30,27 @@ from d2.runtime.megatron_patch.create_group import (
 )
 from d2.planner.planner import Planner, batch_to_items_class
 
+logger = logging.getLogger(__name__)
+
 
 ######## MISC
+def get_device_name() -> str:
+    return "cuda"
+
+
+def get_torch_device() -> any:
+    """Return the corresponding torch attribute based on the device type string.
+    Returns:
+        module: The corresponding torch device namespace, or torch.cuda if not found.
+    """
+    device_name = get_device_name()
+    try:
+        return getattr(torch, device_name)
+    except AttributeError:
+        logger.warning(f"Device namespace '{device_name}' not found in torch, try to load torch.cuda.")
+        return torch.cuda
+
+
 def set_random_seed(seed, set_megatron: bool=True):
     """Set worker side random seed."""
     import random
