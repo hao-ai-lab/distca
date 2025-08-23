@@ -18,8 +18,8 @@ from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangSin
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
 from d2.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
 
-from test_util import ParallelConfig, init_worker_torch_distributed
-from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
+from test_util import ParallelConfig, init_worker_torch_distributed, set_random_seed
+from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker
 from megatron_test_utils import (
     gptmodel_forward, make_batch_generator, unwrap_model,
 )

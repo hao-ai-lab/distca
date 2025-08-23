@@ -30,6 +30,22 @@ from d2.runtime.megatron_patch.create_group import (
 from d2.planner.planner import Planner, batch_to_items_class
 
 
+######## MISC
+def set_random_seed(seed, set_megatron: bool=True):
+    """Set worker side random seed."""
+    import random
+
+    import numpy as np
+    import torch
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    if get_torch_device().device_count() > 0 and set_megatron:
+        from megatron.core import tensor_parallel
+
+        tensor_parallel.model_parallel_cuda_manual_seed(seed)
+
 
 ######## Workers
 @dataclass

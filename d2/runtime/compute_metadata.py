@@ -29,13 +29,13 @@ def send_bytes_to_fa2a_metadata(send_bytes: torch.Tensor):
     return (sender_send_disp, sender_transfer_sz, sender_recv_disp, recver_transfer_sz)
 
 
-def get_per_token_hidden(
+def get_per_token_bytes(
     hidden_size_q: int,
     hidden_size_kv: int,
     lse_size_in_hidden_dtype: int,
     element_size: int,
-    is_resend_qkv_in_bwd: int,
-    is_send_lse_in_fwd: int,
+    is_resend_qkv_in_bwd: bool,
+    is_send_lse_in_fwd: bool,
 ):
     assert not (is_send_lse_in_fwd and is_resend_qkv_in_bwd), "cannot be both fwd(send lse) and bwd(resend qkv)"
     # compute per token hidden size
@@ -57,7 +57,7 @@ def get_per_token_hidden(
     return q_bytes_pad, k_bytes, attn_out_bytes_pad
 
 
-def get_logical_shape(
+def _get_logical_shape(
     num_token_to_ranks: torch.Tensor,
     world_size: int,
     hidden: int,
@@ -74,7 +74,7 @@ def get_logical_shape(
     ]
 
 
-def get_seqlens(
+def _get_seqlens(
     doc_info: Sequence[Sequence[ShardInfo]],
     on_rank_doc_id: list[list[_ShardID]],
 ):
@@ -89,7 +89,7 @@ def get_seqlens(
     return seqlens
 
 
-def assign_offsets(
+def _assign_offsets(
     cur_offset_send: int,
     cur_offset_recv: int,
     send_offset: list[torch.Tensor],
@@ -116,7 +116,7 @@ def assign_offsets(
     return cur_offset_send, cur_offset_recv
 
 
-def from_shard_info(
+def _from_shard_info(
     world_size: int,
     scheduler_output: Sequence[Sequence[ShardInfo]],
     q_bytes: int,
@@ -182,9 +182,9 @@ def from_shard_info(
                 num_send_k[doc_id][k_shard_id] += 1
 
     # seqlens
-    linear_seqlens = get_seqlens(scheduler_output, linear_shards_on_rank)
-    attn_q_seqlens = get_seqlens(scheduler_output, attn_q_shards_on_rank)
-    attn_k_seqlens = get_seqlens(scheduler_output, attn_k_shards_on_rank)
+    linear_seqlens = _get_seqlens(scheduler_output, linear_shards_on_rank)
+    attn_q_seqlens = _get_seqlens(scheduler_output, attn_q_shards_on_rank)
+    attn_k_seqlens = _get_seqlens(scheduler_output, attn_k_shards_on_rank)
 
     # num tokens from a rank to another rank
     linear_to_attn_num_tokens_q = torch.zeros((world_size, world_size), dtype=torch.int64)
@@ -211,17 +211,17 @@ def from_shard_info(
     # logical shape
     q_hidden = q_bytes // element_size
     k_hidden = k_bytes // element_size
-    q_send_shape = get_logical_shape(
+    q_send_shape = _get_logical_shape(
         linear_to_attn_num_tokens_q, world_size, q_hidden,
     )
-    q_recv_shape = get_logical_shape(
+    q_recv_shape = _get_logical_shape(
         linear_to_attn_num_tokens_q.T, world_size, q_hidden,
     )
-    k_send_shape = get_logical_shape(
+    k_send_shape = _get_logical_shape(
         linear_to_attn_num_tokens_k, world_size, k_hidden,
         is_kv_linear=True, kv_max_cp=max_cp_on_ranks
     )
-    k_recv_shape = get_logical_shape(
+    k_recv_shape = _get_logical_shape(
         linear_to_attn_num_tokens_k.T, world_size, k_hidden,
     )
 
@@ -267,17 +267,17 @@ def from_shard_info(
         for a_rank in range(world_size):
             cur_offset_send = sender_send_disp[a_rank].item()
             cur_offset_recv = sender_recv_disp[a_rank].item()
-            cur_offset_send, cur_offset_recv = assign_offsets(
+            cur_offset_send, cur_offset_recv = _assign_offsets(
                 cur_offset_send, cur_offset_recv,
                 q_offset_sends, q_offset_recvs, scheduler_output,
                 q_bytes, l_rank, a_rank, linear_to_attn_q[l_rank][a_rank],
             )
-            cur_offset_send, cur_offset_recv = assign_offsets(
+            cur_offset_send, cur_offset_recv = _assign_offsets(
                 cur_offset_send, cur_offset_recv,
                 k_offset_sends, k_offset_recvs, scheduler_output,
                 k_bytes, l_rank, a_rank, linear_to_attn_k[l_rank][a_rank],
             )
-            cur_offset_send, cur_offset_recv = assign_offsets(
+            cur_offset_send, cur_offset_recv = _assign_offsets(
                 cur_offset_send, cur_offset_recv,
                 v_offset_sends, v_offset_recvs, scheduler_output,
                 k_bytes, l_rank, a_rank, linear_to_attn_k[l_rank][a_rank],
@@ -330,7 +330,7 @@ def from_shard_info(
             for a_rank in range(world_size):
                 cur_offset_send = sender_send_disp[a_rank].item()
                 cur_offset_recv = sender_recv_disp[a_rank].item()
-                cur_offset_send, cur_offset_recv = assign_offsets(
+                cur_offset_send, cur_offset_recv = _assign_offsets(
                     cur_offset_send, cur_offset_recv,
                     out_grad_offset_sends, out_grad_offset_recvs, scheduler_output,
                     attn_out_bytes, l_rank, a_rank, linear_to_attn_q[l_rank][a_rank],
@@ -339,10 +339,10 @@ def from_shard_info(
         out_grad_seqlen = [SeqLens(linear_seqlens, attn_q_seqlens)]
         # shape
         out_hidden = attn_out_bytes // element_size
-        out_grad_send_shape = get_logical_shape(
+        out_grad_send_shape = _get_logical_shape(
             linear_to_attn_num_tokens_q, world_size, out_hidden,
         )
-        out_grad_recv_shape = get_logical_shape(
+        out_grad_recv_shape = _get_logical_shape(
             linear_to_attn_num_tokens_q.T, world_size, out_hidden,
         )
         out_grad_linear_to_attn = FastAlltoAllMetadata(
@@ -357,5 +357,68 @@ def from_shard_info(
         out_attn_to_linear = compute_reverse_a2a_layout_metadata(
             out_grad_linear_to_attn
         )
+        return (
+            qkv_linear_to_attn, qkv_grad_attn_to_linear,
+            out_attn_to_linear, out_grad_linear_to_attn,
+        )
     else:
         return qkv_linear_to_attn, qkv_grad_attn_to_linear
+
+
+def from_shard_info(
+    world_size: int,
+    scheduler_output: Sequence[Sequence[ShardInfo]],
+    hidden_size_q: int,
+    hidden_size_kv: int,
+    lse_size_in_hidden_dtype: int,
+    element_size: int,
+    is_pp: bool,
+    scheduler_output_bwd: Optional[Sequence[Sequence[ShardInfo]]] = None,
+):
+    if is_pp:
+        assert scheduler_output_bwd is not None
+        # forward
+        q_bytes, k_bytes, out_bytes = get_per_token_bytes(
+            hidden_size_q, hidden_size_kv, lse_size_in_hidden_dtype, element_size,
+            is_resend_qkv_in_bwd=False, is_send_lse_in_fwd=True,
+        )
+        qkv_linear_to_attn, _, out_attn_to_linear, _ = _from_shard_info(
+            world_size, scheduler_output, q_bytes, k_bytes, element_size,
+            compute_attn_out_metadata=True, attn_out_bytes=out_bytes,
+        )
+        # backward 1: out_grad & out & q & k & v
+        q_bytes, k_bytes, _ = get_per_token_bytes(
+            hidden_size_q, hidden_size_kv, lse_size_in_hidden_dtype, element_size,
+            is_resend_qkv_in_bwd=True, is_send_lse_in_fwd=False,
+        )
+        qkv_resend_and_out_grad_linear_to_attn, _ = _from_shard_info(
+            world_size, scheduler_output_bwd, q_bytes, k_bytes, element_size,
+            compute_attn_out_metadata=False, attn_out_bytes=None
+        )
+        # backward 2: q_grad, k_grad, v_grad
+        q_bytes, k_bytes, _ = get_per_token_bytes(
+            hidden_size_q, hidden_size_kv, lse_size_in_hidden_dtype, element_size,
+            is_resend_qkv_in_bwd=False, is_send_lse_in_fwd=False,
+        )
+        _, qkv_grad_attn_to_linear = _from_shard_info(
+            world_size, scheduler_output_bwd, q_bytes, k_bytes, element_size,
+            compute_attn_out_metadata=False, attn_out_bytes=None
+        )
+        out_grad_linear_to_attn = qkv_resend_and_out_grad_linear_to_attn
+    else:
+        assert scheduler_output_bwd is None
+        q_bytes, k_bytes, out_bytes = get_per_token_bytes(
+            hidden_size_q, hidden_size_kv, lse_size_in_hidden_dtype, element_size,
+            is_resend_qkv_in_bwd=False, is_send_lse_in_fwd=False
+        )
+        (
+            qkv_linear_to_attn, qkv_grad_attn_to_linear,
+            out_attn_to_linear, out_grad_linear_to_attn,
+        ) = _from_shard_info(
+            world_size, scheduler_output, q_bytes, k_bytes, element_size,
+            compute_attn_out_metadata=True, attn_out_bytes=out_bytes,
+        )
+    return (
+        qkv_linear_to_attn, qkv_grad_attn_to_linear,
+        out_attn_to_linear, out_grad_linear_to_attn,
+    )
