@@ -180,7 +180,7 @@ def sample_wlbllm_docs_upsample(
     list[int]
         A list of sampled document lengths.
     """
-    docpath = data_folder / "dist_wlbllm.json"
+    docpath: list[int] = data_folder / "dist_wlbllm.json"
     with open(docpath, "r") as f:
         docs = json.load(f)
 

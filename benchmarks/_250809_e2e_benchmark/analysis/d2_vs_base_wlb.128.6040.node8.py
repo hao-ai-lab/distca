@@ -21,11 +21,13 @@ seq_len = "128k (upsample = 4, 60%/40% long/short ratio). WLBLLM=DP1CP8TP8, Base
 data_dir = f"{pwd}/../data/d2_vs_base_wlb.128.6040.node8"
 
 baseline_path = f"{data_dir}/benchmark.20250819_124752.baseline.json"
-d2_path       = f"{data_dir}/benchmark.20250819_125404.d2.json"
+# d2_path       = f"{data_dir}/benchmark.20250819_125404.d2.json"
+d2_path       = f"{data_dir}/benchmark.20250822_172826.d2.json"
 wlbllm_dp1cp8_path   = f"{data_dir}/benchmark.20250820_203136.wlbllm.json"
 wlbllm_dp2cp4_path = f"{data_dir}/benchmark.20250821_122652.wlbllm.dp2cp4.json"
 wlbllm_dp4cp2_path = f"{data_dir}/benchmark.20250821_122226.wlbllm.dp4cp2.json"
 wlbllm_dp8cp1_path = f"{data_dir}/benchmark.20250821_121825.wlbllm.dp8cp1.json"
+
 
 # Output dir (same ../data as inputs)
 out_dir = Path(data_dir).resolve()
@@ -94,6 +96,7 @@ d2_df = pd.DataFrame([
      "samples_d2": s.get("samples")}
     for s in d2_data["samples"]
 ])
+# d2_df["D2 Duration (ms)"] -= 4.3 * 4 * 2
 
 wlbllm_dp1cp8_df = pd.DataFrame([
     {"sample_id": s["sample_id"], 
