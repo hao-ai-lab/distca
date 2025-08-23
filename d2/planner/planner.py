@@ -656,6 +656,8 @@ class Planner:
     
     def plan_to_raw_qkv_dispatch(self, items_: list[Item], verbose=False, plot=False):
         items = self.plan_items(items_, verbose, plot)
+        for i, item in enumerate(items):
+            rich.print(f"🟡 Planned after: items[{i}]", item)
         items = self.postprocess_items(items)
         shard_infos = self.items_into_shardinfos(items)
         
