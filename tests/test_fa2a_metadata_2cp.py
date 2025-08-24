@@ -1,12 +1,5 @@
-from typing import Sequence
-
+"""TODO: deprecate this file."""
 import torch
-from torch import Tensor
-
-from d2.runtime.inplace_metadata import Metadata
-from d2.runtime.fast_alltoall_metadata import (
-    FastAlltoAllMetadata
-)
 
 from test_util import (
     create_qkv_dispatch_2cp, create_fast_a2a_metadata_from_qkv_dispatch,

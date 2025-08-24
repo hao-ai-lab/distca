@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import logging
 import math
 import os
+import random
 import socket
 from typing import Optional
 
@@ -9,6 +10,7 @@ from typing import Optional
 from megatron.core import parallel_state as mpu
 from transformers import AutoConfig
 import ray
+import rich
 import torch
 
 from d2.runtime.attn_kernels.ops import (
@@ -24,6 +26,7 @@ from d2.runtime.inplace_metadata import (
     Metadata, compute_attn_layout_seqlens, compute_metadata,
     compute_metadata_kv, exclusive_cumsum
 )
+from d2.runtime.shard_info import ShardInfo
 from d2.runtime.megatron_patch.create_group import (
     initialize_attention_server_comm, get_attn_server_group_gloo,
     get_attn_server_rank, get_attn_server_group_src_rank
@@ -205,70 +208,101 @@ def init_worker_torch_distributed(
 
 
 ######## Data construction
-def test_local_proj_metadata(world_size: int, seq_len: int, offset: int):
+def create_list(n: int, s: int, min_val: int, t: int) -> list[int] | None:
     """
-    Test tool generating the easiest case: Each rank holds a sequence,
-    and is sent to a rank with an offset. (0 means sending to itself)
+    Generates a list of n integers that sum to s.
+
+    Each integer in the list must be:
+    - in range of [a, b].
+    - Divisible by t.
+
+    Returns:
+        A list of integers meeting the criteria, or None if no solution exists.
     """
-    num_recv_tokens = torch.zeros((world_size, world_size + 1), dtype=torch.int64)
-    num_recv_tokens[:, -1] = seq_len
-    i_diag = torch.arange(world_size, dtype=torch.int64)
-    j_diag = (i_diag + offset) % world_size
-    # the diagonal of num_recv_tokens is the seq_len
-    fwd_recv_tokens = num_recv_tokens.clone()
-    fwd_recv_tokens[j_diag, i_diag] = seq_len
+    # --- 1. Input Validation ---
+    assert n > 0
+    assert s % t == 0
 
-    bwd_j_diag = (i_diag - offset) % world_size
-    bwd_recv_tokens = num_recv_tokens.clone()
-    bwd_recv_tokens[bwd_j_diag, i_diag] = seq_len
+    # --- 2. Determine Valid Range for Numbers ---
+    min_val = math.ceil((min_val + 1) / t) * t
 
-    mlp_to_attn_metadata = Metadata(
-        dst_rank=torch.tensor(
-            [(i + offset) % world_size for i in range(world_size)]
-        ).reshape(world_size, 1),
-        dst_offset=torch.tensor(
-            [0] * world_size
-        ).reshape(world_size, 1),
-        seq_len=torch.tensor(
-            [seq_len] * world_size
-        ).reshape(world_size, 1),
-        num_recv_tokens=fwd_recv_tokens,
-        num_seqs=torch.tensor([1] * world_size).reshape(world_size, 1),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    attn_to_mlp_metadata = Metadata(
-        dst_rank=torch.tensor(
-            [(i - offset) % world_size for i in range(world_size)]
-        ).reshape(world_size, 1),
-        dst_offset=mlp_to_attn_metadata.dst_offset.clone(),
-        seq_len=mlp_to_attn_metadata.seq_len.clone(),
-        num_recv_tokens=bwd_recv_tokens,
-        num_seqs=mlp_to_attn_metadata.num_seqs.clone(),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    mlp_to_attn_kv_metadata = Metadata(
-        dst_rank=mlp_to_attn_metadata.dst_rank.clone().unsqueeze(-1),
-        dst_offset=mlp_to_attn_metadata.dst_offset.clone().unsqueeze(-1),
-        seq_len=mlp_to_attn_metadata.seq_len.clone(),
-        num_recv_tokens=fwd_recv_tokens.clone(),
-        num_seqs=mlp_to_attn_metadata.num_seqs.clone(),
-        world_size=world_size,
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    mlp_to_attn_kv_grad_metadata = Metadata(
-        dst_rank=attn_to_mlp_metadata.dst_rank.clone(),
-        dst_offset=attn_to_mlp_metadata.dst_offset.clone(),
-        seq_len=attn_to_mlp_metadata.seq_len.clone(),
-        num_recv_tokens=bwd_recv_tokens.clone(),
-        num_seqs=attn_to_mlp_metadata.num_seqs.clone(),
-        world_size=world_size,
-        seq_recv_mask=torch.ones(world_size, 1, 1),
-        recv_seq_lens=mlp_to_attn_metadata.seq_len.clone(),
-        num_total_recv_tokens=[seq_len] * world_size,
-    )
-    return mlp_to_attn_metadata, attn_to_mlp_metadata, mlp_to_attn_kv_metadata, mlp_to_attn_kv_grad_metadata
+    # --- 3. Check if a Solution is Possible ---
+    assert s >= n * min_val
+
+    # --- 4. Construct the List ---
+    # Start with a list where every element is the minimum possible value.
+    result = [min_val] * n
+    remainder = (s - min_val * n) // t
+    remain_result = torch.rand((n,))
+    remain_result = (remain_result / remain_result.sum() * remainder).to(torch.int)
+    # handle rounding error
+    if torch.sum(remain_result).item() != remainder:
+        diff = remainder - sum(remain_result)
+        if diff > 0:
+            remain_result[-1] += diff
+        else:
+            idx = 0
+            while remain_result[idx] <= diff: idx += 1
+            remain_result[idx] += diff
+            assert remain_result[idx] > 0
+    remain_result = (remain_result * t).tolist()
+    for rid in range(n):
+        result[rid] += remain_result[rid]
+    assert sum(result) == s
+
+    return result
+
+
+def create_random_shard_info(
+    seed: int, world_size: int, num_doc: int,
+    max_num_shard: int, max_shard_len: int, min_shard_len: int=8,
+    tot_num_token: int=-1, multiple_of: int=1
+):
+    set_random_seed(seed)
+    scheduler_output: list[list[ShardInfo]] = []
+    num_shards = torch.randint(1, max_num_shard + 1, (num_doc,)).tolist()
+    has_shard_src = [False] * world_size
+    has_shard_dst = [False] * world_size
+    src_num_token = [0] * world_size
+    for doc_id in range(num_doc):
+        num_shard = num_shards[doc_id]
+        doc_schedule = []
+        for shard_id in range(num_shard):
+            rid = random.randint(0, world_size - 1)
+            d_rid = random.randint(0, world_size - 1)
+            has_shard_src[rid] = True
+            has_shard_dst[d_rid] = True
+            shard_len = random.randint(min_shard_len, max_shard_len)
+            src_num_token[rid] += shard_len
+            doc_schedule.append(
+                ShardInfo(rid=rid, dispatch_rid=d_rid, logical_sid=shard_id, shard_len=shard_len)
+            )
+        scheduler_output.append(doc_schedule)
+    for rank in range(world_size):
+        if not has_shard_src[rank]:
+            scheduler_output.append([ShardInfo(rid=rank, dispatch_rid=rank, logical_sid=0, shard_len=min_shard_len)])
+            has_shard_src[rank] = True
+            has_shard_dst[rank] = True
+            src_num_token[rank] += min_shard_len
+        if not has_shard_dst[rank]:
+            scheduler_output.append([ShardInfo(rid=rank, dispatch_rid=rank, logical_sid=0, shard_len=min_shard_len)])
+            has_shard_src[rank] = True
+            has_shard_dst[rank] = True
+            src_num_token[rank] += min_shard_len
+
+    if tot_num_token > 0:
+        shards = [[] for _ in range(world_size)]
+        for s in scheduler_output:
+            for shard in s:
+                shards[shard.rid].append(shard)
+        for ss in shards:
+            num_shards = len(ss)
+            shard_lens = create_list(num_shards, tot_num_token, min_shard_len, multiple_of)
+            for shard, l in zip(ss, shard_lens):
+                shard.shard_len = l
+        src_num_token = [tot_num_token] * world_size
+
+    return scheduler_output, src_num_token
 
 
 def gen_seq_lens(world_size: int, num_seqs: int, total_len: int) -> torch.Tensor:
@@ -660,7 +694,6 @@ def create_qkv_dispatch(
     return ret
 
 
-import rich
 def create_qkv_dispatch_2cp(
     world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
     return_intermediate: bool=False, return_mlp_no_shard_seq_lens: bool=False,
@@ -812,7 +845,6 @@ def create_qkv_dispatch_2cp(
     if return_mlp_no_shard_seq_lens:
         ret += (seq_lens,)
     return ret
-
 
 
 def create_qkv_dispatch_with_custom_mapping(
