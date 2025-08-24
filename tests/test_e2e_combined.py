@@ -954,6 +954,8 @@ def test(args):
             # 2. Each GPU should get total_seq_len // as_world_size number of tokens. 
             # 
 
+            dp_size = as_world_size
+
             model_config = hf_config
             parallel_config = ParallelConfig(
                 tensor_model_parallel_size=tp_size,
@@ -973,8 +975,9 @@ def test(args):
             seq_lens_0: list[list[int]] = _seq_lens[:1]
             seq_lens_1: list[list[int]] = _seq_lens[1:]
 
-            print(f"🟡 ping pong batch1 : {seq_lens_0}")
-            print(f"🟡 ping pong batch2 : {seq_lens_1}")
+            if as_rank == 0:
+                print(f"🟡 ping pong batch1 : {seq_lens_0}")
+                print(f"🟡 ping pong batch2 : {seq_lens_1}")
 
             num_batched_token_per_as_rank = total_seq_len // as_world_size  
 
@@ -1370,7 +1373,7 @@ def test(args):
             samples = iterated_samples[idx]
             duration = sample_times[idx]
             # total_flops_factor = 
-            rich.print(f"🟢 Sample {idx}: {samples}, duration: {duration} ms")
+            rich.print(f"🟢 Sample {idx}: duration: {duration:.2f} ms, samples = {samples}")
             benchmark_data["samples"].append({
                 "sample_id": idx,
                 "samples": samples,
