@@ -256,8 +256,6 @@ class TransformerLayer(MegatronTransformerLayer):
         assert context_mask is None, "cross-attention not supported yet"
 
         setattr(packed_seq_params, "stream", torch.cuda.current_stream())
-        # FIXME(yonghao): fix rope
-        rotary_pos_emb = None
 
         query, key, value, residual, attn_mask_type = self._forward_pre_core_attn(
             hidden_states,
