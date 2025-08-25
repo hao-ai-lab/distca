@@ -12,8 +12,9 @@ from d2.runtime.compute_metadata import (
 )
 from d2.runtime.megatron_patch.packed_seq_params import PingPangSingleStepPackedSeqParams
 
-from test_util import random_shard_info_linear_layout_dp, simulate_communication
 from test_megatron_layer import MegatronLayerWorker, init_megatron_test
+from test_shard_info_to_fa2a import simulate_all2all
+from test_util import random_shard_info_linear_layout_dp
 
 
 def test_forward(
@@ -76,6 +77,86 @@ def test_forward(
         tensor_shard, ping_pang_params, return_grad=True
     )
     torch.testing.assert_close(normal_forward_out, ping_pang_out, rtol=1e-3, atol=1e-3)
+    ref_debug = [None] * world_size
+    ans_debug = [None] * world_size
+    pingpong_seq_params = [None] * world_size
+    torch.distributed.all_gather_object(ref_debug, debug_ref)
+    torch.distributed.all_gather_object(ans_debug, debug_out)
+    torch.distributed.all_gather_object(pingpong_seq_params, ping_pang_params)
+    print("debug tensors gathered.")
+    if rank == 0:
+        device = torch.device("cuda", rank)
+        def to_device(o):
+            if isinstance(o, torch.Tensor):
+                return o.to(device)
+            elif isinstance(o, tuple):
+                return tuple(to_device(x) for x in o)
+            elif isinstance(o, list):
+                return [to_device(x) for x in o]
+            else:
+                return o
+        ref_debug = [to_device(debug_tensor) for debug_tensor in ref_debug]
+        ans_debug = [to_device(debug_tensor) for debug_tensor in ans_debug]
+
+        ans_debug_qkvs_pre_transfer = [ans_debug[0] for ans_debug in ans_debug]
+        # ans_debug_qkvs_post_transfer = [ans_debug[1] for ans_debug in ans_debug]
+        # ans_debug_core_attn_out = [ans_debug[2] for ans_debug in ans_debug]
+        ans_debug_core_attn_out_post_transfer = [ans_debug[1] for ans_debug in ans_debug]
+        ref_qkvs = [debug_tensor[0] for debug_tensor in ref_debug]
+        ref_attn_outs = [debug_tensor[1] for debug_tensor in ref_debug]
+        torch.testing.assert_close(ref_qkvs, ans_debug_qkvs_pre_transfer)
+        print("debug pre-layout-transfer qkv allclose")
+        ref_qs = [debug_tensor[0].flatten(start_dim=1) for debug_tensor in ref_qkvs]
+        ref_ks = [debug_tensor[1].flatten(start_dim=1) for debug_tensor in ref_qkvs]
+        ref_vs = [debug_tensor[2].flatten(start_dim=1) for debug_tensor in ref_qkvs]
+        ref_qs_post_comm, ref_ks_post_comm, ref_vs_post_comm = simulate_all2all(
+            ref_qs, ref_ks, ref_vs, qkv_linear_to_attn,
+            element_size, hidden_size_q, hidden_size_k,
+            is_from_linear_layout=True,
+        )
+        ref_qs_post_comm = [
+            t.reshape(t.shape[0], num_heads, -1) for t in ref_qs_post_comm
+        ]
+        ref_ks_post_comm = [
+            t.reshape(t.shape[0], num_heads, -1) for t in ref_ks_post_comm
+        ]
+        ref_vs_post_comm = [
+            t.reshape(t.shape[0], num_heads, -1) for t in ref_vs_post_comm
+        ]
+
+        from flash_attn import flash_attn_varlen_func
+        ref_attn_outs_a_layout = []
+        for rank in range(world_size):
+            metadata = pingpong_seq_params[rank].to_device()
+            ref_attn_out = flash_attn_varlen_func(
+                ref_qs_post_comm[rank], ref_ks_post_comm[rank], ref_vs_post_comm[rank],
+                cu_seqlens_q = metadata.cu_seqlens_q,
+                cu_seqlens_k = metadata.cu_seqlens_kv,
+                max_seqlen_q = metadata.max_seqlen_q,
+                max_seqlen_k = metadata.max_seqlen_kv,
+                causal = True,
+                dropout_p = 0.0,
+            )
+            ref_attn_out = ref_attn_out.reshape(ref_attn_out.shape[0], 1, -1)
+            ref_attn_outs_a_layout.append(ref_attn_out)
+        (_, _, out_attn_to_linear_no_lse, _, _,) = from_planner_output(
+            world_size, scheduler_output, hidden_size_q, hidden_size_k,
+            lse_size, element_size, is_pipeline_tick=False
+        )
+        ref_attn_outs_post_comm, _, _ = simulate_all2all(
+            [t.flatten(start_dim=1) for t in ref_attn_outs_a_layout],
+            None, None, out_attn_to_linear_no_lse,
+            element_size, hidden_size_q, None, is_from_linear_layout=False
+        )
+        ref_attn_outs_post_comm = [
+            t.unsqueeze(1) for t in ref_attn_outs_post_comm
+        ]
+        torch.testing.assert_close(ref_attn_outs, ref_attn_outs_post_comm)
+        print("simulated attn out allclose with expected value")
+        # torch.testing.assert_close(ans_debug_core_attn_out, ref_attn_outs_a_layout)
+        # print("core attn out allclose")
+        torch.testing.assert_close(ans_debug_core_attn_out_post_transfer, ref_attn_outs)
+        print("post transfer debug attn out allclose")
 
 
 def test(args):
