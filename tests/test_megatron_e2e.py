@@ -300,11 +300,11 @@ def test(args):
     hidden_size_k_tp = hidden_size_kv // tp_size
 
     _, fa2a_metadata_0, attn_metadata_0, raw_seq_lens_0 = create_one_batch(
-        seed, as_world_size, total_seq_len, num_docs,
+        seed, as_world_size, total_seq_len, num_docs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size
     )
     _, fa2a_metadata_1, attn_metadata_1, raw_seq_lens_1 = create_one_batch(
-        seed + 1, as_world_size, total_seq_len, num_docs,
+        seed + 1, as_world_size, total_seq_len, num_docs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size
     )
 

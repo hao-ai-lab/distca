@@ -18,10 +18,14 @@ from d2.runtime.attn_kernels.ops import (
 from d2.runtime.attn_kernels.dispatch import (
     fast_a2a_qkv
 )
-from d2.runtime.inplace_metadata import Metadata
-from d2.runtime.fast_alltoall_metadata import FastAlltoAllMetadata, compute_fa2a_metadata_from_logical_metadata
+from d2.runtime.compute_metadata import from_planner_output
+from d2.runtime.fast_alltoall_metadata import FastAlltoAllMetadata
 
-from test_util import BaseWorker, create_qkv_dispatch, init_worker_torch_distributed, orchestrate_simulate
+from test_util import (
+    BaseWorker, init_worker_torch_distributed,
+    random_shard_info_linear_layout_dp
+)
+from test_shard_info_to_fa2a import seq_mask_to_token_mask
 
 
 class Worker(BaseWorker):
@@ -30,11 +34,9 @@ class Worker(BaseWorker):
         self, fa2a_metadata_fwd: FastAlltoAllMetadata,
         fa2a_metadata_rev: FastAlltoAllMetadata,
         tensor_q: torch.Tensor, tensor_kv: torch.Tensor,
-        dispatch_mask: torch.Tensor,
     ):
         tensor_q = tensor_q.cuda()
         tensor_kv = tensor_kv.cuda()
-        dispatch_mask = dispatch_mask.cuda().to(torch.int8)
         tensor_k = tensor_kv[:, :tensor_kv.shape[-1] // 2]
         tensor_v = tensor_kv[:, tensor_kv.shape[-1] // 2:]
 
@@ -120,15 +122,12 @@ class Worker(BaseWorker):
 
 
 def create_answer(
-    fwd_q_metadata: Metadata, fwd_kv_metadata: Metadata,
-    rev_q_metadata: Metadata, rev_kv_metadata: Metadata,
     world_size: int, num_tokens: int, max_cp_degree: int,
-    hidden_size_q: int, hidden_size_k: int,
+    hidden_size_q: int, hidden_size_k: int, dtype,
 ):
     cp_kv_dst = fwd_kv_metadata.dst_rank
     cp_seq_lens = fwd_kv_metadata.seq_len
     hidden_size_kv = hidden_size_k * 2
-    dtype = torch.float16
     device = "cpu"
 
     ### Init tensor ###
@@ -185,12 +184,19 @@ def create_answer(
     return tensor_q, tensor_kv, output_tensor_q, output_tensor_kv, back_tensor_q, back_tensor_kv
 
 
-def create_test_case(world_size: int, total_seq_len: int, num_seqs: int,
+def create_test_case(seed: int, world_size: int, total_seq_len: int, num_docs: int,
                      max_cp_degree: int, hidden_size_q: int, hidden_size_k: int):
-    (fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
-     _, intermediates
-     ) = create_qkv_dispatch(
-        world_size, total_seq_len, num_seqs, max_cp_degree, return_intermediate=True
+    dtype = torch.float16
+    planner_output, doc_lens = random_shard_info_linear_layout_dp(
+        world_size, num_docs, total_seq_len, seed=seed, max_num_shard=max_cp_degree,
+        seed=seed,
+    )
+    lse_size = 0
+    element_size = dtype.itemsize
+    (fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev,
+     fa2a_metadata_attn_out_fwd, fa2a_metadata_attn_out_rev, _) = from_planner_output(
+        world_size, planner_output, hidden_size_q, hidden_size_k,
+        lse_size, element_size, is_pipeline_tick=False
     )
 
     # create answers:
@@ -198,25 +204,15 @@ def create_test_case(world_size: int, total_seq_len: int, num_seqs: int,
         tensor_q, tensor_kv, output_tensor_q, output_tensor_kv,
         back_tensor_q, back_tensor_kv
     ) = create_answer(
-        fwd_q_metadata, fwd_k_metadata,
-        rev_q_metadata, rev_k_metadata,
+        fa2a_metadata_qkv_fwd,
         world_size, total_seq_len, max_cp_degree,
-        hidden_size_q, hidden_size_k,
+        hidden_size_q, hidden_size_k, dtype,
     )
-    element_size = tensor_q.dtype.itemsize
 
-    fa2a_metadata = compute_fa2a_metadata_from_logical_metadata(
-        fwd_q_metadata, rev_q_metadata, fwd_k_metadata, rev_k_metadata,
-        intermediates, total_seq_len, hidden_size_q, hidden_size_k,
-        element_size
-    )
-    (fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev,
-     fa2a_metadata_attn_out_fwd, fa2a_metadata_attn_out_rev) = fa2a_metadata
     print("metadata compute done.")
     return (
         tensor_q, tensor_kv, output_tensor_q, output_tensor_kv,
         back_tensor_q, back_tensor_kv,
-        fwd_q_metadata, fwd_k_metadata,
         fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev,
         fa2a_metadata_attn_out_fwd, fa2a_metadata_attn_out_rev
     )
@@ -224,43 +220,34 @@ def create_test_case(world_size: int, total_seq_len: int, num_seqs: int,
 
 @torch.no_grad()
 def test_qkv(
-    seed, world_size, total_seq_len, num_seqs, max_cp_degree,
-    worker: Worker, hidden_size_q: int, hidden_size_k: int,
+    seed: int, world_size: int, total_seq_len: int, num_docs: int,
+    max_cp_degree: int, worker: Worker, hidden_size_q: int, hidden_size_k: int,
 ):
     torch.manual_seed(seed)
     (
         tensor_q, tensor_kv, output_tensor_q, output_tensor_kv,
         back_tensor_q, back_tensor_kv,
-        fwd_q_metadata, fwd_k_metadata,
-        fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev,
-        fa2a_metadata_attn_out_fwd, fa2a_metadata_attn_out_rev
+        fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev, _, _
     ) = create_test_case(
-        world_size, total_seq_len, num_seqs, max_cp_degree,
+        seed, world_size, total_seq_len, num_docs, max_cp_degree,
         hidden_size_q, hidden_size_k
     )
 
     rank = worker.rank
     q_slice = tensor_q[rank]
     kv_slice = tensor_kv[rank]
-    k_slice = kv_slice[:, :hidden_size_k]
-    v_slice = kv_slice[:, hidden_size_k:]
-    num_tokens_q_dst = fwd_q_metadata.num_total_recv_tokens[rank]
-    num_tokens_kv_dst = fwd_k_metadata.num_total_recv_tokens[rank]
-    dispatch_mask = (
-        fwd_k_metadata.get_slice(rank).dst_rank >= 0
-    ).to(torch.int8)
     fa2a_metadata_fwd_slice = fa2a_metadata_qkv_fwd.get_slice(rank)
     fa2a_metadata_rev_slice = fa2a_metadata_qkv_rev.get_slice(rank)
 
     # run this communication
     out_dict = worker.run_qkv(
         fa2a_metadata_fwd_slice, fa2a_metadata_rev_slice,
-        q_slice, kv_slice, dispatch_mask
+        q_slice, kv_slice
     )
     dst_q = out_dict["dst_q"]
-    out_q_shard = output_tensor_q[rank, :num_tokens_q_dst]
+    out_q_shard = output_tensor_q[rank]
     out_kv = out_dict["dst_kv"]
-    out_kv_shard = output_tensor_kv[rank, :num_tokens_kv_dst]
+    out_kv_shard = output_tensor_kv[rank]
     rev_q = out_dict["rev_q"]
     rev_q_shard = back_tensor_q[rank]
     rev_kv = out_dict["rev_kv"]
@@ -299,10 +286,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--world-size", type=int, default=2)
     parser.add_argument("--num-tokens", type=int, default=1024)
-    parser.add_argument("--max-cp-degree", type=int, default=2)
+    parser.add_argument("--max-cp-degree", type=int, default=4)
     parser.add_argument("--hidden-size-query", type=int, default=64)
     parser.add_argument("--hidden-size-kv", type=int, default=16)
-    parser.add_argument("--num-seqs", type=int, default=3)
+    parser.add_argument("--num-docs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 

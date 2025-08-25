@@ -311,14 +311,15 @@ def create_random_shard_info(
 
 
 def random_shard_info_linear_layout_dp(
-    seed: int, world_size: int, max_num_doc_per_rank: int, tot_num_token: int,
-    min_shard_len: int=8, multiple_of: int=1, max_num_shard: int=4,
+    world_size: int, max_num_doc_per_rank: int, tot_num_token: int,
+    min_shard_len: int=8, multiple_of: int=1, max_num_shard: int=4, seed: int = None,
 ):
     """
     Create random shard info but guarantee that documents are stored
     in a DP manner on the linear layout.
     """
-    set_random_seed(seed, set_megatron=False)
+    if seed is not None:
+        set_random_seed(seed, set_megatron=False)
     scheduler_output_per_rank: list[list[list[ShardInfo]]] = [[] for _ in range(world_size)]
     has_shard_dst = [False] * world_size
     glob_doc_lens = [[] for _ in range(world_size)]

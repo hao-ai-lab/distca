@@ -106,7 +106,7 @@ class MegatronLayerWorker(MegatronBaseWorker):
 
 
 def test_forward(
-    seed, total_seq_len, num_docs,
+    seed: int, total_seq_len: int, num_docs: int, max_cp_degree: int,
     worker: MegatronLayerWorker, hidden_size_q: int, hidden_size_k: int,
     tp_size: int = 1, profile: bool = False,
 ):
@@ -117,7 +117,8 @@ def test_forward(
     as_rank = worker.as_rank
 
     planner_output, doc_lens_per_rank = random_shard_info_linear_layout_dp(
-        seed, as_world_size, num_docs, tot_num_token=total_seq_len
+        as_world_size, num_docs, tot_num_token=total_seq_len,
+        max_num_shard=max_cp_degree, seed=seed,
     )
     doc_lens_per_rank = [
         torch.tensor(val, dtype=torch.int32, device='cuda') for val in doc_lens_per_rank
@@ -335,7 +336,7 @@ def test(args):
     )
 
     test_forward(
-        args.seed, args.num_tokens, args.num_docs,
+        args.seed, args.num_tokens, args.num_docs, max_cp_degree,
         worker, hidden_size, hidden_size_kv,
         tp_size, profile=args.profile,
     )

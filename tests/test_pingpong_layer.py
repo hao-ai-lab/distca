@@ -3,7 +3,7 @@ Profiling:
 
 NVSHMEM_IB_ENABLE_IBGDA=true NVSHMEM_DEBUG=DEBUG NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
     nsys profile -o pingpang_layer_%p.nsys-rep -t cuda,nvtx \
-torchrun --nnodes 1 --nproc_per_node 2 test_pingpang_layer.py \
+torchrun --nnodes 1 --nproc_per_node 2 test_pingpong_layer.py \
     --world-size 2 \
     --profile \
     --num-query-heads 8 --num-heads 32 --hidden-size 4096 --num-tokens 8192
@@ -12,12 +12,12 @@ Correctness:
 
 DP:
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
-torchrun --nnodes 1 --nproc_per_node 2 test_pingpang_layer.py \
+torchrun --nnodes 1 --nproc_per_node 2 test_pingpong_layer.py \
     --world-size 2 \
     --num-query-heads 8 --num-heads 32 --hidden-size 4096 --num-tokens 8192
 DP+TP:
 NVSHMEM_IB_ENABLE_IBGDA=true NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 \
-torchrun --nnodes 1 --nproc_per_node 4 test_pingpang_layer.py \
+torchrun --nnodes 1 --nproc_per_node 4 test_pingpong_layer.py \
     --world-size 4 --tp-size 2 \
     --num-query-heads 8 --num-heads 32 --hidden-size 4096 --num-tokens 8192
 """
@@ -80,10 +80,11 @@ class PingPangLayerWorker(MegatronLayerWorker):
 
 def create_one_batch(
     seed: int, world_size: int, total_seq_len: int, num_docs: int,
-    hidden_size_q: int, hidden_size_k: int, element_size: int
+    max_cp_degree: int, hidden_size_q: int, hidden_size_k: int, element_size: int
 ):
     planner_output, doc_lens_per_rank = random_shard_info_linear_layout_dp(
-        seed, world_size, num_docs, tot_num_token=total_seq_len
+        world_size, num_docs, tot_num_token=total_seq_len,
+        max_num_shard=max_cp_degree, seed=seed,
     )
     doc_lens_per_rank = [
         torch.tensor(val, dtype=torch.int32, device='cuda') for val in doc_lens_per_rank
@@ -127,7 +128,7 @@ def get_single_step_packed_seq_params(
 
 @torch.no_grad()
 def test_forward(
-    seed, total_seq_len, num_docs,
+    seed, total_seq_len, num_docs, max_cp_degree,
     worker: PingPangLayerWorker, hidden_size_q: int, hidden_size_k: int,
     debug=False, profile=False, tp_size: int = 1
 ):
@@ -142,11 +143,11 @@ def test_forward(
 
     # Create two splits for ping-pong
     _, fa2a_metadata_0, attn_metadata_0, raw_seq_lens_0 = create_one_batch(
-        seed, as_world_size, total_seq_len, num_docs,
+        seed, as_world_size, total_seq_len, num_docs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size
     )
     _, fa2a_metadata_1, attn_metadata_1, raw_seq_lens_1 = create_one_batch(
-        seed + 1, as_world_size, total_seq_len, num_docs,
+        seed + 1, as_world_size, total_seq_len, num_docs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size
     )
 
@@ -238,7 +239,7 @@ def test(args):
         PingPangLayerWorker
     )
     test_forward(
-        args.seed, args.num_tokens, args.num_docs,
+        args.seed, args.num_tokens, args.num_docs, max_cp_degree,
         worker, hidden_size, hidden_size_kv,
         profile=args.profile, tp_size=tp_size,
     )
