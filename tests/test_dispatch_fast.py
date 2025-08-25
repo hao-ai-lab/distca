@@ -25,7 +25,7 @@ from test_util import (
     BaseWorker, init_worker_torch_distributed,
     random_shard_info_linear_layout_dp
 )
-from test_shard_info_to_fa2a import seq_mask_to_token_mask
+from test_shard_info_to_fa2a import simulate_all2all
 
 
 class Worker(BaseWorker):
@@ -122,74 +122,59 @@ class Worker(BaseWorker):
 
 
 def create_answer(
+    fwd_qkv_metadata: FastAlltoAllMetadata,
+    bwd_qkv_metadata: FastAlltoAllMetadata,
     world_size: int, num_tokens: int, max_cp_degree: int,
-    hidden_size_q: int, hidden_size_k: int, dtype,
+    hidden_size_q: int, hidden_size_k: int, dtype: torch.dtype,
 ):
-    cp_kv_dst = fwd_kv_metadata.dst_rank
-    cp_seq_lens = fwd_kv_metadata.seq_len
-    hidden_size_kv = hidden_size_k * 2
     device = "cpu"
 
     ### Init tensor ###
-    tensor_q = torch.randn(
+    src_qs = torch.randn(
         world_size, num_tokens, hidden_size_q,
         dtype=dtype, device=device
     )
-    tensor_kv = torch.randn(
-        world_size, num_tokens, hidden_size_kv,
+    src_ks = torch.randn(
+        world_size, num_tokens, hidden_size_k,
         dtype=dtype, device=device
     )
+    src_vs = torch.randn(
+        world_size, num_tokens, hidden_size_k,
+        dtype=dtype, device=device
+    )
+    element_size = dtype.itemsize
 
     ### Init output tensor ###
-    max_recv_tokens_q = fwd_q_metadata.num_recv_tokens.max()
-    max_recv_tokens_kv = fwd_kv_metadata.num_recv_tokens.max()
-    output_tensor_q = torch.zeros((world_size, max_recv_tokens_q, hidden_size_q), dtype=dtype, device=device)
-    output_tensor_kv = torch.zeros((world_size, max_recv_tokens_kv, hidden_size_kv), dtype=dtype, device=device)
-
-    ### Run orchestrate ###
-    output_tensor_q = orchestrate_simulate(tensor_q, output_tensor_q, fwd_q_metadata)
-    output_tensor_kv = orchestrate_simulate(tensor_kv, output_tensor_kv, fwd_kv_metadata)
-
-    back_tensor_q = torch.zeros((world_size, num_tokens, hidden_size_q), dtype=dtype, device=device)
-    back_tensor_kv = torch.zeros(
-        (world_size, num_tokens * max_cp_degree, hidden_size_kv),
-        dtype=dtype, device=device)
-
-    back_tensor_q = orchestrate_simulate(output_tensor_q, back_tensor_q, rev_q_metadata)
-    back_tensor_kv = orchestrate_simulate(output_tensor_kv, back_tensor_kv, rev_kv_metadata)
-
-    assert torch.allclose(back_tensor_q, tensor_q)
-
-    assert max_cp_degree > 1
-    back_tensor_kv = back_tensor_kv.reshape(
-        (world_size, max_cp_degree, num_tokens, hidden_size_kv)
+    dst_qs, dst_ks, dst_vs = simulate_all2all(
+        src_qs, src_ks, src_vs, fwd_qkv_metadata, element_size, hidden_size_q, hidden_size_k,
+        is_from_linear_layout=True,
     )
-
-    back_tensor_mask = torch.zeros_like(back_tensor_kv)
-    for i in range(world_size):
-        tok = 0
-        for j in range(cp_kv_dst.shape[1]):
-            for k in range(max_cp_degree):
-                if cp_kv_dst[i, j, k] >= 0:
-                    back_tensor_mask[i, k, tok:tok+cp_seq_lens[i, j]] = 1
-            tok += cp_seq_lens[i, j]
-
-    back_tensor_kv_dedup = back_tensor_kv.sum(dim=1) / (back_tensor_mask != 0).sum(dim=1)
-
-    torch.testing.assert_close(back_tensor_kv_dedup, tensor_kv)
-
-    torch.testing.assert_close(
-        back_tensor_kv_dedup.unsqueeze(1).repeat(1, max_cp_degree, 1, 1) * (back_tensor_mask != 0), back_tensor_kv
+    rev_qs, rev_ks, rev_vs = simulate_all2all(
+        dst_qs, dst_ks, dst_vs, bwd_qkv_metadata, element_size, hidden_size_q, hidden_size_k,
+        is_from_linear_layout=False,
     )
-    return tensor_q, tensor_kv, output_tensor_q, output_tensor_kv, back_tensor_q, back_tensor_kv
+    kv_mask = fwd_qkv_metadata.kv_replica_mask
+    src_kvs = [
+        torch.concat((src_ks[r], src_vs[r]), dim=-1)
+        for r in range(world_size)
+    ]
+    dst_kvs = [
+        torch.concat((dst_ks[r], dst_vs[r]), dim=-1)
+        for r in range(world_size)
+    ]
+    rev_kvs = [
+        torch.concat((rev_ks[r], rev_vs[r]), dim=-1)
+        for r in range(world_size)
+    ]
+
+    return src_qs, src_kvs, dst_qs, dst_kvs, rev_qs, rev_kvs
 
 
 def create_test_case(seed: int, world_size: int, total_seq_len: int, num_docs: int,
                      max_cp_degree: int, hidden_size_q: int, hidden_size_k: int):
     dtype = torch.float16
     planner_output, doc_lens = random_shard_info_linear_layout_dp(
-        world_size, num_docs, total_seq_len, seed=seed, max_num_shard=max_cp_degree,
-        seed=seed,
+        world_size, num_docs, total_seq_len, seed=seed,max_num_shard=max_cp_degree,
     )
     lse_size = 0
     element_size = dtype.itemsize
@@ -204,7 +189,7 @@ def create_test_case(seed: int, world_size: int, total_seq_len: int, num_docs: i
         tensor_q, tensor_kv, output_tensor_q, output_tensor_kv,
         back_tensor_q, back_tensor_kv
     ) = create_answer(
-        fa2a_metadata_qkv_fwd,
+        fa2a_metadata_qkv_fwd, fa2a_metadata_qkv_rev,
         world_size, total_seq_len, max_cp_degree,
         hidden_size_q, hidden_size_k, dtype,
     )
@@ -276,7 +261,7 @@ def test(args):
     )
     print("init done.")
     test_qkv(
-        args.seed, world_size, args.num_tokens, args.num_seqs, max_cp_degree,
+        args.seed, world_size, args.num_tokens, args.num_docs, max_cp_degree,
         worker, args.hidden_size_query, args.hidden_size_kv
     )
 
