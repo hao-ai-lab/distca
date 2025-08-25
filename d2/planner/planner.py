@@ -655,7 +655,7 @@ class Planner:
         metadata = self.item_to_metadata(items)
         return metadata
     
-    def plan_to_raw_qkv_dispatch(self, items_: list[Item], verbose=False, plot=False, should_plan = True):
+    def plan_to_raw_qkv_dispatch(self, items_: list[Item], verbose=False, plot=False, should_plan = True, return_items = False):
         # no plan for cp debug
         if should_plan == False:
             if verbose:
@@ -669,6 +669,8 @@ class Planner:
         shard_infos = self.items_into_shardinfos(items)
         
         ret = handle_planner_metadata(self.num_dispatch_instances, shard_infos)
+        if return_items:
+            return ret, items
         return ret
     
     def plan_items(self, items_: list[Item], verbose=False, plot=False) -> list[Item]:
