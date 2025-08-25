@@ -71,25 +71,36 @@ def plot_timeline(execution_log, title_suffix="", granularity=100):
     # cosmetics
     ax.set_xlabel("Time (ms)")
     ax.set_yticks(yticks, ylabels)
-    ax.set_title(f"WLBLLM PP: 1F1B Timeline | {title_suffix}\n"
-                 f"Total={total_ms:.1f} ms | Util {util_str}")
+    ax.set_title(f"WLBLLM PP: 1F1B Timeline {title_suffix}\n"
+                 f"Total={total_ms:.1f} ms; Util {util_str}")
     ax.grid(True, axis="x", linestyle="--", alpha=0.35)
 
-    # Set x-axis ticks to 100ms granularity
+    # Set x-axis ticks to specified granularity
     import numpy as np
     max_time_ms = total_ms
     max_time_ms = (max_time_ms + granularity - 1) // granularity * granularity
-    x_ticks = np.arange(0, max_time_ms, granularity)
+    x_ticks = np.arange(0, max_time_ms + granularity, granularity)
     ax.set_xticks(x_ticks)
+    
+    # Add a vertical line to mark the final time
+    ax.axvline(x=total_ms, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label=f'Final Time: {total_ms:.1f} ms')
 
-    # custom legend (2 blue shades for F, 2 green shades for B)
+    # custom legend (2 blue shades for F, 2 green shades for B, plus final time marker)
     from matplotlib.patches import Patch
+    from matplotlib.lines import Line2D
+    
     legend_patches = []
+    # Add microbatch color patches
     for i, c in enumerate(blue_colors):
         legend_patches.append(Patch(facecolor=c, edgecolor="black", label=f"mb%2={i} (F)"))
     for i, c in enumerate(green_colors):
         legend_patches.append(Patch(facecolor=c, edgecolor="black", label=f"mb%2={i} (B)"))
-    ax.legend(handles=legend_patches, ncols=4, loc="upper right", fontsize=8, framealpha=0.9)
+    
+    # Add final time line to legend
+    legend_patches.append(Line2D([0], [0], color='red', linestyle='--', linewidth=1.5, 
+                                label=f'Final: {total_ms:.1f} ms'))
+    
+    ax.legend(handles=legend_patches, ncols=5, loc="upper right", fontsize=8, framealpha=0.9)
 
     plt.tight_layout()
     # Return the figure to allow further customization if needed
@@ -146,7 +157,7 @@ def get_network_time(token_per_batch, cp_degree) -> float:
     return total_time
 
 
-def get_batch_time(batch: list[int], is_backward: bool = False, wlb_cp: int = 2) -> float:
+def get_batch_time(batch: list[int], is_backward: bool = False, wlb_cp: int = 2, nlayers: int = 1) -> float:
     token_per_batch = sum(batch)
     network_time = get_network_time(token_per_batch, wlb_cp)
     attn_time = get_attn_time(batch)
@@ -156,6 +167,7 @@ def get_batch_time(batch: list[int], is_backward: bool = False, wlb_cp: int = 2)
         mlp_time *= 2
     compute_time = (attn_time + mlp_time) / wlb_cp
     total_time = compute_time + network_time
+    total_time *= nlayers
     return total_time
 
 
@@ -171,7 +183,7 @@ from collections import defaultdict
 
 K = 1024
 
-def run_iteration(batches, num_stages=4):
+def run_iteration(batches, num_stages=4, nlayers=1):
     """
     Run a pipeline parallel simulation with the given batches and number of stages.
     
@@ -199,7 +211,7 @@ def run_iteration(batches, num_stages=4):
             completion_events[stage_idx].succeed()
 
     # Modify the stage function to signal completion
-    def stage_with_signal(env, idx, inbox, next_inbox, prev_inbox, num_microbatches, done_counter, log_data):
+    def stage_with_signal(env, idx, inbox, next_inbox, prev_inbox, num_microbatches, done_counter, log_data, nlayers=1):
         """Main stage function to perform pipeline parallelism."""
         while done_counter[idx] < num_microbatches:
             _, kind, m, batch = yield inbox.get()
@@ -208,7 +220,7 @@ def run_iteration(batches, num_stages=4):
 
             if is_backward:
                 t0 = env.now
-                time_spent = get_batch_time(batch, is_backward=is_backward)
+                time_spent = get_batch_time(batch, is_backward=is_backward, nlayers=nlayers)
                 yield env.timeout(time_spent)
                 t1 = env.now
                 log_data.append(("B", idx, m, t0, t1))
@@ -221,7 +233,7 @@ def run_iteration(batches, num_stages=4):
             else:  # "act" -> forward
 
                 t0 = env.now
-                time_spent = get_batch_time(batch, is_backward=is_backward)
+                time_spent = get_batch_time(batch, is_backward=is_backward, nlayers=nlayers)
                 yield env.timeout(time_spent)
                 t1 = env.now
                 log_data.append(("F", idx, m, t0, t1))
@@ -230,7 +242,7 @@ def run_iteration(batches, num_stages=4):
                 else:
                     # last stage: immediately do backward for this microbatch
                     t0b = env.now
-                    time_spent = get_batch_time(batch, is_backward=True)
+                    time_spent = get_batch_time(batch, is_backward=True, nlayers=nlayers)
                     yield env.timeout(time_spent)
                     t1b = env.now
                     log_data.append(("B", idx, m, t0b, t1b))
@@ -244,7 +256,7 @@ def run_iteration(batches, num_stages=4):
     for i in range(num_stages):
         next_inbox = inboxes[i + 1] if i < num_stages - 1 else None
         prev_inbox = inboxes[i - 1] if i > 0 else None
-        env.process(stage_with_signal(env, i, inboxes[i], next_inbox, prev_inbox, num_microbatches, done_counter, execution_log))
+        env.process(stage_with_signal(env, i, inboxes[i], next_inbox, prev_inbox, num_microbatches, done_counter, execution_log, nlayers=nlayers))
 
     # Feed microbatches to stage 0 as activations
     def feeder():
@@ -296,7 +308,87 @@ GLOBAL_BATCH = batch_documents(
 )
 num_batches = 10
 batches = [next(GLOBAL_BATCH) for _ in range(num_batches)]
-execution_log = run_iteration(batches, num_stages)
+flops = []
+for batch in batches:
+    flops.append(get_batch_time(batch, is_backward=False, nlayers=1))
+import rich
+rich.print(flops)
+
+execution_log = run_iteration(batches, num_stages, nlayers=1)
+_ = plot_timeline(execution_log, title_suffix=f" | NumBatches = {num_batches}, Stages = {num_stages}", granularity=1000)
+plt.show()  # Display the figure
+
+# %%
+# ---- Adding workload balancing across the batches ----
+from d2.simulator.optimizers.samples import (
+    sample_wlbllm_docs_upsample, 
+    batch_documents,
+)
+
+GLOBAL_BATCH = batch_documents(
+    sample_wlbllm_docs_upsample(
+        size=10000,
+        filter_threshold=64 * K,
+        filter_ratio=0.90,
+        upsample_long_factor=2,
+        elongate_factor=4,
+    ), max_ctx_length=K * 512
+)
+num_batches = 10
+batches = [next(GLOBAL_BATCH) for _ in range(num_batches)]
+
+def get_workload_balancing_batches_no_defer(batches: list[list[int]]) -> list[list[int]]:
+    
+    
+    
+    def get_workload(micro_batch: list[int]) -> int:
+        # TODO: Fix this get_workload function to calculate the `breakpoint` of a model.
+        a = [ i / (64 * K) for i in micro_batch]
+        return sum(i ** 2 + i for i in a)
+    
+    def get_length(micro_batch: list[int]) -> int:
+        return sum(micro_batch)
+    
+    
+    Lmax = max(
+        get_length(batch) for batch in batches
+    )
+
+    new_batch = []
+    for r in range(len(batches)):
+        new_batch.append([])
+
+    # Step 1: Pack the docs into the new batch.
+    all_docs = [doc for batch in batches for doc in batch]
+    all_docs.sort(reverse=True)
+
+    remained_docs = []
+    for doc in all_docs:
+        workloads = [get_workload(batch) for batch in new_batch]
+        lengths = [get_length(batch) for batch in new_batch]
+        min_workload_idx = workloads.index(min(workloads))
+        min_length_idx = lengths.index(min(lengths))
+        
+        if lengths[min_workload_idx] + doc <= Lmax:
+            new_batch[min_workload_idx].append(doc)
+        else:
+            if lengths[min_length_idx] + doc <= Lmax:
+                new_batch[min_length_idx].append(doc)
+            else:
+                remained_docs.append(doc)
+        pass
+    
+    # Step 2: Pack the remained docs, directly by workload, no defer to next stage.
+    for doc in remained_docs:
+        workloads = [get_workload(batch) for batch in new_batch]
+        lengths = [get_length(batch) for batch in new_batch]
+        min_workload_idx = workloads.index(min(workloads))
+        new_batch[min_workload_idx].append(doc)
+    
+    return new_batch
+
+new_batches = get_workload_balancing_batches_no_defer(batches)
+execution_log = run_iteration(new_batches, num_stages, nlayers=1)
 _ = plot_timeline(execution_log, title_suffix=f" | NumBatches = {num_batches}, Stages = {num_stages}", granularity=1000)
 plt.show()  # Display the figure
 
