@@ -16,9 +16,9 @@ from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangPac
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
 
 from test_util import MegatronBaseWorker, ParallelConfig, init_worker_torch_distributed, set_random_seed
-from test_pingpang_layer import create_one_batch, get_single_step_packed_seq_params
+from test_pingpong_layer import create_one_batch, get_single_step_packed_seq_params
 from megatron_test_utils import (
-    get_megatron_optimizer_param_scheduler, get_model, get_torch_device, gptmodel_forward,
+    get_megatron_optimizer_param_scheduler, get_model, gptmodel_forward,
     hf_to_mcore_config, init_mcore_model, init_megatron_optim_config,
     make_batch_generator, print_model_size, update_model_config, unwrap_model,
 )
@@ -266,7 +266,7 @@ def test(args):
     seed = args.seed
     num_tokens = args.num_tokens
     max_cp_degree = args.cp_degree
-    num_seqs = args.num_seqs
+    num_docs = args.num_docs
     tp_size = args.tp_size
     world_size = args.num_nodes * args.num_gpus_per_node
     total_seq_len = args.num_tokens
@@ -300,11 +300,11 @@ def test(args):
     hidden_size_k_tp = hidden_size_kv // tp_size
 
     _, fa2a_metadata_0, attn_metadata_0, raw_seq_lens_0 = create_one_batch(
-        as_world_size, total_seq_len, num_seqs, max_cp_degree,
+        seed, as_world_size, total_seq_len, num_docs,
         hidden_size_q_tp, hidden_size_k_tp, element_size
     )
     _, fa2a_metadata_1, attn_metadata_1, raw_seq_lens_1 = create_one_batch(
-        as_world_size, total_seq_len, num_seqs, max_cp_degree,
+        seed + 1, as_world_size, total_seq_len, num_docs,
         hidden_size_q_tp, hidden_size_k_tp, element_size
     )
 
@@ -364,7 +364,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=2)
-    parser.add_argument("--num-seqs", type=int, default=3)
+    parser.add_argument("--num-docs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
     parser.add_argument("--num-gpus-per-node", type=int, default=2)

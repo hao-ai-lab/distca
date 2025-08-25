@@ -39,7 +39,7 @@ from d2.runtime.inplace_metadata import mlp_layout_packed_params
 from d2.runtime.fast_alltoall_metadata import compute_fa2a_metadata_from_logical_metadata
 
 from test_util import create_qkv_dispatch_2cp, set_random_seed
-from test_pingpang_layer import get_single_step_packed_seq_params
+from test_pingpong_layer import get_single_step_packed_seq_params
 from test_megatron_e2e import (
     MegatronE2eWorker as MegatronE2eBaseWorker, init_megatron_e2e_test
 )

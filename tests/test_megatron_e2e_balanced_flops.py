@@ -41,7 +41,7 @@ from test_util import set_random_seed
 from test_megatron_e2e import (
     MegatronE2eWorker as MegatronE2eBaseWorker, init_megatron_e2e_test
 )
-from test_pingpang_layer import get_single_step_packed_seq_params
+from test_pingpong_layer import get_single_step_packed_seq_params
 
 SYNC_ALL = os.environ.get("SYNC_ALL", "0") == "1"
 
