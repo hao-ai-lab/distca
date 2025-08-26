@@ -217,19 +217,62 @@ def run_iteration(batches, num_stages=4, nlayers=1):
             completion_events[stage_idx].succeed()
 
     # Modify the stage function to signal completion
-    def stage_with_signal(env, idx, inbox, next_inbox, prev_inbox, num_microbatches, done_counter, log_data, nlayers=1):
+    def stage_with_signal(env, idx, inbox, next_inbox, prev_inbox, num_microbatches, done_counter, log_data, nlayers=1, threshold=8):
         """Main stage function to perform pipeline parallelism."""
+
+        active_batch_count = 0
         while done_counter[idx] < num_microbatches:
-            _, kind, m, batch = yield inbox.get()
+            # Get all batch from the inbox, 
+            # take the batch that conform the 1F1B scheduling
+            item = yield inbox.get()
+            _, kind, m, batch = item
+
+
+            # if active_batch_count <= 2:
+            #     pass
+            # else:
+            #     # wait for a grad batch to arrive.
+            #     active_batch_count -= 1
+            #     pass
+
+            if kind == "act":
+                active_batch_count += 1
+                pass
+            
+            
+            if active_batch_count > threshold:
+                print(f"[stage {idx}] active_batch_count > 4: {active_batch_count}")
+                # need to wait for at least one backward batch to arrive.
+                buffer = [item]
+                while True:
+                    item = yield inbox.get()
+                    print(f"[stage {idx}] take item: {item}")
+                    _, kind, m, batch = item
+                    if kind == "act":
+                        buffer.append(item)
+                        continue
+                    
+                    assert kind == "grad"
+                    print(f"[stage {idx}] take grad item: {item}")
+                    active_batch_count -= 1
+                    for t in buffer:
+                        yield inbox.put(t)
+                    print(f"[stage {idx}] put all items back to buffer: {buffer}")
+                    break
+                    
+                assert item[1] == "grad"
+                pass
 
             is_backward = (kind == "grad")
 
             if is_backward:
+                active_batch_count -= 1
                 t0 = env.now
                 time_spent = get_batch_time(batch, is_backward=is_backward, nlayers=nlayers)
                 yield env.timeout(time_spent)
                 t1 = env.now
                 log_data.append(("B", idx, m, t0, t1))
+                print(f"[stage {idx}] B {m} {t0} {t1}")
                 done_counter[idx] += 1
                 # Check if stage is complete
                 check_stage_completion(idx)
@@ -237,21 +280,23 @@ def run_iteration(batches, num_stages=4, nlayers=1):
                     yield prev_inbox.put((0, "grad", m, batch))
 
             else:  # "act" -> forward
-
                 t0 = env.now
                 time_spent = get_batch_time(batch, is_backward=is_backward, nlayers=nlayers)
                 yield env.timeout(time_spent)
                 t1 = env.now
                 log_data.append(("F", idx, m, t0, t1))
+                print(f"[stage {idx}] F {m} {t0} {t1}")
                 if next_inbox is not None:
                     yield next_inbox.put((1, "act", m, batch))
                 else:
+                    active_batch_count -= 1
                     # last stage: immediately do backward for this microbatch
                     t0b = env.now
                     time_spent = get_batch_time(batch, is_backward=True, nlayers=nlayers)
                     yield env.timeout(time_spent)
                     t1b = env.now
                     log_data.append(("B", idx, m, t0b, t1b))
+                    print(f"[stage {idx}] B {m} {t0b} {t1b}")
                     done_counter[idx] += 1
                     # Check if stage is complete
                     check_stage_completion(idx)
@@ -344,8 +389,6 @@ num_batches = 10
 batches = [next(GLOBAL_BATCH) for _ in range(num_batches)]
 
 def get_workload_balancing_batches_no_defer(batches: list[list[int]]) -> list[list[int]]:
-    
-    
     
     def get_workload(micro_batch: list[int]) -> int:
         # TODO: Fix this get_workload function to calculate the `breakpoint` of a model.
