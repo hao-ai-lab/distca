@@ -16,14 +16,15 @@ import torch
 from d2.runtime.attn_kernels.ops import (
     nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, FastDispatcherWrapper
 )
+from d2.runtime.compute_metadata import (
+    from_planner_output, backward_from_planner_output,
+)
 from d2.runtime.fast_alltoall_metadata import (
     compute_backward_resend_e2e_metadata,
     compute_e2e_fa2a_metadata,
-    compute_fa2a_metadata_from_logical_metadata,
-    forward_backward_with_resend_e2e_metadata,
 )
 from d2.runtime.inplace_metadata import (
-    Metadata, compute_attn_layout_seqlens, compute_metadata,
+    compute_attn_layout_seqlens, compute_metadata,
     compute_metadata_kv, exclusive_cumsum
 )
 from d2.runtime.shard_info import ShardInfo
@@ -225,7 +226,8 @@ def create_list(n: int, s: int, min_val: int, t: int) -> list[int] | None:
     assert s % t == 0
 
     # --- 2. Determine Valid Range for Numbers ---
-    min_val = math.ceil((min_val + 1) / t) * t
+    if t > 1:
+        min_val = math.ceil((min_val + 1) / t) * t
     assert s >= n * min_val
 
     # --- 3. Construct the List ---
@@ -258,10 +260,10 @@ def create_random_dispatch_from_existing(
     assert len(per_rank_shard_lens) == world_size
     num_shards = sum(len(doc_shards) for rank_shards in per_rank_shard_lens for doc_shards in rank_shards)
     dsts = torch.concat([
-        torch.range(0, world_size - 1, dtype=torch.int32),
-        torch.randint(0, world_size, (num_shards - world_size,), dtype=torch.int32)
+        torch.range(0, world_size - 1, dtype=torch.int32, device="cpu"),
+        torch.randint(0, world_size, (num_shards - world_size,), dtype=torch.int32, device="cpu"),
     ], dim=0)
-    dsts = dsts[torch.randperm(num_shards)].tolist()
+    dsts = dsts[torch.randperm(num_shards, device="cpu")].tolist()
     dsts_iter = iter(dsts)
     outs = []
     for rank in range(world_size):
@@ -408,25 +410,23 @@ def random_shard_info_linear_layout_dp(
         return scheduler_output, glob_doc_lens
 
 
-######## TODO: deprecate all below
-def gen_seq_lens(world_size: int, num_seqs: int, total_len: int) -> torch.Tensor:
-    ratio = torch.rand((world_size, num_seqs)) + 0.25 / num_seqs   # Use a min value to guarantee that the sequence is not too short (0 after rounding)
-    ratio = ratio / ratio.sum(dim=1, keepdim=True)
-    seq_len = (ratio * total_len).round().int()
-    seq_len_total = seq_len.sum(dim=1)
-    seq_len_total_error = seq_len_total - total_len
-    seq_len[:, -1] -= seq_len_total_error
-    return seq_len
+def _block_reverse_list(l: list, d: int):
+    """
+    Blockwise reverse a list:
+    return l[-d:0] + l[-2d:-d] + ...
+    This is because the backward is the flip of forward in the pp dimension, but
+    keep the order in the dp dimension.
+    """
+    return [item for i in range(len(l), 0, -d) for item in l[max(0, i - d):i]]
 
 
-def create_pipeline_seqlens(
-    ref_seq_lens: Optional[torch.Tensor],
+def create_pipeline_doclens(
+    ref_doc_lens: Optional[list[list[int]]],
     add_dummy: bool,
     is_backward: bool,
     world_size: int,
-    total_seq_len: int,
-    num_seqs: int,
-    max_cp_degree: int,
+    total_token_on_rank: int,
+    num_docs: int,
     tp_size: int,
     dp_size: int,
 ):
@@ -439,35 +439,119 @@ def create_pipeline_seqlens(
         In this way, we make all stages' microbatch dummy, except for the first one.
 
     For a backward tick, its sequence length is the reverse of a forward tick.
+    Args:
+        ref_shard_lens: None only if this is the first tick in PP. Otherwise, return the shard_lens of last tick.
+        add_dummy: add dummy forward microbatches for those pp_ranks == 0 devices
+        is_backward: this is a backward seqlens. In this case, it directly flips the seqlens of a corresponding forward
     """
     if is_backward:
-        return ref_seq_lens.reshape(-1, dp_size, num_seqs).flip(0).reshape(-1, num_seqs)
+        return _block_reverse_list(ref_doc_lens, dp_size)
     # Create new microbatches for the first PP stage
     if add_dummy:
-        # should be at least 'tp_size' tokens
-        _dummy_tokens = max(1, tp_size // max_cp_degree)
-        # NOTE: we should avoid this repeat in a real case. The same applies for repeat below.
-        new_seqlen = gen_seq_lens(dp_size, 1, _dummy_tokens).long().reshape(dp_size, 1).repeat(1, num_seqs)
+        # Each rank only gets one dummy document, which is of `tp_size`
+        # to avoid Sequence Parallel having an issue.
+        pp_head_new_doc_len = [[tp_size] for _ in range(dp_size)]
     else:
-        assert total_seq_len % max_cp_degree == 0
-        _num_tokens_shard = total_seq_len // (max_cp_degree)
-        new_seqlen = gen_seq_lens(dp_size, num_seqs, _num_tokens_shard).long()
-    new_seqlen *= max_cp_degree
+        assert total_token_on_rank % tp_size == 0, "Sequence Parallel requires total token divisible by tp_size"
+        pp_head_new_doc_len = [
+            create_list(random.randint(1, num_docs), total_token_on_rank, tp_size, 1)
+            for _ in range(dp_size)
+        ]
 
-    #  new_seqlen : shape : [dp, num_seqs]  We should sample seq_len here.
+    #  pp_head_new_doc_len : shape : [dp, num_seqs]  We should sample seq_len here.
     # And add the sampled seq_len to the batch. 
     # Next step is based on the previous batch, move the batch. 
     # Get existing microbatch seqlens
-    if ref_seq_lens is not None:
+    if ref_doc_lens is not None:
         # Not the first microbatch
-        prev_seqlen = ref_seq_lens[:-dp_size]
+        other_pp_doc_len = ref_doc_lens[:-dp_size]
     else:
         dummy_fwd_num = world_size - dp_size
-        _dummy_tokens = max(1, tp_size // max_cp_degree)
-        prev_seqlen = gen_seq_lens(dummy_fwd_num, 1, _dummy_tokens).long().reshape(dummy_fwd_num, 1).repeat(1, num_seqs)
-        prev_seqlen *= max_cp_degree
-    seq_len = torch.cat([new_seqlen, prev_seqlen], dim=0)
-    assert torch.all(seq_len.sum(-1) % tp_size == 0), "tot_seqlen_on_rank % tp_size should be 0 for sequence parallel"
+        other_pp_doc_len = [[tp_size] for _ in range(dummy_fwd_num)]
+    tick_per_rank_doc_len = pp_head_new_doc_len + other_pp_doc_len
+    return tick_per_rank_doc_len
+
+
+def random_tick_shard_from_doclens(
+    per_rank_doc_lens: list[list[int]],
+    tp_size: int,   # control the max num shard
+    max_cp_degree: int,
+):
+    world_size = len(per_rank_doc_lens)
+    per_rank_shard_lens = []
+    for r in range(world_size):
+        docs = per_rank_doc_lens[r]
+        rank_shards = []
+        for doc_len in docs:
+            num_shards = min(random.randint(1, max_cp_degree), doc_len // tp_size)
+            assert doc_len >= tp_size, f"{r, doc_len, tp_size}"
+            rank_shards.append(create_list(num_shards, doc_len, tp_size, 1))
+        per_rank_shard_lens.append(rank_shards)
+    return create_random_dispatch_from_existing(
+        per_rank_shard_lens, world_size,
+    )
+
+
+def create_qkv_dispatch_pipeline_tick(
+    world_size: int, total_num_token: int, num_docs: int, max_cp_degree: int,
+    hidden_size_q: int, hidden_size_k: int,
+    element_size: int, # dtype's size
+    softmax_lse_size: int,
+    ref_doc_lens: Optional[torch.Tensor],
+    add_dummy: bool,
+    tp_size: int, dp_size: int,
+):
+    """
+    softmax_lse_size (int): size of the softmax_lse tensor when viewed as the dtype,
+        should be num_heads_local * fp32.itemsize // element_size.
+    """
+    create_pp_doclen_kwargs = dict(
+        world_size=world_size,
+        total_token_on_rank=total_num_token,
+        num_docs=num_docs,
+        tp_size=tp_size,
+        dp_size=dp_size,
+    )
+    cur_tick_per_rank_doc_lens = create_pipeline_doclens(
+        ref_doc_lens, add_dummy, is_backward=False,
+        **create_pp_doclen_kwargs,
+    )
+    fwd_planner_out = random_tick_shard_from_doclens(
+        cur_tick_per_rank_doc_lens, tp_size, max_cp_degree,
+    )
+    (qkv_linear_to_attn_fa2a, _, out_attn_to_linear_fa2a, _, fwd_attn_metadata,
+     ) = from_planner_output(
+         world_size, fwd_planner_out, hidden_size_q, hidden_size_k,
+         softmax_lse_size, element_size, is_pipeline_tick=True
+        )
+
+    bwd_tick_per_rank_doc_lens = create_pipeline_doclens(
+        cur_tick_per_rank_doc_lens, add_dummy=False, is_backward=True,
+        **create_pp_doclen_kwargs,
+    )
+    bwd_planner_out = random_tick_shard_from_doclens(
+        bwd_tick_per_rank_doc_lens, tp_size, max_cp_degree,
+    )
+    (qkv_resend_and_out_grad_linear_to_attn_fa2a, qkv_grad_attn_to_linear_fa2a,
+     bwd_attn_metadata) = backward_from_planner_output(
+         world_size, bwd_planner_out, hidden_size_q, hidden_size_k,
+         softmax_lse_size, element_size,
+     )
+
+    return (fwd_attn_metadata, bwd_attn_metadata,
+            qkv_linear_to_attn_fa2a, qkv_grad_attn_to_linear_fa2a,
+            out_attn_to_linear_fa2a, qkv_resend_and_out_grad_linear_to_attn_fa2a,
+            cur_tick_per_rank_doc_lens,)
+
+
+######## TODO: deprecate all below
+def gen_seq_lens(world_size: int, num_seqs: int, total_len: int) -> torch.Tensor:
+    ratio = torch.rand((world_size, num_seqs)) + 0.25 / num_seqs   # Use a min value to guarantee that the sequence is not too short (0 after rounding)
+    ratio = ratio / ratio.sum(dim=1, keepdim=True)
+    seq_len = (ratio * total_len).round().int()
+    seq_len_total = seq_len.sum(dim=1)
+    seq_len_total_error = seq_len_total - total_len
+    seq_len[:, -1] -= seq_len_total_error
     return seq_len
 
 
@@ -575,76 +659,6 @@ def create_raw_qkv_dispatch(
     ) + ((seq_lens, ) if return_mlp_no_shard_seq_lens else ())
 
 
-def create_qkv_dispatch_pipeline_tick(
-    world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
-    hidden_size_q: int, hidden_size_k: int,
-    element_size: int, # dtype's size
-    softmax_lse_size: int, # size of the softmax_lse tensor, should be num_heads
-    ref_seq_lens: Optional[torch.Tensor],
-    add_dummy: bool,
-    tp_size: int, dp_size: int,
-):
-    create_pp_seqlen_kwargs = dict(
-        world_size=world_size,
-        total_seq_len=total_seq_len,
-        num_seqs=num_seqs,
-        max_cp_degree=max_cp_degree,
-    )
-    seq_lens = create_pipeline_seqlens(
-        ref_seq_lens, add_dummy, is_backward=False,
-        **create_pp_seqlen_kwargs,
-        tp_size=tp_size,
-        dp_size=dp_size,
-    )
-    (mlp_seq_len, mlp_num_seqs, mlp_q_dispatch_fwd,
-     kv_to_q_mapping, kv_to_q_rank, kv_context_size,
-     q_to_num_kv_seq, q_to_num_kv_tokens
-    ) = create_raw_qkv_dispatch(
-        world_size, total_seq_len, num_seqs, max_cp_degree,
-        return_mlp_no_shard_seq_lens=False,
-        seq_lens=seq_lens,
-    )
-
-    (_, _, _, _,
-     fa_fwd_params, fa2a_fwd_metadata) = compute_e2e_fa2a_metadata(
-        mlp_seq_len, mlp_num_seqs, mlp_q_dispatch_fwd,
-        kv_to_q_mapping, kv_to_q_rank,
-        kv_context_size, q_to_num_kv_seq, q_to_num_kv_tokens,
-        hidden_size_q, hidden_size_k,
-        element_size, softmax_lse_size
-    )
-    (qkv_fwd_fa2a_metadata, _, attn_out_fwd_fa2a_metadata, _,
-    ) = fa2a_fwd_metadata
-
-    reversed_seqlens = create_pipeline_seqlens(
-        seq_lens, add_dummy=False, is_backward=True,
-        **create_pp_seqlen_kwargs,
-        tp_size=tp_size,
-        dp_size=dp_size,
-    )
-    # NOTE: those begin with bwd_ is mostly the flip of the original value.
-    (bwd_mlp_seq_len, bwd_mlp_num_seqs, mlp_q_dispatch_bwd,
-     bwd_kv_to_q_mapping, bwd_kv_to_q_rank, bwd_kv_context_size,
-     bwd_q_to_num_kv_seq, bwd_q_to_num_kv_tokens
-    ) = create_raw_qkv_dispatch(
-        world_size, total_seq_len, num_seqs, max_cp_degree,
-        return_mlp_no_shard_seq_lens=False,
-        seq_lens=reversed_seqlens,
-    )
-
-    (fa_bwd_params, attn_out_qkv_bwd_fa2a_metadata, qkv_bwd_fa2a_metadata
-     ) = compute_backward_resend_e2e_metadata(
-        bwd_mlp_seq_len, bwd_mlp_num_seqs, mlp_q_dispatch_bwd,
-        bwd_kv_to_q_mapping, bwd_kv_to_q_rank, bwd_kv_context_size,
-        bwd_q_to_num_kv_seq, bwd_q_to_num_kv_tokens,
-        hidden_size_q, hidden_size_k, element_size, softmax_lse_size,
-    )
-    return (fa_fwd_params, fa_bwd_params,
-            qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
-            attn_out_fwd_fa2a_metadata, attn_out_qkv_bwd_fa2a_metadata,
-            seq_lens,)
-
-
 def create_qkv_dispatch_pipeline_tick_planned(
     world_size: int, total_seq_len: int, num_seqs: int, max_cp_degree: int,
     hidden_size_q: int, hidden_size_k: int,
@@ -655,7 +669,7 @@ def create_qkv_dispatch_pipeline_tick_planned(
     tp_size: int, dp_size: int, pp_size: int,
     hf_config: Optional[AutoConfig] = None,
 ):
-    create_pp_seqlen_kwargs = dict(
+    create_pp_doclen_kwargs = dict(
         world_size=world_size,
         total_seq_len=total_seq_len,
         num_seqs=num_seqs,
@@ -663,7 +677,7 @@ def create_qkv_dispatch_pipeline_tick_planned(
     )
     seq_lens = create_pipeline_seqlens(
         ref_seq_lens, add_dummy, is_backward=False,
-        **create_pp_seqlen_kwargs,
+        **create_pp_doclen_kwargs,
         tp_size=tp_size,
         dp_size=dp_size,
     )
@@ -708,7 +722,7 @@ def create_qkv_dispatch_pipeline_tick_planned(
 
     reversed_seqlens = create_pipeline_seqlens(
         seq_lens, add_dummy=False, is_backward=True,
-        **create_pp_seqlen_kwargs,
+        **create_pp_doclen_kwargs,
         tp_size=tp_size,
         dp_size=dp_size,
     )
