@@ -660,7 +660,7 @@ class Planner:
         planned_items: list[Item] = self.postprocess_items(planned_items)
         planner_output: list[list[ShardInfo]] = self.items_into_shardinfos(planned_items)
         if self.parallel_config.pipeline_model_parallel_size == 1:
-            hidden_size_q = self.model_config.hidden_size // self.parallel_config.tensor_model_parallel_size
+            hidden_size_q = self.model_config.hidden_size
             hidden_size_kv = hidden_size_q
             if hasattr(self.model_config, "num_key_value_heads"):
                 hidden_size_kv = (hidden_size_kv * self.model_config.num_key_value_heads //
