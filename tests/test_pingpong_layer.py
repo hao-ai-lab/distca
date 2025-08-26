@@ -24,7 +24,6 @@ torchrun --nnodes 1 --nproc_per_node 4 test_pingpong_layer.py \
 
 import argparse
 
-from megatron.core.packed_seq_params import PackedSeqParams
 import torch
 
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
@@ -79,11 +78,11 @@ class PingPangLayerWorker(MegatronLayerWorker):
 
 
 def create_one_batch(
-    seed: int, world_size: int, total_seq_len: int, num_docs: int,
+    seed: int, world_size: int, total_token_per_rank: int, num_docs: int,
     max_cp_degree: int, hidden_size_q: int, hidden_size_k: int, element_size: int
 ):
     planner_output, doc_lens_per_rank = random_shard_info_linear_layout_dp(
-        world_size, num_docs, tot_num_token=total_seq_len,
+        world_size, num_docs, tot_num_token=total_token_per_rank,
         max_num_shard=max_cp_degree, seed=seed,
     )
     doc_lens_per_rank = [
@@ -102,9 +101,6 @@ def create_one_batch(
         qkv_fwd_fa2a_metadata, qkv_rev_fa2a_metadata,
         attn_out_fwd_fa2a_metadata, attn_out_rev_fa2a_metadata,
     )
-    doc_lens_per_rank = [
-        torch.tensor(l, dtype=torch.int32) for l in doc_lens_per_rank
-    ]
     return planner_output, fa2a_metadata, as_attn_metadata, doc_lens_per_rank
 
 
@@ -128,7 +124,7 @@ def get_single_step_packed_seq_params(
 
 @torch.no_grad()
 def test_forward(
-    seed, total_seq_len, num_docs, max_cp_degree,
+    seed, total_token_per_rank, num_docs, max_cp_degree,
     worker: PingPangLayerWorker, hidden_size_q: int, hidden_size_k: int,
     debug=False, profile=False, tp_size: int = 1
 ):
@@ -142,12 +138,12 @@ def test_forward(
     hidden_size_k_tp = hidden_size_k // tp_size
 
     # Create two splits for ping-pong
-    _, fa2a_metadata_0, attn_metadata_0, raw_seq_lens_0 = create_one_batch(
-        seed, as_world_size, total_seq_len, num_docs, max_cp_degree,
+    _, fa2a_metadata_0, attn_metadata_0, doc_lens_0 = create_one_batch(
+        seed, as_world_size, total_token_per_rank, num_docs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size
     )
-    _, fa2a_metadata_1, attn_metadata_1, raw_seq_lens_1 = create_one_batch(
-        seed + 1, as_world_size, total_seq_len, num_docs, max_cp_degree,
+    _, fa2a_metadata_1, attn_metadata_1, doc_lens_1 = create_one_batch(
+        seed + 1, as_world_size, total_token_per_rank, num_docs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size
     )
 
@@ -155,17 +151,17 @@ def test_forward(
     torch.manual_seed(seed)
     # NOTE: this input is not sharded.
     tensors = torch.randn(
-        (as_world_size, total_seq_len * 2, 1, hidden_size_q), dtype=dtype
+        (as_world_size, total_token_per_rank * 2, 1, hidden_size_q), dtype=dtype
     )
     as_rank = worker.as_rank
     tensor_shard = tensors[as_rank]
 
     # packed seq params for orig impl
-    seq_lens_local = torch.concat(
-        (raw_seq_lens_0[as_rank], raw_seq_lens_1[as_rank])
+    doc_lens_local = torch.concat(
+        (doc_lens_0[as_rank], doc_lens_1[as_rank])
     )
     packed_seq_params = get_attn_metadata(
-        seq_lens_local, get_packed_seq_params=True,
+        doc_lens_local, get_packed_seq_params=True,
     )
     # orig forward
     normal_forward_out, debug_ref = worker.forward_normal(
@@ -180,7 +176,7 @@ def test_forward(
     )
     print(f"{worker.rank=}, Attention Server Rank {as_rank}, pingpong 0 send bytes:{ping_pang_params_0.qkv_fwd_metadata.fa2a_metadata[1]}, pingpong 1 send bytes:{ping_pang_params_1.qkv_fwd_metadata.fa2a_metadata[1]}")
     mlp_layout_seq_params = get_attn_metadata(
-        (raw_seq_lens_0[as_rank], raw_seq_lens_1[as_rank]),
+        (doc_lens_0[as_rank], doc_lens_1[as_rank]),
         get_packed_seq_params=True
     )
     max_seqlens = max(psp.max_seqlen_q for psp in mlp_layout_seq_params)

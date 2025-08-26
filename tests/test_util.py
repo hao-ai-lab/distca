@@ -226,11 +226,9 @@ def create_list(n: int, s: int, min_val: int, t: int) -> list[int] | None:
 
     # --- 2. Determine Valid Range for Numbers ---
     min_val = math.ceil((min_val + 1) / t) * t
-
-    # --- 3. Check if a Solution is Possible ---
     assert s >= n * min_val
 
-    # --- 4. Construct the List ---
+    # --- 3. Construct the List ---
     # Start with a list where every element is the minimum possible value.
     result = [min_val] * n
     remainder = (s - min_val * n) // t
@@ -252,6 +250,34 @@ def create_list(n: int, s: int, min_val: int, t: int) -> list[int] | None:
     assert sum(result) == s
 
     return result
+
+
+def create_random_dispatch_from_existing(
+    per_rank_shard_lens: list[list[list[int]]], world_size: int, merge_ranks: bool=True,
+):
+    assert len(per_rank_shard_lens) == world_size
+    num_shards = sum(len(doc_shards) for rank_shards in per_rank_shard_lens for doc_shards in rank_shards)
+    dsts = torch.concat([
+        torch.range(0, world_size - 1, dtype=torch.int32),
+        torch.randint(0, world_size, (num_shards - world_size,), dtype=torch.int32)
+    ], dim=0)
+    dsts = dsts[torch.randperm(num_shards)].tolist()
+    dsts_iter = iter(dsts)
+    outs = []
+    for rank in range(world_size):
+        rank_outs = []
+        for doc_shards in per_rank_shard_lens[rank]:
+            doc_outs = []
+            for sid, shard_len in enumerate(doc_shards):
+                doc_outs.append(
+                    ShardInfo(rid=rank, dispatch_rid=next(dsts_iter),
+                              logical_sid=sid, shard_len=shard_len)
+                )
+            rank_outs.append(doc_outs)
+        outs.append(rank_outs)
+    if merge_ranks:
+        outs = [doc_shards for rank_out in outs for doc_shards in rank_out]
+    return outs
 
 
 def create_random_shard_info(
@@ -344,7 +370,8 @@ def random_shard_info_linear_layout_dp(
             for s in shards:
                 has_shard_dst[s.dispatch_rid] = True
             scheduler_output_per_rank[r].append(shards)
-    # final step: guarantee that each rank is at least dst of one shard.
+
+    # guarantee that each rank is at least dst of one shard.
     scheduler_output: list[list[ShardInfo]] = []
     for rank in range(world_size):
         if not has_shard_dst[rank]:
@@ -368,22 +395,14 @@ def random_shard_info_linear_layout_dp(
             ])
             glob_doc_lens[rank].append(min_shard_len)
         scheduler_output.extend(scheduler_output_per_rank[rank])
+
+    # if need to create a backward redispatch, create a new dispatch_rid.
     if create_backward_redispatch:
-        bwd_has_shard_dst = [False] * world_size
-        def rand_or_fixed(src_r):
-            # Force the first shard on that rank stays there.
-            if bwd_has_shard_dst[src_r]:
-                return random.randint(0, world_size - 1)
-            bwd_has_shard_dst[src_r] = True
-            return src_r
-        scheduler_output_bwd = [[
-            ShardInfo(
-                shard.rid, rand_or_fixed(shard.dispatch_rid),
-                shard.logical_sid, shard.shard_len
-            )
-            for shard in doc_shards
-        ] for doc_shards in scheduler_output
+        per_rank_shard_lens = [[
+                [s.shard_len for s in ds] for ds in so
+            ] for so in scheduler_output_per_rank
         ]
+        scheduler_output_bwd = create_random_dispatch_from_existing(per_rank_shard_lens, world_size)
         return scheduler_output, glob_doc_lens, scheduler_output_bwd
     else:
         return scheduler_output, glob_doc_lens
