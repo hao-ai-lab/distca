@@ -207,6 +207,7 @@ def run_iteration(batches, num_stages=4, nlayers=1):
     
     # Number of microbatches is the length of batches list
     num_microbatches = len(batches)
+    threshold = num_microbatches // 2
 
     # Create completion events for each stage
     completion_events = [env.event() for _ in range(num_stages)]
@@ -217,7 +218,7 @@ def run_iteration(batches, num_stages=4, nlayers=1):
             completion_events[stage_idx].succeed()
 
     # Modify the stage function to signal completion
-    def stage_with_signal(env, idx, inbox, next_inbox, prev_inbox, num_microbatches, done_counter, log_data, nlayers=1, threshold=8):
+    def stage_with_signal(env, idx, inbox, next_inbox, prev_inbox, num_microbatches, done_counter, log_data, nlayers=1, ):
         """Main stage function to perform pipeline parallelism."""
 
         active_batch_count = 0
@@ -277,7 +278,7 @@ def run_iteration(batches, num_stages=4, nlayers=1):
                 # Check if stage is complete
                 check_stage_completion(idx)
                 if prev_inbox is not None:
-                    yield prev_inbox.put((0, "grad", m, batch))
+                    yield prev_inbox.put((1, "grad", m, batch))
 
             else:  # "act" -> forward
                 t0 = env.now
@@ -287,7 +288,7 @@ def run_iteration(batches, num_stages=4, nlayers=1):
                 log_data.append(("F", idx, m, t0, t1))
                 print(f"[stage {idx}] F {m} {t0} {t1}")
                 if next_inbox is not None:
-                    yield next_inbox.put((1, "act", m, batch))
+                    yield next_inbox.put((0, "act", m, batch))
                 else:
                     active_batch_count -= 1
                     # last stage: immediately do backward for this microbatch
@@ -301,7 +302,7 @@ def run_iteration(batches, num_stages=4, nlayers=1):
                     # Check if stage is complete
                     check_stage_completion(idx)
                     if prev_inbox is not None:
-                        yield prev_inbox.put((0, "grad", m, batch))
+                        yield prev_inbox.put((1, "grad", m, batch))
 
     # Start stage processes
     for i in range(num_stages):
@@ -313,7 +314,7 @@ def run_iteration(batches, num_stages=4, nlayers=1):
     def feeder():
         for m, batch in enumerate(batches):
             # (prio, kind, m=batch_id, batch)
-            yield inboxes[0].put((1, "act", m, batch))
+            yield inboxes[0].put((0, "act", m, batch))
 
     env.process(feeder())
 
@@ -335,6 +336,10 @@ batches = [
     [512 * K] * 1,
     [256 * K] * 2,
     [128 * K] * 4,
+    [256 * K] * 2,
+    [512 * K] * 1,
+    [256 * K] * 2,
+
 ]
 num_batches = len(batches)
 num_stages = 4
@@ -385,7 +390,7 @@ GLOBAL_BATCH = batch_documents(
         elongate_factor=4,
     ), max_ctx_length=K * 512
 )
-num_batches = 10
+num_batches = 8
 batches = [next(GLOBAL_BATCH) for _ in range(num_batches)]
 
 def get_workload_balancing_batches_no_defer(batches: list[list[int]]) -> list[list[int]]:
