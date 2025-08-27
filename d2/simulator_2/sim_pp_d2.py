@@ -1,6 +1,10 @@
 # %%
 
 from rich import print
+from d2.simulator.optimizers.samples import (
+    sample_wlbllm_docs_upsample, 
+    batch_documents,
+)
 
 K = 1024
 # from timemodule import get_attn_time, get_mlp_time
@@ -138,10 +142,10 @@ def plot_d2_timeline(events):
         ax.barh(y=event_name, width=duration, left=start_time, color='none', edgecolor='black')
         
         # Add text labels in the middle of the bar
-        pos = 0.5 - (1 if "forward" in event_name else -1) * 0.05
+        pos = 0.5 - (1 if "forward" in event_name else -1) * 0.03
         
         ax.text(start_time + duration/2, pos, f'{idx}', 
-                horizontalalignment='center', verticalalignment='top', rotation=90)
+                horizontalalignment='center', verticalalignment='top', rotation=0)
         ax.text(start_time + duration/2, event_name, f'{duration:.1f}', 
                 horizontalalignment='center', verticalalignment='center', rotation=90)
 
@@ -154,7 +158,7 @@ def plot_d2_timeline(events):
     # Customize the plot
     ax.set_xlabel('Time')
     ax.set_ylabel('Events')
-    ax.set_title('D2 PP Timeline (backward assume 2.5x attn, 2x mlp)')
+    ax.set_title(f'D2 PP Timeline (backward assume 2.5x attn, 2x mlp) \n end_time: {max_time:.1f}')
     ax.grid(True, axis='x', linestyle='--', alpha=0.7)
 
     # Add legend
@@ -170,7 +174,9 @@ def plot_d2_timeline(events):
 # ---- Quick demo ----
 # Create 4 batches with the same sequence length
 # batches = [[64 * K] for _ in range(num_batches)]
-def quick_demo():
+def quick_demo(
+    pp_size: int = 4,
+):
     batches = [
         [[128 * K] * 4, [256 * K] * 2],
         [[512 * K] * 1, [128 * K] * 4],
@@ -182,7 +188,7 @@ def quick_demo():
         [[64 * K] * 8, [128 * K] * 4],
         
     ]
-    pp_size = 4
+    
     events = simulate_d2_pipeline(batches, pp_size=pp_size, verbose=True)
     plot_d2_timeline(events)
 
@@ -193,12 +199,9 @@ def quick_demo():
 
 # %%
 # ---- Actually using a distribution to try out ----
-def actual_demo_with_distribution():
-    from d2.simulator.optimizers.samples import (
-        sample_wlbllm_docs_upsample, 
-        batch_documents,
-    )
-
+def actual_demo_with_distribution(
+    pp_size: int = 4,
+):
     GLOBAL_BATCH = batch_documents(
         sample_wlbllm_docs_upsample(
             size=10000,
@@ -223,8 +226,8 @@ def actual_demo_with_distribution():
     print("End Time: ", end_time)
 
 
-
+# %%
 if __name__ == "__main__":
-    quick_demo()
+#     quick_demo()
     actual_demo_with_distribution()
-
+# %%

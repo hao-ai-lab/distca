@@ -15,7 +15,10 @@ K = 1024
 # ---- Timeline plot with per-microbatch colors & labels ----
 import matplotlib.pyplot as plt
 
-def plot_timeline(execution_log, title_suffix="", granularity=100):
+def plot_timeline(
+    execution_log, title_suffix="", granularity=100,
+    show_microbatch_duration = True,
+):
     """Generate a timeline plot from the WLBLLM execution log."""
     
     def _darken(rgb, factor=0.6) -> tuple:
@@ -72,9 +75,19 @@ def plot_timeline(execution_log, title_suffix="", granularity=100):
             # one rectangle per (op, microbatch) segment so each can have its own color
             ax.broken_barh([(start_ms, dur_ms)], (y, yheight), facecolors=color, edgecolors="black", linewidth=0.4)
 
-            # label microbatch id at bar center
-            ax.text(start_ms + dur_ms / 2, y + yheight / 2, f"{m}",
-                    ha="center", va="center", fontsize=8, color="white")
+            if show_microbatch_duration:
+                
+                # Add duration text rotated 90 degrees in the center
+                ax.text(start_ms + dur_ms / 2, y + yheight / 2, f"{dur_ms:.1f}",
+                        ha="center", va="center", fontsize=8, color="white", rotation=90)
+                # Add microbatch id below the box
+                ax.text(start_ms + dur_ms / 2, y - 1, f"{m}",
+                        ha="center", va="top", fontsize=8, color="black")
+                
+            else:
+                ax.text(start_ms + dur_ms / 2, y + yheight / 2, f"{m}",
+                        ha="center", va="center", fontsize=8, color="white")
+                pass
 
     total_ms = end_time
     utils = [100.0 * (busy[s] / end_time) if end_time > 0 else 0.0 for s in range(num_stages)]
@@ -372,7 +385,6 @@ def actual_demo_with_distribution():
     _ = plot_timeline(execution_log, title_suffix=f" | NumBatches = {num_batches}, Stages = {num_stages}", granularity=1000)
     plt.show()  # Display the figure
 
-# %%
 
 
 # %%
@@ -399,5 +411,8 @@ def actual_demo_with_workload_balancing():
 
     new_batches = get_workload_balancing_batches_no_defer(batches)
     execution_log = run_iteration(new_batches, num_stages, nlayers=1)
-    _ = plot_timeline(execution_log, title_suffix=f" | NumBatches = {num_batches}, Stages = {num_stages}", granularity=1000)
+    _ = plot_timeline(execution_log, title_suffix=f" | NumBatches = {num_batches}, Stages = {num_stages}", granularity=1000, show_microbatch_duration=True)
     plt.show()  # Display the figure
+
+actual_demo_with_workload_balancing()
+# %%

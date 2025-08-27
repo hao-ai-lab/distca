@@ -2,6 +2,15 @@
 import sim_pp_d2
 import sim_pp_wlb
 import matplotlib.pyplot as plt
+
+import importlib
+
+def reload_packages():
+    """Reload the simulator packages."""
+    importlib.reload(sim_pp_d2)
+    importlib.reload(sim_pp_wlb)
+
+
 # %%[markdown]
 # # Simulate the speedups of D2 vs WLBLLM. PP.
 
@@ -65,13 +74,12 @@ print("batches", batches)
 
 new_batches = sim_pp_wlb.get_workload_balancing_batches_no_defer(batches)
 wlbllm_events = sim_pp_wlb.run_iteration(new_batches, num_stages, nlayers=nlayers, wlb_cp=wlb_cp_size)
-_ = sim_pp_wlb.plot_timeline(wlbllm_events, title_suffix=f" | NumBatches = {num_batches}, Stages = {num_stages}", granularity=1000)
-plt.show()  # Display the figure
 
+# %%
+_ = sim_pp_wlb.plot_timeline(wlbllm_events, title_suffix=f" | NumBatches = {num_batches}, Stages = {num_stages}", granularity=10000)
+plt.show()  # Display the figure
 wlb_end_time = max([e[-1] for e in wlbllm_events])
 print("WLBLLM End Time: ", wlb_end_time)
-
-
 
 # %%
 d2_batches = pair(batches)
