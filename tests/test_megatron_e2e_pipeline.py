@@ -304,7 +304,10 @@ def test(args):
     hidden_size_k_tp = hidden_size_kv // tp_size
     num_head_in_dtype = (hf_config.num_attention_heads *
                          torch.float32.itemsize // element_size // tp_size)
-
+    if args.use_planner:
+        from global_batch_provider import setup_global_batch
+        setup_global_batch(total_seq_len=total_seq_len)
+        
     microbatches_0 = create_pp_microbatches(
         args.num_microbatch, pp_size, as_rank,
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
