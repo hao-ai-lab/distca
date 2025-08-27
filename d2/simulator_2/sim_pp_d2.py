@@ -122,7 +122,7 @@ def simulate_d2_pipeline(
 # %%
 import matplotlib.pyplot as plt
 
-def plot_d2_timeline(events):
+def plot_d2_timeline(events, save_path: str = None):
     # Create figure and axis
     fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -168,7 +168,11 @@ def plot_d2_timeline(events):
     plt.tight_layout()
 
     # Show the plot
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300)
+
     plt.show()
+    return fig
 
 # %%
 # ---- Quick demo ----
@@ -227,7 +231,7 @@ def actual_demo_with_distribution(
 
 
 # %%
-if __name__ == "__main__":
-#     quick_demo()
-    actual_demo_with_distribution()
-# %%
+# if __name__ == "__main__":
+# #     quick_demo()
+#     actual_demo_with_distribution()
+# # %%

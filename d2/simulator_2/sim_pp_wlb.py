@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 def plot_timeline(
     execution_log, title_suffix="", granularity=100,
     show_microbatch_duration = True,
+    save_path: str = None,
 ):
     """Generate a timeline plot from the WLBLLM execution log."""
     
@@ -129,6 +130,9 @@ def plot_timeline(
 
     plt.tight_layout()
     # Return the figure to allow further customization if needed
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300)
+    
     return plt.gcf()
 
 
@@ -278,7 +282,10 @@ def run_iteration(batches, num_stages=4, nlayers=1, threshold=None, wlb_cp=2):
 
 
 # %%
-def get_workload_balancing_batches_no_defer(batches: list[list[int]]) -> list[list[int]]:
+def get_workload_balancing_batches_no_defer(
+    batches: list[list[int]],
+    num_buckets: int = 8,
+) -> list[list[int]]:
     """
     Get the workload balancing batches without deferring to the next stage.
     """
@@ -297,7 +304,7 @@ def get_workload_balancing_batches_no_defer(batches: list[list[int]]) -> list[li
     )
 
     new_batch = []
-    for r in range(len(batches)):
+    for r in range(num_buckets):
         new_batch.append([])
 
     # Step 1: Pack the docs into the new batch.
