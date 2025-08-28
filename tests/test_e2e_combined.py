@@ -27,9 +27,9 @@ from omegaconf import OmegaConf
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
+from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
 from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
-from d2.runtime.fast_alltoall_metadata import compute_e2e_fa2a_metadata
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams
 from d2.runtime.compute_metadata import get_attn_metadata
 
@@ -972,6 +972,21 @@ def test(args):
                 # Print attn_out_fwd_fa2a_metadata
                 rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.send_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__send_transfer_sz_mb)
                 rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.recv_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb)
+            # Check size:
+            def _check_overflow(fa2a_metadata):
+                send_sz = [torch.sum(m.fa2a_metadata[1][as_rank]).item() for m in fa2a_metadata]
+                # send_sz + sender_recv_offset = sender_recv_last_token
+                send_last_offset = [(m.fa2a_metadata[1] + m.fa2a_metadata[2])[as_rank] for m in fa2a_metadata]
+                recv_sz = [torch.sum(m.fa2a_metadata[3][as_rank]).item() for m in fa2a_metadata]
+                max_send_sz = max(send_sz)
+                max_recv_sz = max(recv_sz)
+                buffer_size = FastDispatcherWrapper.instance[0].buffer_size
+                assert buffer_size >= max_send_sz and buffer_size >= max_recv_sz, f"{buffer_size / 1024**3} GB buffer, {
+                    [s / 1024**3 for s in send_sz]} GB send sizes, {
+                    [sz / 1024**3 for sz in recv_sz]} GB recv sizes"
+                assert max(torch.max(o).item() for o in send_last_offset) <= buffer_size, f"{buffer_size / 1024**3} GB buffer, {[o / 1024**3 for o in send_last_offset]} GB send last offsets"
+            _check_overflow(fa2a_metadata_0)
+            _check_overflow(fa2a_metadata_1)
 
 
             # params for ping-pong batch0
