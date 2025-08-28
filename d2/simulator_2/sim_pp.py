@@ -49,7 +49,9 @@ def pair(lst):
 # %%
 
 set_of_batches = []
-for i in range(128):
+# for i in range(128):
+#     set_of_batches.append(next(GLOBAL_BATCH))
+for i in range(16):
     set_of_batches.append(next(GLOBAL_BATCH))
 set_of_batches
 # %%
@@ -65,7 +67,7 @@ for dpcp in [1,2,4,8]:
         if dpcp * pp != 8: continue
 
         config = dict(mode="d2", dpcp=dpcp, pp=pp)
-        num_batches = dpcp * pp
+        num_batches = dpcp * pp * 2
         nlayers = 32 // pp
         d2_dpcp_size = dpcp
         num_stages = pp

@@ -8,7 +8,7 @@
 # %%
 import simpy
 from collections import defaultdict
-
+from queue import deque
 K = 1024
 
 # %%
@@ -98,7 +98,9 @@ def plot_timeline(
     ax.set_xlabel("Time (ms)")
     ax.set_yticks(yticks, ylabels)
     ax.set_title(f"WLBLLM PP: 1F1B Timeline {title_suffix}\n"
-                 f"Total={total_ms:.1f} ms; Util {util_str}")
+                 f"Total={total_ms:.1f} ms; "
+                #  f"Util {util_str}"
+                 )
     ax.grid(True, axis="x", linestyle="--", alpha=0.35)
 
     # Set x-axis ticks to specified granularity
@@ -147,7 +149,7 @@ from timemodule import get_wlbllm_batch_time
 
 
 
-def run_iteration(batches, num_stages=4, nlayers=1, threshold=None, wlb_cp=2):
+def run_iteration(batches, num_stages=4, nlayers=1, threshold=None, wlb_cp=2, verbose=False):
     """
     Run a pipeline parallel simulation with the given batches and number of stages.
     
@@ -182,59 +184,103 @@ def run_iteration(batches, num_stages=4, nlayers=1, threshold=None, wlb_cp=2):
         def log(msg):
             if verbose:
                 print(msg)
-                
-        threshold = num_stages - idx
-        active_batch_count = 0
+        
+        # Construct 1f1b constraint
+        FORWARD_PASS, BACKWARD_PASS = False, True
+        def get_1f1b_constraint(pp_size: int, rank: int = idx, num_batches: int = num_microbatches):
+            forwarded_batches = 0
+            backwarded_batches = 0
+            action: list[bool] = []
+            log: list[str] = []
+            # Phase 1: Forward
+            for i in range(pp_size - rank):
+                forwarded_batches += 1
+                action.append(FORWARD_PASS)
+                log.append(f'forward[{forwarded_batches}]')
+                pass
+
+            # Phase 2: Backward - Forward
+            while forwarded_batches < num_batches:
+                # backward
+                backwarded_batches += 1
+                action.append(BACKWARD_PASS)
+                log.append(f'backward[{backwarded_batches}]')
+            
+                # forward
+                forwarded_batches += 1
+                action.append(FORWARD_PASS)
+                log.append(f'forward[{forwarded_batches}]')
+            
+            # Phase 3: Backward only
+            while backwarded_batches < num_batches:
+                backwarded_batches += 1
+                action.append(BACKWARD_PASS)
+                log.append(f'backward[{backwarded_batches}]')
+            
+            # import rich
+            # rich.print(f"Rank{rank}")
+            # rich.print(action)
+            # return action
+            
+            return deque(action)
+
+        _1f1b_constraint: deque = get_1f1b_constraint(
+            pp_size=num_stages, rank=idx, 
+            num_batches=num_microbatches
+        )
+        
         while done_counter[idx] < num_microbatches:
-            # Get all batch from the inbox, 
-            # take the batch that conform the 1F1B scheduling
-            item = yield inbox.get()
-            _, kind, m, batch = item
+
+            if len(_1f1b_constraint) == 0:
+                log(f"[stage {idx}] 1f1b constraint is empty. we actually should not be here.")
+                break
+
+            action = _1f1b_constraint.popleft()
+            log(f"[stage {idx}] expect next action: {"act" if action == FORWARD_PASS else "grad"}")
+            expected_action = "act" if action == FORWARD_PASS else "grad"
 
 
-            if kind == "act":
-                active_batch_count += 1
-                pass
-            
-            
-            if active_batch_count > threshold:
-                log(f"[stage {idx}] active_batch_count > 4: {active_batch_count}")
-                # need to wait for at least one backward batch to arrive.
-                buffer = [item]
-                while True:
-                    item = yield inbox.get()
-                    log(f"[stage {idx}] take item: {item}")
-                    _, kind, m, batch = item
-                    if kind == "act":
-                        buffer.append(item)
-                        continue
-                    
-                    assert kind == "grad"
-                    log(f"[stage {idx}] take grad item: {item}")
-                    active_batch_count -= 1
-                    for t in buffer:
-                        yield inbox.put(t)
-                    log(f"[stage {idx}] put all items back to buffer: {buffer}")
-                    break
-                    
-                assert item[1] == "grad"
-                pass
+            # ------------------------------
+            # Get the item from the inbox
+            # ------------------------------
+            buffer = []
+            while True:
+                # Loop until we get the expected action
+                log(f"[stage {idx}] waiting for {expected_action} item")
+                item = yield inbox.get()
+                _, kind, m, batch = item
+                if kind != expected_action:
+                    log(f"[stage {idx}] get item: {item}, but expected {expected_action}")
+                    buffer.append(item)
+                    continue
+                assert kind == expected_action
+                log(f"[stage {idx}] take {expected_action} item: {item}")
+                
+                # Put all other items back to buffer
+                for t in buffer:
+                    yield inbox.put(t)
+                    log(f"[stage {idx}] put item back to inbox: {t}")
+                break
+            # assert action == expected_action, f"action: {action}, expected_action: {expected_action}"
+            assert item[1] == expected_action, f"item: {item}, expected_action: {expected_action}"
+            # successfully get the item.
 
-            is_backward = (kind == "grad")
+
+            is_backward = (action == BACKWARD_PASS)
 
             if is_backward:
-                active_batch_count -= 1
                 t0 = env.now
                 time_spent = get_wlbllm_batch_time(batch, is_backward=is_backward, nlayers=nlayers, wlb_cp=wlb_cp)
                 yield env.timeout(time_spent)
                 t1 = env.now
                 log_data.append(("B", idx, m, t0, t1))
-                log(f"[stage {idx}] B {m} {t0} {t1}")
+                log(f"[stage {idx}] B {m} {t0:.2f} {t1:.2f}")
                 done_counter[idx] += 1
                 # Check if stage is complete
                 check_stage_completion(idx)
                 if prev_inbox is not None:
                     yield prev_inbox.put((1, "grad", m, batch))
+                    log(f"[stage {idx}] put grad item to prev inbox")
 
             else:  # "act" -> forward
                 t0 = env.now
@@ -242,29 +288,31 @@ def run_iteration(batches, num_stages=4, nlayers=1, threshold=None, wlb_cp=2):
                 yield env.timeout(time_spent)
                 t1 = env.now
                 log_data.append(("F", idx, m, t0, t1))
-                log(f"[stage {idx}] F {m} {t0} {t1}")
+                log(f"[stage {idx}] F {m} {t0:.2f} {t1:.2f}")
                 if next_inbox is not None:
                     yield next_inbox.put((0, "act", m, batch))
+                    log(f"[stage {idx}] put act item to next inbox")
                 else:
-                    active_batch_count -= 1
+                    assert _1f1b_constraint.popleft() == BACKWARD_PASS, f"action: {_1f1b_constraint.popleft()}, expected_action: {BACKWARD_PASS}"
                     # last stage: immediately do backward for this microbatch
                     t0b = env.now
                     time_spent = get_wlbllm_batch_time(batch, is_backward=True, nlayers=nlayers, wlb_cp=wlb_cp)
                     yield env.timeout(time_spent)
                     t1b = env.now
                     log_data.append(("B", idx, m, t0b, t1b))
-                    log(f"[stage {idx}] B {m} {t0b} {t1b}")
+                    log(f"[stage {idx}] B {m} {t0b:.2f} {t1b:.2f}")
                     done_counter[idx] += 1
                     # Check if stage is complete
                     check_stage_completion(idx)
                     if prev_inbox is not None:
                         yield prev_inbox.put((1, "grad", m, batch))
+                        log(f"[stage {idx}] put grad item to prev inbox")
 
     # Start stage processes
     for i in range(num_stages):
         next_inbox = inboxes[i + 1] if i < num_stages - 1 else None
         prev_inbox = inboxes[i - 1] if i > 0 else None
-        env.process(stage_with_signal(env, i, inboxes[i], next_inbox, prev_inbox, num_microbatches, done_counter, execution_log, nlayers=nlayers))
+        env.process(stage_with_signal(env, i, inboxes[i], next_inbox, prev_inbox, num_microbatches, done_counter, execution_log, nlayers=nlayers, verbose=verbose))
 
     # Feed microbatches to stage 0 as activations
     def feeder():
@@ -285,6 +333,7 @@ def run_iteration(batches, num_stages=4, nlayers=1, threshold=None, wlb_cp=2):
 def get_workload_balancing_batches_no_defer(
     batches: list[list[int]],
     num_buckets: int = 8,
+    Lmax: int = None,
 ) -> list[list[int]]:
     """
     Get the workload balancing batches without deferring to the next stage.
@@ -299,7 +348,7 @@ def get_workload_balancing_batches_no_defer(
         return sum(micro_batch)
     
     
-    Lmax = max(
+    Lmax = Lmax or max(
         get_length(batch) for batch in batches
     )
 
@@ -341,25 +390,40 @@ def get_workload_balancing_batches_no_defer(
 # Create 4 batches with the same sequence length
 # batches = [[64 * K] for _ in range(num_batches)]
 def quick_demo():
+    # batches = [
+    #     [128 * K] * 4,
+    #     [256 * K] * 2,
+    #     [512 * K] * 1,
+    #     [256 * K] * 2,
+    #     [128 * K] * 4,
+    #     [256 * K] * 2,
+    #     [512 * K] * 1,
+    #     [256 * K] * 2,
+
+    # ]
     batches = [
-        [128 * K] * 4,
-        [256 * K] * 2,
-        [512 * K] * 1,
-        [256 * K] * 2,
-        [128 * K] * 4,
-        [256 * K] * 2,
-        [512 * K] * 1,
-        [256 * K] * 2,
+        [64*K] * 2,
+        [64*K] * 2,
+        [128*K] * 1,
+        [64*K] * 2,
+        [64*K] * 2,
+        [64*K] * 2,
+        [64*K] * 2,
+        [64*K] * 2,
 
     ]
     num_batches = len(batches)
     num_stages = 4
     # threshold = num_batches // 2
     # threshold = num_stages
-    execution_log = run_iteration(batches, num_stages)
+    execution_log = run_iteration(batches, num_stages, verbose=False)
     _ = plot_timeline(execution_log, title_suffix=f" | M={num_batches}, S={num_stages}", granularity=1000)
     plt.show()  # Display the figure
     return
+
+
+# quick_demo()
+# %%
 
 # %%
 def actual_demo_with_distribution():
@@ -421,5 +485,6 @@ def actual_demo_with_workload_balancing():
     _ = plot_timeline(execution_log, title_suffix=f" | NumBatches = {num_batches}, Stages = {num_stages}", granularity=1000, show_microbatch_duration=True)
     plt.show()  # Display the figure
 
-actual_demo_with_workload_balancing()
+# actual_demo_with_workload_balancing()
+
 # %%
