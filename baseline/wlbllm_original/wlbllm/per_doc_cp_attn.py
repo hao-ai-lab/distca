@@ -50,7 +50,7 @@ fake_lse = None
 
 class PerDocumentCPAttention(torch.autograd.Function):
     """
-    Attention with per‑document context parallelism.
+    Attention with per-document context parallelism.
 
     - local_q / k / v should contain every shard that this rank owns:
     [Doc1-Shard1, Doc2-Shard1, ..., DocN-Shard1, Doc1-Shard2, Doc2-Shard2, ..., DocN-Shard2]
