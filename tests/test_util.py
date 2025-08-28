@@ -499,6 +499,7 @@ def random_tick_shard_from_doclens(
         per_rank_shard_lens, world_size,
     )
 
+# This function world size is actually as_world_size.
 def create_qkv_dispatch_pipeline_tick(
     world_size: int, total_num_token: int, num_docs: int, max_cp_degree: int,
     hidden_size_q: int, hidden_size_k: int,
@@ -529,11 +530,11 @@ def create_qkv_dispatch_pipeline_tick(
     if use_planner:
         from d2.planner.planner import Planner
         from types import SimpleNamespace
-        pp_size = world_size // tp_size // dp_size
+        pp_size = world_size // dp_size        # in this function, world size is actual as_world_size. pp = world_size // dp_size
         planner = Planner.from_individual_params(tp_size=tp_size,
                                                  pp_size=pp_size,
                                                  dp_size=dp_size,
-                                                 world_size=world_size,
+                                                 world_size=tp_size * pp_size * dp_size,
                                                  hidden_size_q=hidden_size_q,
                                                  hidden_size_k=hidden_size_k)
         # Create a temp_model_config for item initialization.

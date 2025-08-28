@@ -312,7 +312,7 @@ class Item:
             rlog(f"Origin flops {self.total_flops}, moved flops: {moved_flops_actual}, current flops: {self.get_flops()}")
 
             rlog(f"    - [debug] total_flops(before)={self.total_flops}, get_flops()={self.get_flops()}, moved_flops_actual={moved_flops_actual}, sum={self.get_flops() + moved_flops_actual}")
-            assert self.total_flops == self.get_flops() + moved_flops_actual, f"Total flops should be equal"
+            assert self.total_flops == self.get_flops() + moved_flops_actual, f"Total flops should be equal. This error is mostly because of odd doc length. Currently, we only support even doc length. Please pad to even."
             self.total_flops = self.get_flops()
             rlog(f"    - [bold]Splitting item[/bold]: Actual Moving q={q_to_move} ({moved_flops_actual:.2f} FLOPs) to satisfy need.")
 
