@@ -1,6 +1,11 @@
-scikit-learn
-numpy
-pandas
 matplotlib
-streamlit
-streamlit-cookies-manager
+pandas
+ray
+plotly
+seaborn
+transformers
+rich
+# scikit-learn
+# numpy
+# streamlit
+# streamlit-cookies-manager
