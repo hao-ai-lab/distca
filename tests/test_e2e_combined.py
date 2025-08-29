@@ -632,6 +632,7 @@ def test(args):
         os.environ["NUM_LAYERS"] = str(num_layers)
 
     mode = args.mode
+    output_dir = args.output_dir
 
     # Set forward function mode based on test mode
     normal_forward_fn = (mode in ["baseline", "wlbllm"])
@@ -711,7 +712,11 @@ def test(args):
     sample_times = []
     for sample_id in range(max_sample_id):
         if mode == "baseline":
-            _seq_lens: list[list[int]] = get_next_batch(as_world_size * 2)
+            try:
+                # TOOD: This should be batch_size * 2
+                _seq_lens: list[list[int]] = get_next_batch(as_world_size * 2)
+            except StopIteration:
+                break
             print(f"🟡 sample_id={sample_id}: {_seq_lens}")
             # TODO: Adding proper support for context parallel in megatron.
             # Baseline mode: Use simple batch generation
@@ -746,7 +751,10 @@ def test(args):
             rank = torch.distributed.get_rank()
             device = torch.cuda.current_device()
 
-            _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            try:
+                _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            except StopIteration:
+                break
             print(f"🟡 sample_id={sample_id}: {_seq_lens}")
             # TODO: Adding proper support for context parallel in megatron.
             # Baseline mode: Use simple batch generation
@@ -943,7 +951,10 @@ def test(args):
                 pipeline_model_parallel_size=1,
             )
 
-            _seq_lens: list[list[int]] = get_next_batch(2 * batch_size)
+            try:
+                _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            except StopIteration:
+                break
             seq_lens_0: list[list[int]] = _seq_lens[:batch_size]
             seq_lens_1: list[list[int]] = _seq_lens[batch_size:]
 
@@ -1123,8 +1134,18 @@ def test(args):
     #     rich.print(f"🟢 Attention durations: {formatted_durations}")
 
     if rank % 8 == 0:
+
+        summary_log_file = os.path.join(output_dir, "summary.log")
+        with open(summary_log_file, "w") as f:
+            f.write("Summary Log\n===============\n")
+
+        def log_to_console_and_file(*args, **kwargs):
+            rich.print(*args, **kwargs)
+            with open(summary_log_file, "a") as f:
+                rich.print(*args, **kwargs, file=f)
+
         
-        rich.print(f"🟢 Test {__file__} passed")
+        log_to_console_and_file(f"🟢 Test {__file__} passed")
         
         config = dict(
             mode=mode, tp_size=tp_size, dp_size=dp_size, cp_size=cp_degree, 
@@ -1132,8 +1153,8 @@ def test(args):
             max_sample_id=max_sample_id, up_sample_factor=up_sample_factor, filter_threshold=filter_threshold, filter_ratio=filter_ratio, 
             replan_iter=replan_iter, elongate_factor=elongate_factor,
         )
-        rich.print(f"🟢 Test Config: {config}")
-        rich.print(f"🟢 Test DateTime: ", timestamp)
+        log_to_console_and_file(f"🟢 Test Config: {config}")
+        log_to_console_and_file(f"🟢 Test DateTime: ", timestamp)
         
         # Prepare benchmark data
         benchmark_data = {
@@ -1150,7 +1171,7 @@ def test(args):
             samples = iterated_samples[idx]
             duration = sample_times[idx]
             # total_flops_factor = 
-            rich.print(f"🟢 Sample {idx}: duration: {duration:.2f} ms, samples = {samples}")
+            log_to_console_and_file(f"🟢 Sample {idx}: duration: {duration:.2f} ms, samples = {samples}")
             benchmark_data["samples"].append({
                 "sample_id": idx,
                 "samples": samples,
@@ -1163,8 +1184,13 @@ def test(args):
     if rank == 0:
         with open(benchmark_file, 'w') as f:
             json.dump(benchmark_data, f, indent=2)
+
+        # Save another copy of the benchmark data to the output directory
+        output_file = os.path.join(output_dir, "benchmark.json")
+        with open(output_file, 'w') as f:
+            json.dump(benchmark_data, f, indent=2)
         
-        rich.print(f"🟢 Benchmark results saved to: {benchmark_file}")
+        rich.print(f"🟢 Benchmark results saved to: {output_file}")
 
         # for idx, (sample, duration) in enumerate(zip(iterated_samples, sample_times)):
         #     rich.print(f"🟢 Sample {idx}: {sample}, duration: {duration} ms")
@@ -1205,8 +1231,16 @@ if __name__ == "__main__":
     parser.add_argument("--force-exit", action="store_true")
     parser.add_argument("--should-add-debug-cases", action="store_true")
     parser.add_argument("--should-profile-memory", type=str, default=None)
+    parser.add_argument("--output-dir", type=str, default=None)
     
     args = parser.parse_args()
+
+    if args.output_dir is None:
+        args.output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+        pass
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+        
 
     should_profile_memory = args.should_profile_memory
     if should_profile_memory:
@@ -1244,10 +1278,16 @@ if __name__ == "__main__":
         if rank % 8 == 0:
             print("Dumping memory snapshot")
 
-            os.makedirs(f"mem_snapshots", exist_ok=True)
+            mem_snapshots_dir = os.path.join(args.output_dir, "mem_snapshots")
+            os.makedirs(mem_snapshots_dir, exist_ok=True)
+            
+            stem = f"{now_ts}.mem_snapshot.{mode}.rank{rank}.batch{batch_size}.tokens{num_tokens}.cp{cp_degree}.tp{tp_size}.layers{num_layers}"
+            mem_snapshot_output_path = os.path.join(mem_snapshots_dir, f"{stem}.pickle")
+            memory_timeline_output_path = os.path.join(mem_snapshots_dir, f"{stem}.html")
+
 
             now_ts = get_current_timestamp()
-            torch.cuda.memory._dump_snapshot(f"mem_snapshots/{now_ts}.mem_snapshot.{mode}.rank{rank}.batch{batch_size}.tokens{num_tokens}.cp{cp_degree}.tp{tp_size}.layers{num_layers}.pickle")
-            prof.export_memory_timeline(f"mem_snapshots/{now_ts}.mem_timeline.{mode}.rank{rank}.batch{batch_size}.tokens{num_tokens}.cp{cp_degree}.tp{tp_size}.layers{num_layers}.html", device=torch.cuda.current_device())
+            torch.cuda.memory._dump_snapshot(mem_snapshot_output_path)
+            prof.export_memory_timeline(memory_timeline_output_path, device=torch.cuda.current_device())
             print("Memory snapshot dumped")
 

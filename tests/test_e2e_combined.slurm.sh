@@ -3,17 +3,18 @@
 #SBATCH --job-name=e2e
 #SBATCH --partition=main
 #SBATCH --nodes=4
-#SBATCH --output=logs/slurm.%j.stdout
-#SBATCH --error=logs/slurm.%j.stderr
+#SBATCH --output=logs/slurm/stdout.%j.log
+#SBATCH --error=logs/slurm/stderr.%j.log
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=96
 #SBATCH --mem=512G
 #SBATCH --exclusive
-#SBATCH --time=720:00:00
+#SBATCH --time=01:00:00
 #SBATCH --qos=iq
 #SBATCH --exclude=fs-mbz-gpu-286,fs-mbz-gpu-302,fs-mbz-gpu-476,fs-mbz-gpu-597,fs-mbz-gpu-684,fs-mbz-gpu-697,fs-mbz-gpu-868,fs-mbz-gpu-877
-
+#SBATCH --mail-user=seiners_uncut_9y@icloud.com
+#SBATCH --mail-type=END,FAIL
 
 # ===================================
 # D2 E2E Combined Test - Slurm Script
@@ -53,7 +54,9 @@
 
 
 
-# ---- Los Angeles timestamp + output dir ----
+# ------------------------------------------------------
+# Setup loggings and artifact directories
+# ------------------------------------------------------
 TS=$(TZ=America/Los_Angeles date +%Y%m%d_%H%M%S)
 
 # Get the current directory of the script
@@ -67,9 +70,67 @@ mkdir -p "$OUTPUT_DIR"
 # exec > $OUTPUT_DIR/slurm.stdout 2> $OUTPUT_DIR/slurm.stderr
 exec > $OUTPUT_DIR/slurm.stdout 2>&1
 
+EXP_README="$OUTPUT_DIR/README.md"
 
+
+LOG_DIR="$OUTPUT_DIR/logs"
+mkdir -p "$LOG_DIR"
 
 set -x
+
+
+# ------------------------------------------------------
+# Input Variables (what you will set outside)
+# ------------------------------------------------------
+
+# Model configuration
+MODEL_PATH=${MODEL_PATH:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}
+NUM_LAYERS=${NUM_LAYERS:-4}
+
+# Parallelism settings
+TP_SIZE=${TP_SIZE:-$GPUS_PER_NODE}   # Tensor Parallelism size, defaults to GPUs per node
+PP_SIZE=${PP_SIZE:-1}                # Pipeline Parallelism size
+CP_SIZE=${CP_SIZE:-1}                # Only useful in WLBLLM (D2 will have DPCP anyways)
+
+# Experiment settings
+MODE=${MODE:-d2}               # Experiment mode (baseline, dynamic, etc.)
+BATCH_SIZE=${BATCH_SIZE:-1}          # Batch size for training
+NUM_TOKENS=${NUM_TOKENS:-65536}     # Number of tokens to process
+MAX_SAMPLE_ID=${MAX_SAMPLE_ID:-3}   # Maximum sample ID
+
+# Dataset sampling settings
+UP_SAMPLE_FACTOR=${UP_SAMPLE_FACTOR:-4}
+ELONGATE_FACTOR=${ELONGATE_FACTOR:-1}
+FILTER_THRESHOLD=${FILTER_THRESHOLD:-65536}
+FILTER_RATIO=${FILTER_RATIO:-0.50}
+SHOULD_ADD_DEBUG_CASES=${SHOULD_ADD_DEBUG_CASES:-0}
+
+
+
+NNODES=$SLURM_NNODES
+
+echo "Running experiment with the following parameters:" > $EXP_README
+echo "- MODE: $MODE" >> $EXP_README
+echo "- NNODES: $NNODES" >> $EXP_README
+echo "- NUM_LAYERS: $NUM_LAYERS" >> $EXP_README
+echo "- TP_SIZE: $TP_SIZE" >> $EXP_README
+echo "- PP_SIZE: $PP_SIZE" >> $EXP_README
+echo "- CP_SIZE: $CP_SIZE" >> $EXP_README
+echo "- BATCH_SIZE: $BATCH_SIZE" >> $EXP_README
+echo "- NUM_TOKENS: $NUM_TOKENS" >> $EXP_README
+echo "- MAX_SAMPLE_ID: $MAX_SAMPLE_ID" >> $EXP_README
+echo "- UP_SAMPLE_FACTOR: $UP_SAMPLE_FACTOR" >> $EXP_README
+echo "- ELONGATE_FACTOR: $ELONGATE_FACTOR" >> $EXP_README
+echo "- FILTER_THRESHOLD: $FILTER_THRESHOLD" >> $EXP_README
+echo "- FILTER_RATIO: $FILTER_RATIO" >> $EXP_README
+echo "- SHOULD_ADD_DEBUG_CASES: $SHOULD_ADD_DEBUG_CASES" >> $EXP_README
+
+# Generate equivalent command
+cmd="MODE=$MODE BATCH_SIZE=$BATCH_SIZE NUM_TOKENS=$NUM_TOKENS MAX_SAMPLE_ID=$MAX_SAMPLE_ID TP_SIZE=$TP_SIZE CP_SIZE=$CP_SIZE NUM_LAYERS=$NUM_LAYERS sbatch --nodes $NNODES test_e2e_combined.slurm.sh"
+echo "" >> $EXP_README
+echo "- Command: $cmd" >> $EXP_README
+
+# ------------------------------------------------------
 
 # ---------------------------
 # Env and Sanity Check
@@ -157,42 +218,16 @@ fi
 NUM_NODES=$SLURM_NNODES
 WORLD_SIZE=$((GPUS_PER_NODE * NUM_NODES))
 
-# ---------------------------
-# D2 Experiment Important Vars
-# ---------------------------
-# These variables can be set as environment variables before submitting the job
-# Example: PP_SIZE=4 BATCH_SIZE=2 sbatch test_e2e_combined.slurm.sh
-
-# Model configuration
-MODEL_PATH=${MODEL_PATH:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}
-NUM_LAYERS=${NUM_LAYERS:-4}
-
-# Parallelism settings
-TP_SIZE=${TP_SIZE:-$GPUS_PER_NODE}   # Tensor Parallelism size, defaults to GPUs per node
-PP_SIZE=${PP_SIZE:-1}                # Pipeline Parallelism size
-CP_SIZE=${CP_SIZE:-1}                # Only useful in WLBLLM (D2 will have DPCP anyways)
-
-# Experiment settings
-MODE=${MODE:-d2}               # Experiment mode (baseline, dynamic, etc.)
-BATCH_SIZE=${BATCH_SIZE:-1}          # Batch size for training
-NUM_TOKENS=${NUM_TOKENS:-65536}     # Number of tokens to process
-MAX_SAMPLE_ID=${MAX_SAMPLE_ID:-3}   # Maximum sample ID
-
-# Dataset settings
-UP_SAMPLE_FACTOR=${UP_SAMPLE_FACTOR:-4}
-ELONGATE_FACTOR=${ELONGATE_FACTOR:-1}
-FILTER_THRESHOLD=${FILTER_THRESHOLD:-65536}
-FILTER_RATIO=${FILTER_RATIO:-0.50}
-SHOULD_ADD_DEBUG_CASES=${SHOULD_ADD_DEBUG_CASES:-0}
-
 
 # Build the common stem *format* (anything that needs per-node must be computed on the node)
 COMMON_STEM="nnodes${NNODES}.bs${BATCH_SIZE}.maxid${MAX_SAMPLE_ID}.tp${TP_SIZE}.pp${PP_SIZE}.cp${CP_SIZE}.t${NUM_TOKENS}.elong${ELONGATE_FACTOR}.up${UP_SAMPLE_FACTOR}.ft${FILTER_THRESHOLD}.fr${FILTER_RATIO}"
 
+touch ${OUTPUT_DIR}/desc.${COMMON_STEM} # just a description of this experiment, in its file name
+
 # Define missing variables with defaults
 NNODES=${NNODES:-$NUM_NODES}
 NPROC_PER_NODE=${NPROC_PER_NODE:-$GPUS_PER_NODE}
-RZV_ID=${RZV_ID:-$RANDOM}
+RZV_ID=${RZV_ID:-$head_node}
 REPLAN_ITER=${REPLAN_ITER:-0}
 SHOULD_PROFILE_MEMORY=${SHOULD_PROFILE_MEMORY:-0}
 
@@ -218,7 +253,8 @@ TORCHRUN_CMD=(
     --num-tokens ${NUM_TOKENS} \
     --elongate-factor ${ELONGATE_FACTOR} \
     --filter-threshold ${FILTER_THRESHOLD} \
-    --filter-ratio ${FILTER_RATIO}
+    --filter-ratio ${FILTER_RATIO} \
+    --output-dir ${OUTPUT_DIR}
 )
 
 if [ ${SHOULD_ADD_DEBUG_CASES} -eq 1 ]; then
@@ -252,8 +288,8 @@ SRUN_BASE=(
 
 if [ ${ENABLE_NSYS} -eq 1 ]; then
   "${SRUN_BASE[@]}" \ \
-    --output="${OUTPUT_DIR}/${TS}.${MODE}.%N.%j.out" \
-    --error="${OUTPUT_DIR}/${TS}.${MODE}.%N.%j.out" \
+    --output="${LOG_DIR}/${TS}.${MODE}.%N.%j.out" \
+    --error="${LOG_DIR}/${TS}.${MODE}.%N.%j.out" \
       nsys profile --show-output=true --force-overwrite=true \
         -o "${OUTPUT_DIR}/%h.nsys-rep" --sample=none -t cuda,nvtx \
         torchrun $TORCHRUN_STR
@@ -264,8 +300,8 @@ else
 #     torchrun $TORCHRUN_STR
 
     "${SRUN_BASE[@]}" \
-        --output="${OUTPUT_DIR}/%N.%j.out" \
-        --error="${OUTPUT_DIR}/%N.%j.out" \
+        --output="${LOG_DIR}/%N.%j.out" \
+        --error="${LOG_DIR}/%N.%j.out" \
         bash -lc '
             set -x
             hostname
