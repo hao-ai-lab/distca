@@ -67,6 +67,9 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
             packed_seq_params = batch['packed_seq_params']
             # returns "hidden_states" if not model.post_process (not the last layer)
             # returns "logits" when label is None.
+            
+            rank = torch.distributed.get_rank()
+            print(f"rank {rank} forward_step")
             output = gptmodel_forward(
                 model, input_ids, attention_mask, position_ids, self.tf_config.sequence_parallel,
                 packed_seq_params, labels=input_ids.unsqueeze(0),
@@ -194,6 +197,23 @@ def init_megatron_e2e_test(
             expert_tensor_parallel_size=parallel_config.expert_tensor_parallel_size,
             nccl_communicator_config_path=None,
             # order="tp-cp-ep-dp-pp",
+        )
+        # TODO: We do not need to initialize the nvshmem buffer
+        # worker.init_nvshmem(buffer_size, parallel_config)
+        from d2.runtime.attn_kernels.ops import (
+            nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, FastDispatcherWrapper
+        )
+        as_rank = torch.distributed.get_rank() // tp_size
+        
+        if as_rank == 0:
+            uid = nvshmem_get_unique_id()
+        else:
+            uid = nvshmem_alloc_empty_unique_id()
+        print(f"[Rank {as_rank}] init nvshmem with uid = {uid}")
+        torch.distributed.broadcast(uid, src=as_src_rank, group=group)
+        print(f"[Rank {as_rank}] after broadcast uid = {uid}")
+        FastDispatcherWrapper.init(
+            as_rank, local_rank, as_world_size, buffer_size, uid
         )
         pass
 
@@ -343,8 +363,8 @@ def test(args):
 
     worker: MegatronE2eWorker = init_megatron_e2e_test(
         hidden_size_q, hidden_size_kv, hf_config.num_attention_heads, num_tokens,
-        world_size, max_cp_degree, tp_size, pp_size,
-        dtype, MegatronE2eWorker
+        world_size, cp_size, tp_size, pp_size,
+        dtype, MegatronE2eWorker, mode=mode
     )
     worker.set_config(dtype=dtype)
     worker.init(model_path, seed=seed)
@@ -355,6 +375,7 @@ def test(args):
     as_rank = worker.as_rank
 
     # Check rank correctness
+    tp_rank = mpu.get_tensor_model_parallel_rank()
     dp_rank = mpu.get_data_parallel_rank()
     cp_rank = mpu.get_context_parallel_rank()
     pp_rank = mpu.get_pipeline_model_parallel_rank()
@@ -362,15 +383,21 @@ def test(args):
         assert as_rank == dp_rank + pp_rank * dp_size
     else:
         # no need to assert
+        as_rank = dp_rank + pp_rank * dp_size
+        as_world_size = dp_size * pp_size
         pass
+    
+    rank = torch.distributed.get_rank()
+    rich.print(f"[Rank {rank}] {tp_rank = } / {tp_size = }, {pp_rank = } / {pp_size = }, {cp_rank = } / {cp_size = }, {dp_rank = } / {dp_size = }")
 
     hidden_size_q_tp = hidden_size_q // tp_size
     hidden_size_k_tp = hidden_size_kv // tp_size
     num_head_in_dtype = (hf_config.num_attention_heads *
                          torch.float32.itemsize // element_size // tp_size)
-    if use_planner:
-        setup_global_batch(total_seq_len=total_seq_len)
-        set_dp_size_and_rank(dp_rank, dp_size)
+    
+    # if use_planner:
+    setup_global_batch(total_seq_len=total_seq_len)
+    set_dp_size_and_rank(dp_rank, dp_size)
 
     max_sample_idx = 5
     for sample_idx in range(max_sample_idx):
@@ -486,11 +513,17 @@ def test_one_case(args, as_rank, as_world_size, dp_size, element_size, hidden_si
         # - as_rank is used to control the
         #   - create_pp_microbatches(..., as_world_size, ...)
         #   - create_qkv_dispatch_pipeline_tick(world_size, ...)
+        # TODO: Please put the get batch outside of the planner...
+
+        # TODO:(Hack) - pass the correct world size...
+
+        
 
         microbatches = create_pp_microbatches(
             num_batch,  # Take 2x the microbatches to mitigate with the pingpong.
-            pp_size, as_rank,
-            as_world_size, total_seq_len, num_seqs, cp_size,
+            pp_size, as_rank, 
+            as_world_size, 
+            total_seq_len, num_seqs, cp_size,
             hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
             tp_size, dp_size, use_planner,
         )
@@ -524,6 +557,8 @@ def test_one_case(args, as_rank, as_world_size, dp_size, element_size, hidden_si
 
         torch.cuda.synchronize()
         torch.distributed.barrier()
+        rank = torch.distributed.get_rank()
+        print(f"rank {rank} forward_backward_batch orig_reimpl")
         loss_orig, grad_orig = worker.forward_backward_batch(
             microbatches=orig_impl_microbatches,
             forward_only=False,
