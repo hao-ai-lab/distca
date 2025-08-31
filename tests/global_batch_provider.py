@@ -37,17 +37,33 @@ def setup_global_batch(
     return
 
 
-def get_next_batch(dp_size):
+_dp_rank = 0
+_dp_size = 1
+def set_dp_size_and_rank(rank: int, size: int):
+    global _dp_size
+    global _dp_rank
+    _dp_size = size
+    _dp_rank = rank
+    return
+
+
+def get_next_batch(num_batches: int) -> List[int]:
     global GLOBAL_BATCH
     global ITERATION_ID
     global iterated_samples
-    
-    batches = []
+
     if GLOBAL_BATCH is None:
         raise RuntimeError("GLOBAL_BATCH has not been initialized. Call setup_global_batch() first.")
-        
-    for _ in range(dp_size):    
-        batches.append(next(GLOBAL_BATCH))
+
+    all_batches: List[List[int]] = []
+    for _ in range(_dp_size):
+        batches: List[int] = []
+        for _ in range(num_batches):
+            batches.append(next(GLOBAL_BATCH))
+        all_batches.append(batches)
+
+    batches = all_batches[_dp_rank]
+
     ITERATION_ID += 1
     iterated_samples.append(batches)
     return batches
