@@ -539,7 +539,7 @@ def create_qkv_dispatch_pipeline_tick(
         ref_doc_lens, add_dummy, is_backward=False, num_batches = num_batches, use_planner=use_planner,
         **create_pp_doclen_kwargs, 
     )
-
+    print(f"DEBUG: {cur_tick_per_rank_doc_lens}")
     if use_planner:
         from d2.planner.planner import Planner
         from types import SimpleNamespace
@@ -581,7 +581,10 @@ def create_qkv_dispatch_pipeline_tick(
         **create_pp_doclen_kwargs,
     )
     if use_planner:
-        items = batch_to_items_with_dummy(bwd_tick_per_rank_doc_lens, temp_model_config)
+        items = batch_to_items_with_dummy(batches=bwd_tick_per_rank_doc_lens, 
+                                          num_tokens_per_rank=num_token_per_rank,
+                                          as_world_size=world_size,
+                                          model_config=temp_model_config)
         bwd_planner_out = planner.items_to_shardinfo(items)
     else:
         bwd_planner_out = random_tick_shard_from_doclens(

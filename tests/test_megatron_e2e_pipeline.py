@@ -1,6 +1,9 @@
 """
 Debug example:
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_pipeline.py --num-gpus-per-node 2 --pp-size 2 --num-microbatch 2
+
+Planner example:
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_pipeline.py --num-gpus-per-node 4 --pp-size 2 --num-microbatch 2 --use-planner
 """
 import argparse
 from functools import partial
@@ -206,7 +209,18 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
             num_batches=num_batches,
             use_planner=use_planner
         )
-        this_rank_num_tokens = sum(tick_per_rank_doc_lens[as_rank])
+        
+        rank_num_tokens_lists = []
+        # NOTE: Current logic only suppot every rank except dummy, has full tokens.
+        for doc_list_per_rank in tick_per_rank_doc_lens:
+            if(sum(doc_list_per_rank) > num_token_per_rank):
+                number_of_rank_to_span = sum(doc_list_per_rank) // num_token_per_rank
+                rank_num_tokens_list = [[num_token_per_rank] for _ in range(number_of_rank_to_span)]
+                rank_num_tokens_lists = rank_num_tokens_lists + rank_num_tokens_list
+            else:
+                rank_num_tokens_lists = rank_num_tokens_lists + [num_token_per_rank]
+        #this_rank_num_tokens = sum(tick_per_rank_doc_lens[as_rank])
+        this_rank_num_tokens = sum(rank_num_tokens_lists[as_rank])
 
         bwd_packed_seq_params = PackedSeqParams(
             qkv_format="thd", **fa_bwd_params[as_rank]
@@ -280,11 +294,15 @@ def test(args):
         num_batches = dp_size
         num_token_per_rank = args.num_tokens
         total_seq_len = args.num_tokens # when no CP, total_seq_len == args.num_tokens
+        print(f"MLP-DP, num_batches: {num_batches}, num_token_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}")
     else:
-        assert(args.num_batches <= dp_size and dp_size % args.num_batches == 0, "num-batches should smaller than dp,and dp divisible by num-batches.")
+        assert args.num_batches <= dp_size, "num-batches must be <= dp_size"
+        assert dp_size % args.num_batches == 0, "dp_size must be divisible by num-batches"
         num_batches = args.num_batches
-        num_token_per_rank = args.num_tokens // num_batches
+        num_token_per_rank = args.num_tokens // (dp_size // num_batches)
         total_seq_len = args.num_tokens * (dp_size // num_batches)  # total_seq_len is max possible seq_len.
+        if args.num_batches <= dp_size:
+            print(f"MLP-CP, num_batches: {num_batches}, num_token_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}")
     dtype = torch.bfloat16
     element_size = dtype.itemsize
 
