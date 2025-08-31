@@ -175,6 +175,8 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
                            max_cp_degree: int, hidden_size_q_tp: int,
                            hidden_size_k_tp: int, element_size: int,
                            num_head_in_dtype: int, tp_size: int, dp_size: int,
+                           num_token_per_rank: int,
+                           num_batches: int = None,
                            use_planner: bool=False):
     tick_per_rank_doc_lens = None
     bwd_metadata = []
@@ -200,6 +202,8 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
             add_dummy=add_dummy_forward,
             tp_size=tp_size,
             dp_size=dp_size,
+            num_token_per_rank=num_token_per_rank,
+            num_batches=num_batches,
             use_planner=use_planner
         )
         this_rank_num_tokens = sum(tick_per_rank_doc_lens[as_rank])
@@ -262,14 +266,25 @@ def test(args):
     num_tokens = args.num_tokens
     max_cp_degree = args.cp_degree
     num_seqs = args.num_seqs
-    total_seq_len = args.num_tokens
+    
     # parallelization
     tp_size = args.tp_size
     pp_size = args.pp_size
     world_size = args.num_nodes * args.num_gpus_per_node
     assert world_size % (tp_size * pp_size) == 0
     dp_size = world_size // (tp_size * pp_size)
-
+    # Set num_batches. 
+    # If None, we use MLP-DP. will get DP number of new batches per tick.
+    # If set, num_batches < dp_size && dp_size % num_batches == 0, Will get num_batches number of new batches per tick.
+    if args.num_batches == None:
+        num_batches = dp_size
+        num_token_per_rank = args.num_tokens
+        total_seq_len = args.num_tokens # when no CP, total_seq_len == args.num_tokens
+    else:
+        assert(args.num_batches <= dp_size and dp_size % args.num_batches == 0, "num-batches should smaller than dp,and dp divisible by num-batches.")
+        num_batches = args.num_batches
+        num_token_per_rank = args.num_tokens // num_batches
+        total_seq_len = args.num_tokens * (dp_size // num_batches)  # total_seq_len is max possible seq_len.
     dtype = torch.bfloat16
     element_size = dtype.itemsize
 
@@ -308,17 +323,20 @@ def test(args):
         from global_batch_provider import setup_global_batch
         setup_global_batch(total_seq_len=total_seq_len)
         
+    # this total_seq_len is token per rank.
     microbatches_0 = create_pp_microbatches(
         args.num_microbatch, pp_size, as_rank,
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
-        tp_size, dp_size, args.use_planner,
+        tp_size, dp_size, 
+        num_token_per_rank, num_batches, args.use_planner,  
     )
     microbatches_1 = create_pp_microbatches(
         args.num_microbatch, pp_size, as_rank,
         as_world_size, total_seq_len, num_seqs, max_cp_degree,
         hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
-        tp_size, dp_size, args.use_planner,
+        tp_size, dp_size, 
+        num_token_per_rank, num_batches, args.use_planner,
     )
     set_random_seed(seed, set_megatron=True)
     microbatches = []
@@ -397,6 +415,7 @@ def test(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
+    parser.add_argument("--num-batches", type=int)  # this is for cp. set num_batches and num_tokens to control cp doc length.
     parser.add_argument("--cp-degree", type=int, default=2)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
