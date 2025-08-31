@@ -41,10 +41,10 @@ DF_ONLY_SHOW_FAILED = False
 DF_ONLY_SHOW_D2 = False
 
 
-import subprocess
-active_jobs = subprocess.check_output(['squeue', '--me', '--noheader', '-o', '%A']).decode().splitlines()
-print(active_jobs)
-print(f"There are {len(active_jobs)} active jobs")
+# import subprocess
+# active_jobs = subprocess.check_output(['squeue', '--me', '--noheader', '-o', '%A']).decode().splitlines()
+# print(active_jobs)
+# print(f"There are {len(active_jobs)} active jobs")
 
 # %%
 # scancel --name=d2-v3 -u $USER
