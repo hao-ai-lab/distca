@@ -5,7 +5,7 @@ import pandas as pd
 import glob
 
 # %%
-log_path = "logs.v1"
+log_path = "logs.v3"
 a = os.listdir(log_path)
 len(a)
 # %%
@@ -33,6 +33,7 @@ os.path.exists(b)
 import json
 
 DF_INCLUDE_BENCHMARK = True
+DF_INCLUDE_BENCHMARK_SAMPLE = True
 # DF_INCLUDE_BENCHMARK = False
 # DF_ONLY_SHOW_SUCCESS = True
 DF_ONLY_SHOW_SUCCESS = False
@@ -84,6 +85,7 @@ for exp_name in a:
     benchmark_file = f"{log_path}/{exp_name}/benchmark.json"
     run_successfully = os.path.exists(benchmark_file)
     benchmark_datas = {}
+    sample_datas = {}
     if run_successfully and DF_INCLUDE_BENCHMARK:
         with open(benchmark_file, "r") as f:
             benchmark = json.load(f)
@@ -92,6 +94,11 @@ for exp_name in a:
             sample_id = sample["sample_id"]
             samples_duration = sample["duration_ms"]
             benchmark_datas[f"sample[{sample_id}]"] = samples_duration
+            if DF_INCLUDE_BENCHMARK_SAMPLE:
+                sample_datas[f"sample_data[{sample_id}]"] = samples_duration
+                pass
+
+
     
     DP_SIZE = nnodes // (
         int(config.get("CP_SIZE")) * int(config.get("PP_SIZE"))
@@ -109,7 +116,11 @@ for exp_name in a:
     for i, log_file in enumerate(log_files):
         # print(f"\n\n=== {log_file} ===")
         with open(log_file, "r") as f:
-            log_text = f.read()
+            try:
+                log_text = f.read()
+            except Exception as e:
+                print(e)
+                continue
             if "🟡" in log_text:
                 is_started = True
             if "Communication groups initialized" in log_text:
@@ -167,6 +178,7 @@ for exp_name in a:
         **config,
         # rdzv_id=rdzv_id,
         **benchmark_datas,
+        **sample_datas,
     ))
 
 # %%
@@ -206,17 +218,26 @@ for gid, group in df_display.groupby('gid'):
     
     wlbllm_min_time = wlbllm_rows[wlbllm_rows['total_time'] > 0]['total_time'].min()
     # success
-    is_wlbllm_all_success = wlbllm_rows['success'].all()
+    is_wlbllm_all_success = (wlbllm_rows['success'] == '✅').all()
+    nunique_wlbllm_it_reached = wlbllm_rows[wlbllm_rows['success'] == '✅']['it_reached'].nunique()
 
     if pd.isna(wlbllm_min_time):
         continue
 
     for idx, d2_row in d2_rows.iterrows():
         d2_time = d2_row['total_time']
+        d2_it_reached = d2_row['it_reached']
         if d2_time == 0 or pd.isna(d2_time):
-            break
+            continue
         speedup = wlbllm_min_time / d2_time
-        speedup = f"{speedup:.2f} (🟢)" if is_wlbllm_all_success else f"{speedup:.2f} (❌)"
+        speedup = f"{speedup:.2f}"
+        if not is_wlbllm_all_success:
+            speedup += f" (❌)"
+            pass
+        elif nunique_wlbllm_it_reached == 1:
+            speedup += f" (🟢)"
+        else:
+            speedup += f" (🟡)"
         speedups.append((idx, speedup))
 
 # Add speedup column
@@ -229,7 +250,7 @@ for idx, speedup in speedups:
 
 # Reorder columns to put key columns first
 key_columns = ['gid', 'nnodes', 'NUM_TOKENS', 'BATCH_SIZE', 'modji',]
-front_columns = ['gid', "eid", 'modji', 'is_running', 'success', 'speedup', 'total_time']
+front_columns = ['is_running', 'success', 'gid', "eid", 'modji',  'exp_name',  'speedup', 'total_time']
 other_columns = [col for col in df_display.columns if col not in front_columns]
 df_display = df_display[front_columns + other_columns]
 df_display.sort_values(by=key_columns, ascending=True, inplace=True)
@@ -260,7 +281,7 @@ df_display['is_past_warmup'] = df_display['is_past_warmup'].map({True: '🟢', F
 df_display['is_past_one_test'] = df_display['is_past_one_test'].map({True: '🟢', False: '🔴'})
 # df_display['it_reached'] = df_display['it_reached'].map({True: '🟢', False: '🔴', -1: '❌'})
 df_display['is_exited'] = df_display['is_exited'].map({True: '🟢', False: '🔴'})
-df_display['is_running'] = df_display['is_running'].map({True: '💨', False: '🛑'})
+df_display['is_running'] = df_display['is_running'].map({True: '💨', False: '◾'})
 
 
 # df_display['gid'] = df_display['nnodes'].astype(str) + "_" + df_display['NUM_TOKENS'].astype(str) + "_" + df_display['BATCH_SIZE'].astype(str)
@@ -344,5 +365,55 @@ min_times = min_times.sort_values(['gid_tuple', 'modji'])
 
 # Display results
 print(min_times[['gid', 'modji', 'total_time', 'avg_time', 'std_time', 'speedup']].to_csv(index=False, sep="\t"))
+
+# %%
+min_times.to_csv("speedup.tsv", index=False, sep="\t")
+
+# %%
+
+# Find the experiment setups where d2 failed to run.
+failed_to_run = df_display.copy()
+# Group by gid and check if all rows in each group failed
+failed_groups = failed_to_run.groupby('gid').filter(lambda x: (x['total_time'] <= 0).all())
+failed_groups.drop(columns=[
+    'is_running', 'speedup', 'total_time'
+], inplace=True)
+# bring [exp_name] to front
+failed_groups = failed_groups[['exp_name'] + [col for col in failed_groups.columns if col != 'exp_name']]
+# Make `gid` to index
+# Set gid as index and style the DataFrame to merge cells with same gid
+# failed_groups = failed_groups.set_index('gid')
+failed_groups
+# %%
+for i in failed_groups['gid'].unique().tolist():
+    print(i)
+# %%
+
+
+# Find the experiment setups where d2 failed to run.
+failed_to_run = df_display.copy()
+# Group by gid and check if all rows in each group failed
+failed_groups = failed_to_run.groupby('eid').filter(lambda x: (x['total_time'] <= 0).all())
+failed_groups.drop(columns=[
+    'is_running', 'speedup', 'total_time'
+], inplace=True)
+# bring [exp_name] to front
+failed_groups = failed_groups[['exp_name'] + [col for col in failed_groups.columns if col != 'exp_name']]
+# Make `gid` to index
+# Set gid as index and style the DataFrame to merge cells with same gid
+# failed_groups = failed_groups.set_index('gid')
+failed_groups
+# %%
+for i in sorted(failed_groups['eid'].unique().tolist()):
+    print(i)
+# %%
+
+# %%
+
+# Get all of the eid that has at least one success run
+success_eids = df_display[df_display['success'] == '✅']['eid'].unique()
+a = " ".join(success_eids.tolist())
+with open("success_eids.txt", "w") as f:
+    f.write(a)
 
 # %%
