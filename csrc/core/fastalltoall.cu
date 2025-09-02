@@ -23,7 +23,8 @@ __global__ void spreadout_alltoallv_internode_kernel(
   const uint64_t * inter_sender_send_disp,
   const uint64_t * inter_sender_transfer_sz,
   const uint64_t * inter_sender_recv_disp,
-  const uint64_t * inter_recver_transfer_sz
+  const uint64_t * inter_recver_transfer_sz,
+  const bool do_print
 ) {
   const uint32_t warp_id = threadIdx.x / THREAD_N_PER_WARP;
   const uint32_t lane_id = threadIdx.x % THREAD_N_PER_WARP;
@@ -53,6 +54,16 @@ __global__ void spreadout_alltoallv_internode_kernel(
           NVSHMEM_SIGNAL_ADD,
           send_rank_id
         );
+        if (do_print && lane_id == 0 &&
+            ((uint64_t)(recv_buffer + recv_offset + send_sz) > (uint64_t)(sync_signal))) {
+          printf(
+            "Overflow!!! sending %lu bytes from %d to %d, "
+            "signal address %p, recv address start %p, recv address end %p, "
+            "send size %lu, recv offset %lu, recv buffer start %p\n",
+            send_sz, this_rank, send_rank_id,
+            &sync_signal[this_rank], recv_buffer + recv_offset, recv_buffer + recv_offset + send_sz,
+            send_sz, recv_offset, recv_buffer);
+        }
       }
     }
     for (uint i = lane_id; i < inter_node_rank_n; i += THREAD_N_PER_WARP){
@@ -72,7 +83,7 @@ __global__ void spreadout_alltoallv_internode_kernel(
       const uint32_t src_rank = ((server_id + 1) * local_rank_n + i) % rank_n;
       // + 1 is because we've added a signal to all ranks to avoid no
       // communication.
-      const int64_t recv_sz = __ldg(&inter_recver_transfer_sz[src_rank]) + 1;
+      const uint64_t recv_sz = __ldg(&inter_recver_transfer_sz[src_rank]) + 1;
       nvshmem_uint64_wait_until(&sync_signal[src_rank], NVSHMEM_CMP_EQ, recv_sz);
       sync_signal[src_rank] = 0;
     }
@@ -113,7 +124,6 @@ __global__ void wait_and_consume_buffer(
   const uint32_t server_id = this_rank / local_rank_n;
   const uint32_t inter_node_rank_n = rank_n - local_rank_n;
 
-  
   for (uint i = lane_id; i < inter_node_rank_n; i += THREAD_N_PER_WARP){
     const uint32_t src_rank = ((server_id + 1) * local_rank_n + i) % rank_n;
     nvshmem_uint64_wait_until(&buffer_available_signal[src_rank], NVSHMEM_CMP_EQ, 1);
@@ -141,6 +151,10 @@ int launch_alltoallv(
   int64_t my_rank_send_sz,
   cudaStream_t stream
 ) {
+  int device_id = -1;
+  CUDACHECK(cudaGetDevice(&device_id));
+  bool do_print = device_id == 0;
+
   void* inter_args[] = {
     &this_rank,
     &rank_n_per_node,
@@ -152,6 +166,7 @@ int launch_alltoallv(
     &inter_params->sender_transfer_sz,
     &inter_params->sender_recv_disp,
     &inter_params->recver_transfer_sz,
+    &do_print,
   };
   dim3 inter_grid(1, 1, 1), inter_block(THREAD_N_PER_2WARP, 1, 1);
   CUDACHECK(cudaLaunchKernel(

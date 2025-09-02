@@ -1,18 +1,18 @@
 # pyright: reportCallIssue=false
 
 from collections.abc import Sequence
+import enum
 import os
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
-
-from d2.runtime.inplace_metadata import Metadata
 
 _lib_path = os.path.join(os.path.dirname(__file__), "libas_comm.so")
 torch.ops.load_library(_lib_path)
 _ops = torch.ops.dispatch_kernels
 
 ###### NVSHMEM utils ######
+
 
 def nvshmem_get_unique_id() -> torch.Tensor:
     return _ops.nvshmem_get_unique_id()
@@ -23,11 +23,18 @@ def nvshmem_unique_id_size() -> int:
 def nvshmem_alloc_empty_unique_id() -> torch.Tensor:
     return torch.zeros(nvshmem_unique_id_size(), dtype=torch.uint8, device="cpu")
 
+import datetime
 def nvshmem_init(uid: torch.Tensor, rank: int, world_size: int, local_rank: int=-1) -> int:
     # NOTE: this is because we set device in python. Should move it to the cpp end.
+    print(f"Calling nvshmem_init with uid = {uid}")
     torch.cuda.synchronize()
     status = _ops.nvshmem_init(uid, rank, world_size, local_rank)
+    print("nvshmem_init returns with status =", status)
     torch.cuda.synchronize()
+    print("nvshmem_init synchronized. Ready to call barrier")
+    import traceback
+    # traceback.print_stack()
+    print("nvshmem_init passed barrier.")
     return status
 
 def nvshmem_alltoall(dest: torch.Tensor, source: torch.Tensor) -> None:
@@ -64,6 +71,7 @@ class FastDispatcherWrapper:
     ] = None
     is_acquired: list[bool] = [False, False]
     cur_instance: int = 0
+    comm_stream: torch.cuda.Stream = None
 
     def __init__(self, rank, local_rank, world_size, buffer_size):
         self.rank = rank
@@ -75,6 +83,8 @@ class FastDispatcherWrapper:
         )
         # the buffer_released is initialized by all zeros. We should
         # manually release them here once.
+        torch.cuda.synchronize()
+        torch.distributed.barrier()
         _ops.release_buffer(self.handle)
         self.release_event = torch.cuda.Event()
         self.release_event.record(torch.cuda.current_stream())
@@ -133,8 +143,12 @@ class FastDispatcherWrapper:
     def release(instance_id: int):
         assert FastDispatcherWrapper.is_acquired[instance_id]
         FastDispatcherWrapper.is_acquired[instance_id] = False
-        _ops.release_buffer(FastDispatcherWrapper.get_instance(instance_id).handle)
-        FastDispatcherWrapper.get_instance(instance_id).release_event.record(torch.cuda.current_stream())
+        stream = FastDispatcherWrapper.comm_stream
+        compute_stream = torch.cuda.current_stream()
+        with torch.cuda.stream(stream):
+            stream.wait_stream(compute_stream)
+            _ops.release_buffer(FastDispatcherWrapper.get_instance(instance_id).handle)
+        FastDispatcherWrapper.get_instance(instance_id).release_event.record(stream)
 
 
 def fast_a2a_memcpy_non_cp(

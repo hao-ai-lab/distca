@@ -18,6 +18,12 @@ import pytz
 import json
 import time
 import rich
+import signal
+import traceback
+import sys
+def timeout_handler(signum, frame):
+    raise TimeoutError("forward_backward_batch operation timed out after 5 minutes")
+
 
 from megatron.core import mpu
 from megatron.core.optimizer import get_megatron_optimizer
@@ -27,9 +33,9 @@ from omegaconf import OmegaConf
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
+from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
 from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
 from d2.runtime.inplace_metadata import mlp_layout_packed_params
-from d2.runtime.fast_alltoall_metadata import compute_e2e_fa2a_metadata
 from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams
 from d2.runtime.compute_metadata import get_attn_metadata
 
@@ -632,6 +638,7 @@ def test(args):
         os.environ["NUM_LAYERS"] = str(num_layers)
 
     mode = args.mode
+    output_dir = args.output_dir
 
     # Set forward function mode based on test mode
     normal_forward_fn = (mode in ["baseline", "wlbllm"])
@@ -678,6 +685,7 @@ def test(args):
 
     worker.set_config(dtype=dtype)
     worker.init(model_path, seed=seed)
+    rich.print(f"🟡 [Rank {worker.rank}] init done")
     # set again to potentially adapt to the ray launch case.
     set_random_seed(seed, set_megatron=False)
 
@@ -711,7 +719,11 @@ def test(args):
     sample_times = []
     for sample_id in range(max_sample_id):
         if mode == "baseline":
-            _seq_lens: list[list[int]] = get_next_batch(as_world_size * 2)
+            try:
+                # TOOD: This should be batch_size * 2
+                _seq_lens: list[list[int]] = get_next_batch(as_world_size * 2)
+            except StopIteration:
+                break
             print(f"🟡 sample_id={sample_id}: {_seq_lens}")
             # TODO: Adding proper support for context parallel in megatron.
             # Baseline mode: Use simple batch generation
@@ -746,7 +758,10 @@ def test(args):
             rank = torch.distributed.get_rank()
             device = torch.cuda.current_device()
 
-            _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            try:
+                _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            except StopIteration:
+                break
             print(f"🟡 sample_id={sample_id}: {_seq_lens}")
             # TODO: Adding proper support for context parallel in megatron.
             # Baseline mode: Use simple batch generation
@@ -830,6 +845,10 @@ def test(args):
 
 
             doc_lens = flatten(seq_lens)
+            if len(doc_lens) < dp_size:
+                # Pad the doc_lens to dp_size
+                doc_lens += [512] * (dp_size - len(doc_lens))
+                pass
             if sum(doc_lens) % (cp_size * 2 * 8) != 0:
                 # TODO(HACK): This is a hack to ensure the doc_lens is divisible by cp_size*2.
                 sum_of_doc_lens = sum(doc_lens)
@@ -932,6 +951,8 @@ def test(args):
             # Then that means we implicitly have dpcp = 4
             # 1. We get 2 batch, each batch has `total_seq_len`` number of tokens
             # 2. Each GPU should get total_seq_len // as_world_size number of tokens. 
+            
+            print(f"🟡 [Rank {rank}] hidden_size_q_tp = {hidden_size_q_tp}, hidden_size_k_tp = {hidden_size_k_tp}, element_size = {element_size}")
 
             dp_size = as_world_size
 
@@ -941,9 +962,13 @@ def test(args):
                 pipeline_model_parallel_size=1,
             )
 
-            _seq_lens: list[list[int]] = get_next_batch(2 * batch_size)
+            try:
+                _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            except StopIteration:
+                break
             seq_lens_0: list[list[int]] = _seq_lens[:batch_size]
             seq_lens_1: list[list[int]] = _seq_lens[batch_size:]
+            rich.print(f"🟡 [Rank {rank}] _seq_lens = {_seq_lens}")
 
             # num_batched_token_per_as_rank = tokens per as rank = tokens per batch * num batch / (as_world_size = dp_size)
             num_batched_token_per_as_rank = total_seq_len * batch_size // dp_size
@@ -953,118 +978,61 @@ def test(args):
 
             planner = Planner(world_size, parallel_config, model_config=model_config)
             
-            # TODO: These commented code can be deleted after large scale DP/CP test.
-            # d2_should_replan = os.environ.get("D2_SHOULD_REPLAN", "0") == "1"
-            # modified_items = []
-            # commented_fa2a_metadatas = []
-            # def items_to_metadata(items: list[Item]) -> tuple['PingPangSingleStepPackedSeqParams', 'PackedSeqParams']:
-            #     ret, __items = planner.plan_to_raw_qkv_dispatch(items, should_plan=d2_should_replan, return_items=True)
-            #     (
-            #         mlp_num_seqs,
-            #         mlp_q_dispatch,
-            #         mlp_seq_lens,
-            #         kv_to_q_mapping,
-            #         kv_to_q_rank,
-            #         kv_context_size,
-            #         q_to_num_kv_seq,
-            #         q_to_num_kv_tokens,
-            #     ) = ret
+            fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0)
+            fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1)
 
-            #     # modified_items.append(__items)
 
-            #     # TODO(HACK)(Refactor): 
-            #     # We probably want to move this function inside the Planner.plan
-            #     (
-            #         fwd_metadata_q, bwd_metadata_q, fwd_metadata_kv, bwd_metadata_kv,
-            #         fa_params, fa2a_metadata
-            #     ) = compute_e2e_fa2a_metadata(
-            #         mlp_seq_lens,
-            #         mlp_num_seqs,
-            #         mlp_q_dispatch,
-            #         kv_to_q_mapping,
-            #         kv_to_q_rank,
-            #         kv_context_size,
-            #         q_to_num_kv_seq,
-            #         q_to_num_kv_tokens,
-            #         hidden_size_q_tp,
-            #         hidden_size_k_tp,
-            #         element_size,
-            #         # TODO: What is this? How do specify this values?
-            #         softmax_lse_size=0,
-            #     )
-            #     if os.environ.get("D2_FA2A_DISABLE_SEND_RECV", "0") == "1":
-            #         rich.print("⚠️ D2_FA2A_DISABLE_SEND_RECV is set, setting sender_transfer_sz and receiver_transfer_sz to 0")
-            #         for i in range(4):
-            #             fa2a_metadata[i].fa2a_metadata[0][:] = 0
-            #             fa2a_metadata[i].fa2a_metadata[1][:] = 0
-            #             fa2a_metadata[i].fa2a_metadata[2][:] = 0
-            #             fa2a_metadata[i].fa2a_metadata[3][:] = 0
-            #             fa2a_metadata[i].my_rank_send_sz = 0
-
+            if rank % 8 == 0:
+                qkv_fwd_fa2a_metadata__send_transfer_sz_mb = fa2a_metadata_0[0].fa2a_metadata[1] // 1024 // 1024
+                qkv_fwd_fa2a_metadata__recv_transfer_sz_mb = fa2a_metadata_0[0].fa2a_metadata[3] // 1024 // 1024
+                attn_out_fwd_fa2a_metadata__send_transfer_sz_mb = fa2a_metadata_0[1].fa2a_metadata[1] // 1024 // 1024
+                attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb = fa2a_metadata_0[1].fa2a_metadata[3] // 1024 // 1024
+                        
+                # Print qkv_fwd_fa2a_metadata
+                rich.print(f"🟡 [Rank {rank}] qkv_fwd_fa2a_metadata.send_transfer_sz_mb = ", qkv_fwd_fa2a_metadata__send_transfer_sz_mb)
+                rich.print(f"🟡 [Rank {rank}] qkv_fwd_fa2a_metadata.recv_transfer_sz_mb = ", qkv_fwd_fa2a_metadata__recv_transfer_sz_mb)
                 
-            #     if rank == 0:
-            #         (
-            #             qkv_fwd_fa2a_metadata,
-            #             qkv_bwd_fa2a_metadata,
-            #             attn_out_fwd_fa2a_metadata,
-            #             attn_out_bwd_fa2a_metadata,
-            #         ) = fa2a_metadata
-                    
-            #         # qkv_fwd_fa2a_metadata
-            #         qkv_fwd_fa2a_metadata__send_transfer_sz_mb = qkv_fwd_fa2a_metadata.fa2a_metadata[1] // 1024 // 1024
-            #         qkv_fwd_fa2a_metadata__recv_transfer_sz_mb = qkv_fwd_fa2a_metadata.fa2a_metadata[3] // 1024 // 1024
+                # Print attn_out_fwd_fa2a_metadata
+                rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.send_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__send_transfer_sz_mb)
+                rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.recv_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb)
+            # Check size:
+            def _check_overflow(fa2a_metadata):
+                send_sz = [torch.sum(m.fa2a_metadata[1][as_rank]).item() for m in fa2a_metadata]
+                # send_sz + sender_recv_offset = sender_recv_last_token
+                send_last_offset = [(m.fa2a_metadata[1] + m.fa2a_metadata[2])[as_rank] for m in fa2a_metadata]
+                recv_sz = [torch.sum(m.fa2a_metadata[3][as_rank]).item() for m in fa2a_metadata]
+                max_send_sz = max(send_sz)
+                max_recv_sz = max(recv_sz)
+                buffer_size = FastDispatcherWrapper.instance[0].buffer_size
+                assert buffer_size >= max_send_sz and buffer_size >= max_recv_sz, f"{buffer_size / 1024**3} GB buffer, {
+                    [s / 1024**3 for s in send_sz]} GB send sizes, {
+                    [sz / 1024**3 for sz in recv_sz]} GB recv sizes"
+                assert max(torch.max(o).item() for o in send_last_offset) <= buffer_size, f"{buffer_size / 1024**3} GB buffer, {[o / 1024**3 for o in send_last_offset]} GB send last offsets"
+                
+                
+                rich.print(f"🟡 [Rank {rank}] Overflow check passed: {max_send_sz} GB, {max_recv_sz} GB recv size, {max(torch.max(o).item() for o in send_last_offset)} GB send last offset, {buffer_size / 1024**3} GB buffer size")
+            
+            _check_overflow(fa2a_metadata_0)
+            rich.print("🟡 [Rank {rank}] Overflow check passed for fa2a_metadata_0")
+            _check_overflow(fa2a_metadata_1)
+            rich.print("🟡 [Rank {rank}] Overflow check passed for fa2a_metadata_1")
 
-            #         attn_out_fwd_fa2a_metadata__send_transfer_sz_mb = attn_out_fwd_fa2a_metadata.fa2a_metadata[1] // 1024 // 1024
-            #         attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb = attn_out_fwd_fa2a_metadata.fa2a_metadata[3] // 1024 // 1024
-                    
-            #         rich.print(f"🟡 [Rank {rank}] qkv_fwd_fa2a_metadata.send_transfer_sz_mb = ", qkv_fwd_fa2a_metadata__send_transfer_sz_mb)
-            #         rich.print(f"🟡 [Rank {rank}] qkv_fwd_fa2a_metadata.recv_transfer_sz_mb = ", qkv_fwd_fa2a_metadata__recv_transfer_sz_mb)
-                    
-            #         # attn_out_fwd_fa2a_metadata
-            #         rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.send_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__send_transfer_sz_mb)
-            #         rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.recv_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb)
-
-            #         commented_fa2a_metadatas.append(dict(
-            #             qkv_fwd_fa2a_metadata__send_transfer_sz_mb=qkv_fwd_fa2a_metadata__send_transfer_sz_mb.tolist(),
-            #             qkv_fwd_fa2a_metadata__recv_transfer_sz_mb=qkv_fwd_fa2a_metadata__recv_transfer_sz_mb.tolist(),
-            #             attn_out_fwd_fa2a_metadata__send_transfer_sz_mb=attn_out_fwd_fa2a_metadata__send_transfer_sz_mb.tolist(),
-            #             attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb=attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb.tolist(),
-            #         ))
-                    
-
-            #     ping_pang_params = get_single_step_packed_seq_params(
-            #         fa2a_metadata, fa_params, as_rank
-            #     )
-
-            #     raw_seq_len = mlp_seq_lens
-            #     mlp_seq_params = mlp_layout_packed_params(raw_seq_len)
-
-            #     return (
-            #         ping_pang_params,
-            #         mlp_seq_params,
-            #     )
-
-            print(f"🟡 [Rank {rank}] hidden_size_q_tp = {hidden_size_q_tp}, hidden_size_k_tp = {hidden_size_k_tp}, element_size = {element_size}")
 
             # params for ping-pong batch0
-            fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0)
             ping_pang_params_0 = get_single_step_packed_seq_params(
                 fa2a_metadata_0, as_attn_metadata_0, as_rank
             )
-            mlp_seq_params_0 = get_attn_metadata(mlp_shard_len_0[as_rank], get_packed_seq_params=True)
             # params for ping-pong batch1
-            fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_0)
             ping_pang_params_1 = get_single_step_packed_seq_params(
                 fa2a_metadata_1, as_attn_metadata_1, as_rank
             )
+
+            mlp_seq_params_0 = get_attn_metadata(mlp_shard_len_0[as_rank], get_packed_seq_params=True)
             mlp_seq_params_1 = get_attn_metadata(mlp_shard_len_1[as_rank], get_packed_seq_params=True)
             
             # old approach to generate metadata.
             # ping_pang_params_0, mlp_seq_params_0 = items_to_metadata(_items_0)
             # ping_pang_params_1, mlp_seq_params_1 = items_to_metadata(_items_1)
-
-            # modified_batches.append(modified_items)
-            # fa2a_metadata_list.append(commented_fa2a_metadatas)
 
             if rank % 8 == 0:
                 rich.print(f"🟡 [Rank {rank}] ping_pang_params_0.qkv_fwd_metadata =", ping_pang_params_0.qkv_fwd_metadata.__better_print__())
@@ -1103,6 +1071,8 @@ def test(args):
 
         microbatches = [microbatch]
 
+
+
         if sample_id == 0:
             # Warmup
             warmup_times = 5
@@ -1111,12 +1081,34 @@ def test(args):
             except:
                 pass
 
-            for _ in range(warmup_times):
+            warmup_timeout_sec = 60
+            try:
+                warmup_timeout_sec = int(os.environ.get("EXPERIMENT_WARMUP_TIMEOUT_SEC", 60))
+            except:
+                warmup_timeout_sec = 60
+
+            # Test passing the nvshmem init
+            try:
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(warmup_timeout_sec)  # 60 seconds = 1 minute
                 ref = worker.forward_backward_batch(
                     microbatches=microbatches,
                     normal_forward_fn=normal_forward_fn,
                     forward_only=False,
                 )
+                signal.alarm(0)
+            except TimeoutError as e:
+                print("🔴 Timeout at the first warmup forward_backward function. It may suggest our all2all kernel failed.")
+                sys.exit(1)
+
+            
+            for warmup_idx in range(warmup_times):
+                ref = worker.forward_backward_batch(
+                    microbatches=microbatches,
+                    normal_forward_fn=normal_forward_fn,
+                    forward_only=False,
+                )
+                
             time.sleep(1)
             torch.cuda.synchronize()
             torch.distributed.barrier()
@@ -1161,6 +1153,20 @@ def test(args):
         torch.cuda.synchronize()
         torch.distributed.barrier()
 
+        # Write to the benchmark jsonl log
+        
+        if rank == 0:
+            # benchmark_data
+            items = {
+                "sample_id": sample_id,
+                "duration_ms": avg_duration_ms,
+                "samples": iterated_samples[-1],
+            }
+            output_file = os.path.join(output_dir, "benchmark.raw.jsonl")
+            with open(output_file, 'a') as f:
+                f.write(json.dumps(items))
+                f.write('\n')
+
     torch.cuda.synchronize()
     torch.distributed.barrier()
     print("=" * 20 + "forward_backward_batch attention server, done")
@@ -1184,8 +1190,18 @@ def test(args):
     #     rich.print(f"🟢 Attention durations: {formatted_durations}")
 
     if rank % 8 == 0:
+
+        summary_log_file = os.path.join(output_dir, "summary.log")
+        with open(summary_log_file, "w") as f:
+            f.write("Summary Log\n===============\n")
+
+        def log_to_console_and_file(*args, **kwargs):
+            rich.print(*args, **kwargs)
+            with open(summary_log_file, "a") as f:
+                rich.print(*args, **kwargs, file=f)
+
         
-        rich.print(f"🟢 Test {__file__} passed")
+        log_to_console_and_file(f"🟢 Test {__file__} passed")
         
         config = dict(
             mode=mode, tp_size=tp_size, dp_size=dp_size, cp_size=cp_degree, 
@@ -1193,8 +1209,8 @@ def test(args):
             max_sample_id=max_sample_id, up_sample_factor=up_sample_factor, filter_threshold=filter_threshold, filter_ratio=filter_ratio, 
             replan_iter=replan_iter, elongate_factor=elongate_factor,
         )
-        rich.print(f"🟢 Test Config: {config}")
-        rich.print(f"🟢 Test DateTime: ", timestamp)
+        log_to_console_and_file(f"🟢 Test Config: {config}")
+        log_to_console_and_file(f"🟢 Test DateTime: ", timestamp)
         
         # Prepare benchmark data
         benchmark_data = {
@@ -1211,7 +1227,7 @@ def test(args):
             samples = iterated_samples[idx]
             duration = sample_times[idx]
             # total_flops_factor = 
-            rich.print(f"🟢 Sample {idx}: duration: {duration:.2f} ms, samples = {samples}")
+            log_to_console_and_file(f"🟢 Sample {idx}: duration: {duration:.2f} ms, samples = {samples}")
             benchmark_data["samples"].append({
                 "sample_id": idx,
                 "samples": samples,
@@ -1224,8 +1240,13 @@ def test(args):
     if rank == 0:
         with open(benchmark_file, 'w') as f:
             json.dump(benchmark_data, f, indent=2)
+
+        # Save another copy of the benchmark data to the output directory
+        output_file = os.path.join(output_dir, "benchmark.json")
+        with open(output_file, 'w') as f:
+            json.dump(benchmark_data, f, indent=2)
         
-        rich.print(f"🟢 Benchmark results saved to: {benchmark_file}")
+        rich.print(f"🟢 Benchmark results saved to: {output_file}")
 
         # for idx, (sample, duration) in enumerate(zip(iterated_samples, sample_times)):
         #     rich.print(f"🟢 Sample {idx}: {sample}, duration: {duration} ms")
@@ -1266,8 +1287,16 @@ if __name__ == "__main__":
     parser.add_argument("--force-exit", action="store_true")
     parser.add_argument("--should-add-debug-cases", action="store_true")
     parser.add_argument("--should-profile-memory", type=str, default=None)
+    parser.add_argument("--output-dir", type=str, default=None)
     
     args = parser.parse_args()
+
+    if args.output_dir is None:
+        args.output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+        pass
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+        
 
     should_profile_memory = args.should_profile_memory
     if should_profile_memory:
@@ -1305,10 +1334,16 @@ if __name__ == "__main__":
         if rank % 8 == 0:
             print("Dumping memory snapshot")
 
-            os.makedirs(f"mem_snapshots", exist_ok=True)
+            mem_snapshots_dir = os.path.join(args.output_dir, "mem_snapshots")
+            os.makedirs(mem_snapshots_dir, exist_ok=True)
+            
+            stem = f"{now_ts}.mem_snapshot.{mode}.rank{rank}.batch{batch_size}.tokens{num_tokens}.cp{cp_degree}.tp{tp_size}.layers{num_layers}"
+            mem_snapshot_output_path = os.path.join(mem_snapshots_dir, f"{stem}.pickle")
+            memory_timeline_output_path = os.path.join(mem_snapshots_dir, f"{stem}.html")
+
 
             now_ts = get_current_timestamp()
-            torch.cuda.memory._dump_snapshot(f"mem_snapshots/{now_ts}.mem_snapshot.{mode}.rank{rank}.batch{batch_size}.tokens{num_tokens}.cp{cp_degree}.tp{tp_size}.layers{num_layers}.pickle")
-            prof.export_memory_timeline(f"mem_snapshots/{now_ts}.mem_timeline.{mode}.rank{rank}.batch{batch_size}.tokens{num_tokens}.cp{cp_degree}.tp{tp_size}.layers{num_layers}.html", device=torch.cuda.current_device())
+            torch.cuda.memory._dump_snapshot(mem_snapshot_output_path)
+            prof.export_memory_timeline(memory_timeline_output_path, device=torch.cuda.current_device())
             print("Memory snapshot dumped")
 
