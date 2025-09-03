@@ -1,3 +1,17 @@
+"""
+Partial patch to add `log_memory_usage` to the forward and backward methods to log the memory usage.
+    Megatron-LM/megatron/core/tensor_parallel/layers.py
+
+You need to copy paste this module / function to your own Megatron-LM package.
+"""
+
+import torch
+
+def log_memory_usage(message: str):
+    import d2.mem
+    d2.mem.log_memory_usage(message)
+    return 
+
 
 class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
     """See linear_with_grad_accumulation_and_async_allreduce"""
