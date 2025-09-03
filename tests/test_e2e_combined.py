@@ -848,13 +848,14 @@ def test(args):
                 # print(f"🟡 [Rank {rank}] Before - assigning seq_lens={_seq_lens}")
                 # print(f"🟡 new_batch={new_batch}")
                 seq_lens = [new_batch[dp_rank]]
-                # print(f"🟡 [Rank {rank}] Taking seq_lens={seq_lens}")
 
             else:
-                seq_lens = _seq_lens[
-                    dp_rank * cp_size * 2: 
-                    (dp_rank + 1) * cp_size * 2
-                ]
+                seq_lens = _seq_lens
+                # seq_lens = _seq_lens[
+                #     dp_rank * cp_size * 2: 
+                #     (dp_rank + 1) * cp_size * 2
+                # ]
+            print(f"🟡 [Rank {rank}] Taking seq_lens={seq_lens}")
 
 
             doc_lens = flatten(seq_lens)
@@ -1155,7 +1156,7 @@ def test(args):
                 sys.exit(1)
 
             
-            for warmup_idx in range(warmup_times):
+            for warmup_idx in range(max(warmup_times - 1, 0)):
                 ref = worker.forward_backward_batch(
                     microbatches=microbatches,
                     normal_forward_fn=normal_forward_fn,
@@ -1363,14 +1364,6 @@ if __name__ == "__main__":
 
     if args.output_dir is None:
         args.output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-        
-        mem_snapshots_dir = os.path.join(args.output_dir, "mem_snapshots")
-        os.makedirs(mem_snapshots_dir, exist_ok=True)
-        print(f"🟡 Will save mem snapshots to: {mem_snapshots_dir}")
-        mem_snapshot_output_path = os.path.join(mem_snapshots_dir, f"memory_profile.pickle")
-        memory_timeline_output_path = os.path.join(mem_snapshots_dir, f"memory_profile.html")
-        print(f"🟡 Will save mem snapshot to: {mem_snapshot_output_path}")
-        print(f"🟡 Will save mem timeline to: {memory_timeline_output_path}")
         pass
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
@@ -1379,6 +1372,10 @@ if __name__ == "__main__":
     should_profile_memory = args.should_profile_memory
     if should_profile_memory:
         torch.cuda.memory._record_memory_history()
+        mem_snapshots_dir = os.path.join(args.output_dir, "mem_snapshots")
+        os.makedirs(mem_snapshots_dir, exist_ok=True)
+        print(f"🟡 Will save mem snapshots to: {mem_snapshots_dir}")
+        pass
         pass
 
     memory_usage_output_dir = os.path.join(args.output_dir, "mem")
@@ -1420,9 +1417,12 @@ if __name__ == "__main__":
         num_layers = args.num_layers
 
         rank = torch.distributed.get_rank()
+        mem_snapshot_output_path = os.path.join(mem_snapshots_dir, f"memory_profile.rank{rank}.pickle")
+        memory_timeline_output_path = os.path.join(mem_snapshots_dir, f"memory_profile.rank{rank}.html")
+        print(f"🟡 Will save mem snapshot to: {mem_snapshot_output_path}")
+        print(f"🟡 Will save mem timeline to: {memory_timeline_output_path}")
         if rank % 8 == 0:
             print("Dumping memory snapshot")
-
             torch.cuda.memory._dump_snapshot(mem_snapshot_output_path)
             prof.export_memory_timeline(memory_timeline_output_path, device=torch.cuda.current_device())
             print("Memory snapshot dumped")

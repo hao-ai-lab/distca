@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=d2-e2e
-#SBATCH --nodes=4
+#SBATCH --nodes=8
 #SBATCH --output=logs/slurm/stdout.%j.log
 #SBATCH --error=logs/slurm/stderr.%j.log
 #SBATCH --ntasks-per-node=1
