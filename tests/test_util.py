@@ -204,7 +204,7 @@ class MegatronBaseWorker(BaseWorker):
 def init_worker_torch_distributed(
     world_size, buffer_size, worker_cls=BaseWorker, parallel_config=None
 ):
-    assert world_size == int(os.environ.get("WORLD_SIZE"))
+    assert world_size == int(os.environ.get("WORLD_SIZE")), f"world_size: {world_size} must be equal to os.environ.get('WORLD_SIZE'): {os.environ.get('WORLD_SIZE')}"
     rank = int(os.environ.get("RANK"))
     local_rank = int(os.environ.get("LOCAL_RANK"))
     worker = worker_cls(

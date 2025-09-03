@@ -7,12 +7,13 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=96
-#SBATCH --mem=512G
 #SBATCH --exclusive
-#SBATCH --time=01:00:00
+#SBATCH --time=00:30:00
 #SBATCH --exclude=fs-mbz-gpu-684,fs-mbz-gpu-697,fs-mbz-gpu-286,fs-mbz-gpu-877,fs-mbz-gpu-757,fs-mbz-gpu-806,fs-mbz-gpu-377,fs-mbz-gpu-906,fs-mbz-gpu-168,fs-mbz-gpu-708,fs-mbz-gpu-868,fs-mbz-gpu-223,fs-mbz-gpu-954
 #SBATCH --partition=lowprio 
 #SBATCH --qos=lowprio
+
+# # # #SBATCH --mem=512G
 
 # ===================================
 # D2 E2E Combined Test - Slurm Script
@@ -324,8 +325,9 @@ env > $OUTPUT_DIR/slurm.env
 # ---------------------------
 
 
-echo "Start running sbatch at $(TZ='America/Los_Angeles' date)"
+start_experiment_time=$(date +%s)
 
+echo "Start running sbatch at $(TZ='America/Los_Angeles' date)"
 
 if [ ${ENABLE_NSYS} -eq 1 ]; then
   "${SRUN_BASE[@]}" \
@@ -355,7 +357,12 @@ fi
 
 set +x
 
+end_experiment_time=$(date +%s)
+experiment_runtime=$((end_experiment_time-start_experiment_time))
+
 echo "Finished running sbatch at $(TZ='America/Los_Angeles' date). Does not guarantee that the experiment finished successfully. Please check if the benchmark.json file exists."
+
+echo "Experiment runtime: $experiment_runtime seconds"
 
 # Check if the experiment finished successfully
 if [ ! -f ${OUTPUT_DIR}/benchmark.json ]; then

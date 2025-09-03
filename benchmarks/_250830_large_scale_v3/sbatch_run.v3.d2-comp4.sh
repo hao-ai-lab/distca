@@ -1,9 +1,3 @@
-# 
-# salloc: Granted job allocation 668500
-# salloc: Waiting for resource configuration
-# fs-mbz-gpu-[021,123,161,203,537,596,559,509]
-# N = 8
-
 JOBID=668573
 SLURM_GPUS_ON_NODE=8
 SLURM_NNODES=8

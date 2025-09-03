@@ -267,7 +267,7 @@ def test(args):
     tp_size = args.tp_size
     pp_size = args.pp_size
     world_size = args.num_nodes * args.num_gpus_per_node
-    assert world_size % (tp_size * pp_size) == 0
+    assert world_size % (tp_size * pp_size) == 0, f"world_size: {world_size} must be divisible by (tp_size: {tp_size} * pp_size: {pp_size})"
     dp_size = world_size // (tp_size * pp_size)
 
     dtype = torch.bfloat16

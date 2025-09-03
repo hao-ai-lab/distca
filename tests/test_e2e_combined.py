@@ -11,6 +11,7 @@ bash test_e2e_combined.multi.sh <rzv_endpoint> <n_nodes>
 ```
 
 """
+import time
 import math
 import argparse
 import os
@@ -1405,8 +1406,7 @@ if __name__ == "__main__":
             traceback.print_exc()
             raise e
         finally:
-            save_memory_usage_to_file(memory_usage_output_dir)
-        
+            save_memory_usage_to_file(memory_usage_output_dir)        
     
     if should_profile_memory:
         mode = args.mode
