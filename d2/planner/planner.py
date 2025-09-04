@@ -294,9 +294,9 @@ def cp_list_to_mlp_list(cp_rank_doc_lens: List[List[int]], as_world_size: int, n
     
     if len(final_mlp_lists) > as_world_size:
         final_mlp_lists = final_mlp_lists[:as_world_size]
-
-    assert len(final_mlp_lists) == as_world_size, f"final_mlp_lists should contain {as_world_size} number of List. But get {len(final_mlp_lists)}. final_mlp_list: {final_mlp_lists}"
     
+    # for l in final_mlp_lists, sum(l) should be either num_token_per_rank or dummy(tp_size).
+    assert len(final_mlp_lists) == as_world_size, f"final_mlp_lists should contain {as_world_size} number of List. But get {len(final_mlp_lists)}. final_mlp_list: {final_mlp_lists}"
     return final_mlp_lists
 
 

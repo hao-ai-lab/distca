@@ -539,14 +539,19 @@ def create_qkv_dispatch_pipeline_tick(
         ref_doc_lens, add_dummy, is_backward=False, num_batches = num_batches, use_planner=use_planner,
         **create_pp_doclen_kwargs, 
     )
-    # We need to tranfer CP list to MLP list for each rank, to match forward and backward.
-    # If we use CP list directly, the PP flip can't have an effect.
+
+    # This should be a general function for DP and CP. But we only call it when CP: len(cur_tick_per_rank_doc_lens) <= world_size.
+    # After call this function: len(cur_tick_per_rank_doc_lens) == as_world_size
+    # For CP: 
+    #   We need to tranfer CP list to MLP list for each rank, to match forward and backward.
+    #   If we use CP list directly, the PP flip can't have an effect.
     # Example: 
     # DEBUG: before: cur_tick_per_rank_doc_lens = [[2048], [1], [1]], as_world_size = 4, num_token_per_rank = 1024
     # DEBUG: after: cur_tick_per_rank_doc_lens = [[512, 512], [512, 512], [1], [1]]
-    print(f"DEBUG, before : {cur_tick_per_rank_doc_lens}")
-    cur_tick_per_rank_doc_lens = cp_list_to_mlp_list(cur_tick_per_rank_doc_lens, as_world_size=world_size, num_token_per_rank = num_token_per_rank)
-    print(f"DEBUG: after: {cur_tick_per_rank_doc_lens}")
+    if len(cur_tick_per_rank_doc_lens) < world_size:
+        print(f"DEBUG, before : {cur_tick_per_rank_doc_lens}")
+        cur_tick_per_rank_doc_lens = cp_list_to_mlp_list(cur_tick_per_rank_doc_lens, as_world_size=world_size, num_token_per_rank = num_token_per_rank)
+        print(f"DEBUG: after: {cur_tick_per_rank_doc_lens}")
 
     if use_planner:
         from d2.planner.planner import Planner
