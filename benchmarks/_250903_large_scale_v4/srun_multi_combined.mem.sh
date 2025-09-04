@@ -40,7 +40,9 @@ export EXPERIMENT_WARMUP_TIMES=1
 # ⚠️ Hang 256k bs4 - just want to study the memory issue
 # SHOULD_PROFILE_MEMORY=1 BATCH_SIZE=4 NUM_LAYERS=4 NUM_TOKENS=262144 ELONGATE_FACTOR=4 MAX_SAMPLE_ID=2 \
 # bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/srun_one_combined.sh
-SHOULD_PROFILE_MEMORY=1 BATCH_SIZE=4 NUM_LAYERS=32 NUM_TOKENS=262144 ELONGATE_FACTOR=4 MAX_SAMPLE_ID=2 \
+# SHOULD_PROFILE_MEMORY=1 BATCH_SIZE=4 NUM_LAYERS=32 NUM_TOKENS=262144 ELONGATE_FACTOR=4 MAX_SAMPLE_ID=2 \
+# bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/srun_one_combined.sh
+SHOULD_PROFILE_MEMORY=1 BATCH_SIZE=1 NUM_LAYERS=32 NUM_TOKENS=262144 ELONGATE_FACTOR=4 MAX_SAMPLE_ID=2 \
 bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/srun_one_combined.sh
 
 

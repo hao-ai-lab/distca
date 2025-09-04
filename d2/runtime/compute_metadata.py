@@ -456,12 +456,24 @@ def from_planner_output(
         world_size, scheduler_output, q_bytes, k_bytes, element_size,
         compute_attn_out_metadata=True, attn_out_bytes=out_bytes,
     )
+    import rich
+    # qkv_linear_to_attn, qkv_grad_attn_to_linear, out_attn_to_linear,
+    #  out_grad_linear_to_attn, attn_metadata
+    rank = torch.distributed.get_rank()
+    if rank % 8 == 0:
+        rich.print(f"from_planner_output: qkv_linear_to_attn=", qkv_linear_to_attn)
+        rich.print(f"from_planner_output: qkv_grad_attn_to_linear=", qkv_grad_attn_to_linear)
+        rich.print(f"from_planner_output: out_attn_to_linear=", out_attn_to_linear)
+        rich.print(f"from_planner_output: out_grad_linear_to_attn=", out_grad_linear_to_attn)
+        rich.print(f"from_planner_output: attn_metadata=", attn_metadata)
+        pass
+
     if is_pipeline_tick:
         # Force them to None to avoid being misused.
         qkv_grad_attn_to_linear = None
         out_grad_linear_to_attn = None
     if is_resend_qkv:
-        qkv_grad_attn_to_linear, out_grad_linear_to_attn, _ = backward_from_planner_output(
+        out_grad_linear_to_attn, qkv_grad_attn_to_linear, _ = backward_from_planner_output(
             world_size, scheduler_output, hidden_size_q, hidden_size_kv,
             lse_size_in_hidden_dtype, element_size
         )
@@ -501,4 +513,11 @@ def backward_from_planner_output(
         world_size, scheduler_output_bwd, q_bytes, k_bytes, element_size,
         compute_attn_out_metadata=False, attn_out_bytes=None
     )
+    import rich
+    rank = torch.distributed.get_rank()
+    if rank % 8 == 0:
+        rich.print(f"backward_from_planner_output: qkv_resend_and_out_grad_linear_to_attn=", qkv_resend_and_out_grad_linear_to_attn)
+        rich.print(f"backward_from_planner_output: qkv_grad_attn_to_linear=", qkv_grad_attn_to_linear)
+        rich.print(f"backward_from_planner_output: bwd_attn_metadata=", bwd_attn_metadata)
+        pass
     return qkv_resend_and_out_grad_linear_to_attn, qkv_grad_attn_to_linear, bwd_attn_metadata

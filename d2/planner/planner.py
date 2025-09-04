@@ -780,7 +780,7 @@ class Planner:
         self.tolerance_factor = tolerance_factor
 
     # from item to metadata.
-    def plan(self, items_: list[Item], verbose=False, plot=False):
+    def plan(self, items_: list[Item], verbose=False, plot=False, is_resend_qkv:bool=False):
         mlp_shard_len = self.items_to_mlp_doc_len(items_)
         planned_items: list[Item] = self.plan_items(items_, verbose, plot)
         planned_items: list[Item] = self.postprocess_items(planned_items)
@@ -798,15 +798,17 @@ class Planner:
 
             lse_size = self.model_config.num_attention_heads // tp_size
             element_size = self.dtype.itemsize
-            if self.model_config.attention_softmax_in_fp32:
-                lse_size *= torch.float32.element_size // element_size
+            # TODO: We should get the transformer config
+            if getattr(self.model_config, "attention_softmax_in_fp32", True): # if self.model_config.attention_softmax_in_fp32:
+                # lse_size *= torch.float32.element_size // element_size
+                lse_size *= torch.float32.itemsize // element_size
 
             (qkv_fwd_fa2a_metadata, qkv_rev_fa2a_metadata,
             attn_out_fwd_fa2a_metadata, attn_out_rev_fa2a_metadata,
             as_attn_metadata,
             ) = from_planner_output(
                 self.attention_server_world_size, planner_output, hidden_size_q_tp, hidden_size_k_tp,
-                lse_size, element_size, is_pipeline_tick=False
+                lse_size, element_size, is_pipeline_tick=False, is_resend_qkv=is_resend_qkv,
             )
             fa2a_metadata = (
                 qkv_fwd_fa2a_metadata, qkv_rev_fa2a_metadata,

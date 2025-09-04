@@ -12,8 +12,11 @@ import re
 # folder = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/logs/20250904_075850_PST_bs8_nt131072_ef2/mem-log"
 # folder = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/logs/20250904_082337_PST_bs4_nt262144_ef4/mem-log"
 # folder = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/logs/20250904_091012_PST_bs4_nt262144_ef4/mem-log"
-name = "20250904_093005_PST_bs4_nt262144_ef4"
-folder = f"/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/logs/{name}/mem-log"
+# name = "20250904_093005_PST_bs4_nt262144_ef4"
+# name = "20250904_123245_PST_bs1_nt65536_ef1"
+# folder = f"/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/logs/{name}/mem-log"
+# folder = "/mnt/weka/home/yonghao.zhuang/jd/d2/tests/logs/20250904_124038_PST_bs1_nt65536_ef1/mem-log"
+folder = "/mnt/weka/home/yonghao.zhuang/jd/d2/tests/logs/20250904_135707_PST_bs1_nt16384_ef1/mem-log"
 
 mem_data = {}
 for file in os.listdir(folder):
@@ -213,7 +216,8 @@ df = pd.DataFrame(data)
 df = df[df['Max-Min Diff (MB)'] > 1]
 # Display as markdown
 print("\nMemory Usage Statistics Table:")
-print(df.to_markdown(index=False))
+from IPython.display import display
+display(df)
 
 # Display the table
 # print("\nMemory Usage Statistics Table:")

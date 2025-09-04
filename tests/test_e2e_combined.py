@@ -646,6 +646,7 @@ def test(args):
     filter_threshold = args.filter_threshold
     filter_ratio = args.filter_ratio
     should_add_debug_cases = args.should_add_debug_cases
+    resend_qkv = args.should_resend_qkv
     if num_layers is not None:
         os.environ["NUM_LAYERS"] = str(num_layers)
 
@@ -1011,8 +1012,8 @@ def test(args):
             for tolerance_factor in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
                 planner = Planner(world_size, parallel_config, model_config=model_config, tolerance_factor=tolerance_factor)
                 
-                fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0)
-                fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1)
+                fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, is_resend_qkv=resend_qkv)
+                fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1, is_resend_qkv=resend_qkv)
 
 
                 if rank % 8 == 0:
@@ -1087,11 +1088,11 @@ def test(args):
 
             # params for ping-pong batch0
             ping_pang_params_0 = get_single_step_packed_seq_params(
-                fa2a_metadata_0, as_attn_metadata_0, as_rank
+                fa2a_metadata_0, as_attn_metadata_0, as_rank, resend_qkv=resend_qkv
             )
             # params for ping-pong batch1
             ping_pang_params_1 = get_single_step_packed_seq_params(
-                fa2a_metadata_1, as_attn_metadata_1, as_rank
+                fa2a_metadata_1, as_attn_metadata_1, as_rank, resend_qkv=resend_qkv
             )
 
             mlp_seq_params_0 = get_attn_metadata(mlp_shard_len_0[as_rank], get_packed_seq_params=True)
@@ -1378,6 +1379,7 @@ if __name__ == "__main__":
     parser.add_argument("--force-exit", action="store_true")
     parser.add_argument("--should-add-debug-cases", action="store_true")
     parser.add_argument("--should-profile-memory", type=str, default=None)
+    parser.add_argument("--should-resend-qkv", action="store_true", help="Whether to resend qkv in the backward pass")
     parser.add_argument("--output-dir", type=str, default=None)    
     
     args = parser.parse_args()
