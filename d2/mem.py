@@ -1,11 +1,17 @@
 import torch
 import torch.distributed
+import json
 
 import os
 
 
 memory_usage = []
+memory_usage_log_file = None
 
+
+def set_memory_usage_log_file(x: str):
+    global memory_usage_log_file
+    memory_usage_log_file = x
 
 def log_memory_usage(message: str):
     
@@ -23,8 +29,8 @@ def log_memory_usage(message: str):
         return
     
     rank = torch.distributed.get_rank()
-    # if rank % 8 != 0:
-    #     return
+    if rank % 8 != 0:
+        return
 
     device = torch.cuda.current_device()
     allocated_cur = torch.cuda.memory_allocated(device) / (1024 ** 2) # MB
@@ -35,12 +41,18 @@ def log_memory_usage(message: str):
           f"Peak: {(allocated_peak/ 1024):.2f} GB | "
           f"Total alloc (approx): {(total_alloc/ 1024):.2f} GB")
 
-    memory_usage.append({
+    new_entry = {
         "message": message,
         "allocated_cur": allocated_cur,
         "allocated_peak": allocated_peak,
         "total_alloc": total_alloc,
-    })
+    }
+    memory_usage.append(new_entry)
+    
+    global memory_usage_log_file
+    if memory_usage_log_file is not None:
+        with open(memory_usage_log_file, 'a') as f:
+            f.write(json.dumps(new_entry) + "\n")
 
 
 def get_memory_usage():

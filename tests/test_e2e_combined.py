@@ -657,6 +657,16 @@ def test(args):
     # TODO: (Refactor) If WLBLLM is set, we must inform the transformer_engine to use the WLBLLM function. 
     os.environ["WLBLLM_MODE"] = "1" if mode == "wlbllm" else "0"
 
+    # config = dict(
+    #     mode=mode, tp_size=tp_size, 
+    #     dp_size=dp_size, 
+    #     cp_size=cp_degree, 
+    #     num_tokens=num_tokens, model_path=model_path, num_layers=num_layers, 
+    #     max_sample_id=max_sample_id, up_sample_factor=up_sample_factor, filter_threshold=filter_threshold, filter_ratio=filter_ratio, 
+    #     replan_iter=replan_iter, elongate_factor=elongate_factor,
+    # )
+    # log_to_console_and_file(f"🟢 Test Config: {config}")
+
 
     if mode == "wlbllm":
         import wlbllm.megatron_patch.dot_product_attention
@@ -694,6 +704,9 @@ def test(args):
             world_size, max_cp_degree * 1, tp_size,
             dtype, MegatronE2eWorker
         )
+
+    memory_log_output_dir = os.path.join(output_dir, "mem-log")
+    enable_memory_usage_logging(memory_log_output_dir)
 
     worker.set_config(dtype=dtype)
     worker.init(model_path, seed=seed)
@@ -1026,7 +1039,7 @@ def test(args):
                     max_send_sz = max(send_sz)
                     max_recv_sz = max(recv_sz)
                     
-                    rich.print(f"🟡 [Rank {rank}] Overflow check: {max_send_sz // 1024**3} GB, {max_recv_sz // 1024**3} GB recv size, {max(torch.max(o).item() for o in send_last_offset) // 1024**3} GB send last offset, {buffer_size / 1024**3} GB buffer size")
+                    rich.print(f"🟡 [Rank {rank}] Overflow check: {max_send_sz / 1024**3:.2f} GB, {max_recv_sz / 1024**3:.2f} GB recv size, {max(torch.max(o).item() for o in send_last_offset) / 1024**3:.2f} GB send last offset, {buffer_size / 1024**3:.2f} GB buffer size")
 
                     max_size_provisioned = max(
                         max_send_sz, max_recv_sz, max(torch.max(o).item() for o in send_last_offset)
@@ -1332,6 +1345,16 @@ def save_memory_usage_to_file(memory_usage_dir: str):
     rich.print(f"🟢 Memory usage saved to: {memory_usage_output_file}")
     return
 
+
+def enable_memory_usage_logging(memory_usage_dir: str):
+    os.makedirs(memory_usage_dir, exist_ok=True)
+    rank = torch.distributed.get_rank()
+    memory_usage_log_file = os.path.join(memory_usage_dir, f"mem.rank{rank}.log.jsonl")
+    with open(memory_usage_log_file, 'w') as f:
+        pass
+    d2.mem.set_memory_usage_log_file(memory_usage_log_file)
+    pass
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", type=str, choices=["baseline", "d2", "wlbllm"], default="baseline", 
@@ -1368,6 +1391,7 @@ if __name__ == "__main__":
         pass
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
+
         
 
     should_profile_memory = args.should_profile_memory
@@ -1380,7 +1404,10 @@ if __name__ == "__main__":
         pass
 
     memory_usage_output_dir = os.path.join(args.output_dir, "mem")
+    memory_log_output_dir = os.path.join(args.output_dir, "mem-log")
     os.makedirs(memory_usage_output_dir, exist_ok=True)
+    os.makedirs(memory_log_output_dir, exist_ok=True)
+    
     if should_profile_memory:
         with torch.profiler.profile(
             activities=[
