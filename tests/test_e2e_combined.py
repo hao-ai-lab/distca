@@ -1060,8 +1060,9 @@ def test(args):
                 rich.print(f"🔴 [Rank {rank}] Force update buffer_size to = {recommended_buffer_size} GB")
                 buffer_size = recommended_buffer_size * 1024**3 # bytes
 
-                FastDispatcherWrapper.instance[0]._update_buffer_size(buffer_size)
-                FastDispatcherWrapper.instance[1]._update_buffer_size(buffer_size)
+                FastDispatcherWrapper.update_buffer_size(buffer_size)
+                # FastDispatcherWrapper.instance[0]._update_buffer_size(buffer_size)
+                # FastDispatcherWrapper.instance[1]._update_buffer_size(buffer_size)
 
                 rich.print(f"🟡 [Rank {rank}] Successfully force updated buffer_size to = {buffer_size / 1024**3} GB")
                 buffer_size = FastDispatcherWrapper.instance[0].buffer_size
