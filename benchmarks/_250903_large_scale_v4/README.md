@@ -11,3 +11,5 @@ cd tests
 bash ../benchmarks/_250903_large_scale_v4/srun_multi_combined.mem.sh
 ```
 
+3. Open `benchmarks/_250903_large_scale_v4/check_mem.py` - and change the variable folder to the new log folder you generated.
+4. Run the script and get the plots.
