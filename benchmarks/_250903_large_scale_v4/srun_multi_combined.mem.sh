@@ -20,13 +20,18 @@ export EXPERIMENT_LOG_MEMORY_USAGE=1
 # bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/srun_one_combined.sh
 
 # 512k bs1 sample=2 init buffer size 2GB
-EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2 BATCH_SIZE=1 NUM_LAYERS=32 NUM_TOKENS=524288 ELONGATE_FACTOR=8 MAX_SAMPLE_ID=2 \
-bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/srun_one_combined.sh
+# EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2 BATCH_SIZE=1 NUM_LAYERS=32 NUM_TOKENS=524288 ELONGATE_FACTOR=8 MAX_SAMPLE_ID=2 \
+# bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/srun_one_combined.sh
 
 
 # 🔴 OOM: 1M bs1 sample=1 buffer size 2GB
 # EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2 BATCH_SIZE=1 NUM_LAYERS=32 NUM_TOKENS=1048576 ELONGATE_FACTOR=16 MAX_SAMPLE_ID=1 \
 # bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/srun_one_combined.sh
+
+
+# Small test case
+EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2 BATCH_SIZE=1 NUM_LAYERS=4 NUM_TOKENS=16384 ELONGATE_FACTOR=8 MAX_SAMPLE_ID=2 \
+bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250903_large_scale_v4/srun_one_combined.N1.sh
 
 
 set +x
