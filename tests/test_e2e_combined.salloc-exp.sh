@@ -365,8 +365,8 @@ echo "Start running sbatch at $(TZ='America/Los_Angeles' date)"
 
 if [ ${ENABLE_NSYS} -eq 1 ]; then
   "${SRUN_BASE[@]}" \ \
-    --output="${LOG_DIR}/${TS}.${MODE}.%N.%j.out" \
-    --error="${LOG_DIR}/${TS}.${MODE}.%N.%j.out" \
+    --output="${LOG_DIR}/${TS}.${MODE}.%N.%j.%s.out" \
+    --error="${LOG_DIR}/${TS}.${MODE}.%N.%j.%s.out" \
       nsys profile --show-output=true --force-overwrite=true \
         -o "${OUTPUT_DIR}/%h.nsys-rep" --sample=none -t cuda,nvtx \
         torchrun $TORCHRUN_STR
@@ -374,8 +374,8 @@ else
 
 
     "${SRUN_BASE[@]}" \
-        --output="${LOG_DIR}/%N.%j.out" \
-        --error="${LOG_DIR}/%N.%j.out" \
+        --output="${LOG_DIR}/%N.%j.%s.out" \
+        --error="${LOG_DIR}/%N.%j.%s.out" \
         bash -lc '
             set -x
             hostname

@@ -1,7 +1,5 @@
 set -x
-# Usage:
-# bash test_e2e_combined.salloc.mem.sh
-# 
+
 # export CUDA_LAUNCH_BLOCKING=1
 export MAX_SAMPLE_ID=2
 export TP_SIZE=8 
@@ -14,8 +12,8 @@ export NNODES=32
 export SLURM_NNODES=32
 export SLURM_GPUS_ON_NODE=8
 
-export JOBID=677009
-export SLURM_JOB_NODELIST="fs-mbz-gpu-[004,036,064,138,041,184,124,144,137,143,153,217,209,272,268,294,341,279,311,369,402,444,488,441,481,460,649,646,753,805,743,880]"
+export JOBID=677325
+export SLURM_JOB_NODELIST="fs-mbz-gpu-[004,036,041,064,124,137-138,143-144,153,184,209,217,268,272,279,294,311,341,369,402,441,444,460,481,488,646,649,743,753,770,880]"
 
 now_ts=$(TZ='America/Los_Angeles' date +%Y%m%d%H%M%S)_PST
 
@@ -25,8 +23,8 @@ NUM_TOKENS_ARRAY=(65536)
 # NUM_TOKENS_ARRAY=(131072 262144)
 # BATCH_SIZE_ARRAY=(32 16 8 4 2 1)
 # BATCH_SIZE_ARRAY=(1 4 8 16)
-BATCH_SIZE_ARRAY=(32)
-NUM_LAYERS_ARRAY=(4)
+BATCH_SIZE_ARRAY=(1)
+NUM_LAYERS_ARRAY=(32)
 # NUM_LAYERS_ARRAY=(4)
 
 # Loop over all combinations
@@ -55,10 +53,12 @@ for num_tokens in "${NUM_TOKENS_ARRAY[@]}"; do
 
         # 8_65536_32_d2_1_4_1
         export PROFILE_MEMORY_PATH=${OUTPUT_DIR_PREFIX}/d2_b1_1/
-        OUTPUT_DIR_SUFFIX=d2_b1_${should_profile_memory} \
+        
+        DRY_RUN=1 OUTPUT_DIR_SUFFIX=d2_b1_${should_profile_memory} \
         SHOULD_PROFILE_MEMORY=$should_profile_memory MODE="d2" CP_SIZE=1 \
         EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=1 \
         bash test_e2e_combined.salloc-exp.sh
+        exit 0
 
       done
     done
