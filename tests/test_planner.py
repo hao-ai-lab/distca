@@ -341,51 +341,6 @@ class MockConfig:
         self.num_key_value_heads = 8
         self.num_hidden_layers = 32
 
-def test_dp_planner():
-    rich.print("⚪ Testing planner DP planner...")
-    num_seq = 4
-    dp_degree = 4
-    # Random test.
-    batch = generate_random_rank_batches(dp_degree, 32*K, num_seq)
-    # Classical test.
-    # batch = [
-    #     [16 * K] * 1,
-    #     [8 * K] * 2,
-    #     [4 * K] * 4,
-    #     [2 * K] * 8, 
-    # ]
-
-    items = batch_to_items(batch)   # DP layout.
-    # Create mock config.
-    model_config = MockConfig()    
-    parallel_config = ParallelConfig(
-        tensor_model_parallel_size=1,
-        pipeline_model_parallel_size=1,
-    )
-    world_size = 4
-    tolerance_factor = 0.01
-    planner = Planner_DP(
-        world_size=world_size,
-        parallel_config=parallel_config,
-        model_config=model_config,
-        tolerance_factor=tolerance_factor
-    )
-
-    start_time = time.time()
-    replanned_items = planner.plan_items(items, verbose=True, plot=True)
-    end_time = time.time()
-
-    start_time_plan = time.time()
-    metadata = planner.plan(items, verbose=True, plot=True)
-    end_time_plan = time.time()
-
-    rich.print(f"Plan Time taken: {end_time - start_time} seconds")
-    rich.print(f"E2E Time taken: {end_time_plan - start_time_plan} seconds")
-
-    verification_layout(items, replanned_items)
-    run_flops_balance_test(items, replanned_items, tolerance=tolerance_factor)
-    return
-
 def test_cp_planner():
     rich.print("⚪ Testing planner CP/DP planner...")
     
