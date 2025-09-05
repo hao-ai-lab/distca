@@ -7,7 +7,7 @@ import rich
 import torch
 from d2.runtime.compute_metadata import from_planner_output
 from d2.runtime.shard_info import (ShardInfo, handle_planner_metadata,
-                                   items_into_shardinfos, plan_to_metadata)
+                                   items_into_shardinfos)
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
