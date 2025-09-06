@@ -18,7 +18,7 @@ from d2.runtime.compute_metadata import (
     from_planner_output, backward_from_planner_output,
 )
 from d2.runtime.shard_info import ShardInfo
-from d2.runtime.megatron_patch.create_group import (
+from d2.runtime.megatron.create_group import (
     initialize_attention_server_comm, get_attn_server_group_gloo,
     get_attn_server_rank, get_attn_server_group_src_rank
 )

@@ -27,7 +27,7 @@ import argparse
 from megatron.core.packed_seq_params import PackedSeqParams
 import torch
 
-from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
+from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.compute_metadata import from_planner_output
 
 from test_util import random_shard_info_linear_layout_dp

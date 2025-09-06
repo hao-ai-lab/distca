@@ -39,7 +39,7 @@ import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
 from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
-from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
+from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
 from d2.runtime.compute_metadata import get_attn_metadata
 
 from test_util import MegatronBaseWorker, ParallelConfig, init_worker_torch_distributed, set_random_seed

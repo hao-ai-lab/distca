@@ -6,7 +6,7 @@ from flash_attn.flash_attn_interface import (
     _wrapped_flash_attn_varlen_forward, _wrapped_flash_attn_varlen_backward
 )
 from d2.runtime.attn_kernels.ops import FastDispatcherWrapper, fast_a2a
-from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
+from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.transformer.transformer_config import TransformerConfig
 import torch

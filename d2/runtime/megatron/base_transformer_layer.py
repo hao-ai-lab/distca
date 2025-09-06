@@ -14,7 +14,7 @@ from megatron.core.transformer.transformer_layer import (
     TransformerLayerSubmodules,
 )
 
-from d2.runtime.megatron_patch.packed_seq_params import PingPangSingleStepPackedSeqParams
+from d2.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
 import torch
 
 

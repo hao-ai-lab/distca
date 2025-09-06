@@ -37,10 +37,11 @@ from megatron.core.extensions.transformer_engine import (
 )
 LNImpl = FusedLayerNorm
 
-from d2.runtime.megatron_patch.transformer_layer import (
-    PingPangGPTModel, TransformerLayer as PingPangTransformerLayer
+from d2.runtime.megatron.transformer_layer import (
+    TransformerLayer as PingPangTransformerLayer
 )
-from d2.runtime.megatron_patch.per_doc_cp_attn import PerDocCPAttention
+from d2.runtime.megatron.transformer_block import PingPangGPTModel
+from d2.runtime.megatron.per_doc_cp_attn import PerDocCPAttention
 
 
 def get_gpt_layer_with_transformer_engine_spec(

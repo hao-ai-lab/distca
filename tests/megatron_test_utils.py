@@ -20,7 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import PretrainedConfig
 
-from d2.runtime.megatron_patch.model_patch import get_gpt_decoder_block_spec, PingPangGPTModel
+from d2.runtime.megatron.model_patch import get_gpt_decoder_block_spec
+from d2.runtime.megatron.transformer_block import PingPangGPTModel
 
 from test_util import get_torch_device, get_device_name
 
