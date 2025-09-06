@@ -15,7 +15,6 @@ from megatron.core.transformer.transformer_layer import (
 )
 
 from d2.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
-import torch
 
 
 def log_memory_usage(message: str):

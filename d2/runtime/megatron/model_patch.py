@@ -37,10 +37,10 @@ from megatron.core.extensions.transformer_engine import (
 )
 LNImpl = FusedLayerNorm
 
-from d2.runtime.megatron.transformer_layer import (
+from d2.runtime.megatron.ping_pong.transformer_layer import (
     TransformerLayer as PingPangTransformerLayer
 )
-from d2.runtime.megatron.transformer_block import PingPangGPTModel
+from d2.runtime.megatron.ping_pong.transformer_block import PingPongGPTModel
 from d2.runtime.megatron.per_doc_cp_attn import PerDocCPAttention
 
 
@@ -182,7 +182,7 @@ def get_gpt_decoder_block_spec(
     return block_spec
 
 
-def model_provider(pre_process=True, post_process=True) -> PingPangGPTModel:
+def model_provider(pre_process=True, post_process=True) -> PingPongGPTModel:
     """Builds the model.
 
     Args:
@@ -224,7 +224,7 @@ def model_provider(pre_process=True, post_process=True) -> PingPangGPTModel:
     if args.mtp_num_layers is not None:
         mtp_block_spec = get_gpt_mtp_block_spec(config, transformer_layer_spec, use_transformer_engine=use_te)
 
-    model = PingPangGPTModel(
+    model = PingPongGPTModel(
         config=config,
         transformer_layer_spec=transformer_layer_spec,
         vocab_size=args.padded_vocab_size,

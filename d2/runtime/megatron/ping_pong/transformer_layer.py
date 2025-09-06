@@ -1,65 +1,18 @@
-from contextlib import contextmanager, nullcontext
-import functools
-from typing import Any, Dict, List, Optional, Union
-import types
+from typing import Any, Optional
 import warnings
-import time
+
 import torch
 from torch import Tensor
 
-from megatron.core import tensor_parallel, parallel_state
-from megatron.core.inference.contexts import BaseInferenceContext
-from megatron.core.models.gpt.gpt_model import GPTModel
-from megatron.core.transformer.transformer_block import (
-    TransformerBlock as MegatronTransformerBlock
-)
-from megatron.core.utils import WrappedTensor, make_viewless_tensor
-
-from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
-from d2.runtime.megatron.fused_comm_attn import FlashAttnArgs, FusedCommAttn, dummy_backward, post_a2a_attn_out_with_lse
 from d2.runtime.megatron.base_transformer_layer import TransformerLayer as BaseTransformerLayer
 from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
-from d2.runtime.megatron.stream_sync_fn import TickSync
+from d2.runtime.megatron.ops import TickSync, FusedCommAttn, post_a2a_attn_out_with_lse
+from d2.runtime.megatron.ops.fused_comm_attn import FlashAttnArgs
+from d2.runtime.megatron.ping_pong.utils import splits_all, repack_args, gather_tensor
 from d2.runtime.fast_dispatch_fn import (
     all_to_all, post_all2all_layout_transfer, pre_all2all_layout_transfer
 )
 
-
-#### Tool functions for splitting and gathering args ####
-def _split_tensor(x: Optional[torch.Tensor], num_splits: int):
-    if x is None:
-        return (None,) * num_splits
-    return x.split(x.shape[0] // num_splits, dim=0)
-
-def _repack_args(args: List[List[torch.Tensor]], num_splits: int):
-    assert all(len(a) == num_splits for a in args)
-    return [
-        [a[i] for a in args]
-        for i in range(num_splits)
-    ]
-
-def _repack_dicts(args: Dict[str, List[torch.Tensor]], num_splits: int):
-    assert all(len(a) == num_splits for a in args.values())
-    return [
-        {k: a[i] for k, a in args.items()}
-        for i in range(num_splits)
-    ]
-
-def _splits_all(tensors: List[torch.Tensor], num_splits: int):
-    splits = [_split_tensor(t, num_splits) for t in tensors]
-    return _repack_args(splits, num_splits)
-
-def _split_all_dict(tensors: Dict[str, torch.Tensor], num_splits: int):
-    splits = {k: _split_tensor(v, num_splits) for k, v in tensors.items()}
-    return _repack_dicts(splits, num_splits)
-
-def _gather_tensor(tensors: List[torch.Tensor], num_splits: int):
-    assert len(tensors) == num_splits
-    if any(t is None for t in tensors):
-        assert all(t is None for t in tensors), "None tensors in gather_tensor"
-        return None
-    return torch.cat(tensors, dim=0)
-####
 
 class TransformerLayer(BaseTransformerLayer):
     ########## Attention Layout <-> MLP Layout Transformation ##########
@@ -242,9 +195,9 @@ class TransformerLayer(BaseTransformerLayer):
         args = [hidden_states, attention_mask, context, context_mask, rotary_pos_emb,
                 rotary_pos_cos, rotary_pos_sin, attention_bias, sequence_len_offset]
         if needs_split:
-            args_0, args_1 = _splits_all(args, 2)
+            args_0, args_1 = splits_all(args, 2)
         else:
-            args_0, args_1 = _repack_args(args, 2)
+            args_0, args_1 = repack_args(args, 2)
         (hidden_states_0, attention_mask_0, context_0, context_mask_0, rotary_pos_emb_0,
             rotary_pos_cos_0, rotary_pos_sin_0, attention_bias_0, sequence_len_offset_0) = args_0
         (hidden_states_1, attention_mask_1, context_1, context_mask_1, rotary_pos_emb_1,
@@ -386,8 +339,8 @@ class TransformerLayer(BaseTransformerLayer):
         torch.cuda.nvtx.range_pop()
         # concatenate the two microbatches to one.
         if needs_gather:
-            output = _gather_tensor([mlp_output_0, mlp_output_1], num_splits=2)
-            context = _gather_tensor([context_0, context_1], num_splits=2)
+            output = gather_tensor([mlp_output_0, mlp_output_1], num_splits=2)
+            context = gather_tensor([context_0, context_1], num_splits=2)
         else:
             output = [mlp_output_0, mlp_output_1]
             context = [context_0, context_1]

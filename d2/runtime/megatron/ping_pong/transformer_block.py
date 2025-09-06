@@ -14,10 +14,11 @@ from megatron.core.transformer.transformer_block import (
 from megatron.core.utils import WrappedTensor, make_viewless_tensor
 
 from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
-from d2.runtime.megatron.fused_comm_attn import FlashAttnArgs, FusedCommAttn, dummy_backward, post_a2a_attn_out_with_lse
+from d2.runtime.megatron.ops import FusedCommAttn, TickSync, post_a2a_attn_out_with_lse
+from d2.runtime.megatron.ops.fused_comm_attn import FlashAttnArgs, dummy_backward
 from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
-from d2.runtime.megatron.stream_sync_fn import TickSync
-from d2.runtime.megatron.transformer_layer import TransformerLayer, _split_all_dict, _gather_tensor
+from d2.runtime.megatron.ping_pong.transformer_layer import TransformerLayer
+from d2.runtime.megatron.ping_pong.utils import split_all_dict, gather_tensor
 
 
 def log_memory_usage(message: str):
@@ -26,11 +27,11 @@ def log_memory_usage(message: str):
     return
 
 
-def add_ping_pang_forward(block: MegatronTransformerBlock):
-    def init_ping_pang_communication_ctx(self, device: torch.device):
+def add_ping_pong_forward(block: MegatronTransformerBlock):
+    def init_ping_pong_communication_ctx(self, device: torch.device):
         assert not self.ping_pong_comm_initialized
         self.comm_stream = torch.cuda.Stream(device=device, priority=-1)
-        self._ping_pang_debug = True
+        self._ping_pong_debug = False
         self.ping_pong_comm_initialized = True
         FastDispatcherWrapper.comm_stream = self.comm_stream
 
@@ -99,7 +100,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
                     "attention_bias": attention_bias,
                     "sequence_len_offset": sequence_len_offset,
                 }
-                arg_group_0, arg_group_1 = _split_all_dict(arg_group, 2)
+                arg_group_0, arg_group_1 = split_all_dict(arg_group, 2)
                 del arg_group
 
                 arg_group_0["packed_seq_params"] = packed_seq_params_0
@@ -224,8 +225,8 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
                 arg_group_1 = _forward_post_core_attn(layer, arg_group_1)
             # gathering the result
             with torch.cuda.nvtx.range(f"forward_layers[{l_no}].gather_ping_pong"):
-                hidden_states = _gather_tensor([arg_group_0["hidden_states"], arg_group_1["hidden_states"]], 2)
-                context = _gather_tensor([arg_group_0["context"],arg_group_1["context"]], 2)
+                hidden_states = gather_tensor([arg_group_0["hidden_states"], arg_group_1["hidden_states"]], 2)
+                context = gather_tensor([arg_group_0["context"],arg_group_1["context"]], 2)
         else:
             hidden_states = None
             context = None
@@ -382,11 +383,11 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
             TransformerLayer.forward = self.backup_forward
 
     def forward(self, *args, **kwargs):
-        # print(f'{self._ping_pang_debug=}')
+        # print(f'{self._ping_pong_debug=}')
         """
         For Pipeline Parallel debugging, we use single-sided to ease debugging.
         """
-        if self._ping_pang_debug:
+        if self._ping_pong_debug:
             assert self._debug_forward_impl in ["orig", "single_sided", "orig_reimpl"], self._debug_forward_impl
             if self._debug_forward_impl == "single_sided":
                 ctx = _debug_monkey_patch(TransformerLayer.forward_ping_pong_single_sided)
@@ -402,20 +403,20 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
     block._debug_forward_impl = "orig"
     block.forward_layers = types.MethodType(forward_layers, block)
-    block.init_ping_pang_communication_ctx = types.MethodType(init_ping_pang_communication_ctx, block)
+    block.init_ping_pong_communication_ctx = types.MethodType(init_ping_pong_communication_ctx, block)
     block.ping_pang_forward = types.MethodType(ping_pang_forward, block)
     block._normal_forward = block.forward
     block.forward = types.MethodType(forward, block)
     block.ping_pong_comm_initialized = False
 
 
-class PingPangGPTModel(GPTModel):
+class PingPongGPTModel(GPTModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        add_ping_pang_forward(self.decoder)
+        add_ping_pong_forward(self.decoder)
 
     def set_debug(self, debug: bool, debug_fwd_impl: str = None):
-        self.decoder._ping_pang_debug = debug
+        self.decoder._ping_pong_debug = debug
         if debug_fwd_impl:
             self.decoder._debug_forward_impl = debug_fwd_impl
 
@@ -478,4 +479,4 @@ class PingPangGPTModel(GPTModel):
             dummy_backward(self.config, packed_seq_params, dtype, device)
 
     def init_ping_pong_communication_ctx(self, device: torch.device):
-        self.decoder.init_ping_pang_communication_ctx(device)
+        self.decoder.init_ping_pong_communication_ctx(device)
