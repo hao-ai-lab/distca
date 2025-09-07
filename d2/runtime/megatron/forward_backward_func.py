@@ -2,6 +2,7 @@ import contextlib
 from typing import Union, Iterator, List
 
 import torch
+from torch.cuda.nvtx import range_push, range_pop
 from megatron.core import parallel_state
 from megatron.core.enums import ModelType
 from megatron.core.pipeline_parallel import p2p_communication
@@ -29,8 +30,6 @@ from megatron.core.pipeline_parallel.schedules import (
     finish_embedding_wgrad_compute,
 )
 
-
-from torch.cuda.nvtx import range_push, range_pop
 
 def send_forward_recv_forward(output_tensors, recv_prev, tensor_shapes, config):
     """Wrapper for p2p_communication.send_backward_recv_forward used

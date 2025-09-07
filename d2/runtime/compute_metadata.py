@@ -3,7 +3,7 @@ from typing import Optional, Sequence, Tuple
 from megatron.core.packed_seq_params import PackedSeqParams
 import torch
 
-from d2.runtime.fast_alltoall_metadata import (
+from d2.runtime.metadata import (
     FastAlltoAllMetadata, LogicalShape, SeqLens,
     compute_reverse_a2a_layout_metadata, _get_my_rank_from_metadata,
 )

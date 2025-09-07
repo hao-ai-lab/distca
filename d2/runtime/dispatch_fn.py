@@ -5,7 +5,7 @@ from d2.runtime.attn_kernels.dispatch import (
     pre_fast_a2a_attn_out, post_fast_a2a_attn_out
 )
 from d2.runtime.attn_kernels.ops import fast_a2a
-from d2.runtime.fast_alltoall_metadata import FastAlltoAllMetadata
+from d2.runtime.metadata import FastAlltoAllMetadata
 
 
 """

@@ -18,7 +18,7 @@ from d2.runtime.attn_kernels.dispatch import (
     # bwd recv attn_out_grad and qkv, fwd recv qkv
     post_fast_a2a_attn_out_grad_resend_qkv, post_fast_a2a_qkv,
 )
-from d2.runtime.fast_alltoall_metadata import FastAlltoAllMetadata
+from d2.runtime.metadata import FastAlltoAllMetadata
 
 
 @dataclass

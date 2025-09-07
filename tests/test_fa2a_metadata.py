@@ -5,7 +5,7 @@ from typing import Sequence
 import torch
 from torch import Tensor
 
-from d2.runtime.fast_alltoall_metadata import (
+from d2.runtime.metadata import (
     FastAlltoAllMetadata
 )
 

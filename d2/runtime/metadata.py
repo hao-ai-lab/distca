@@ -72,6 +72,11 @@ class FastAlltoAllMetadata:
     kv_replica_mask: Optional[_Tensor_Or_Tensor_List] = None
     # Debug setting
     single_stream: bool = False
+    # For cuda graph, the number of sequences and max cp degree are padded.
+    # Below records the original values and should be passed to memcpy kernels.
+    send_num_seqs: Optional[Sequence[int]] = None
+    recv_num_seqs: Optional[Sequence[int]] = None
+    max_cp_degree: Optional[int] = None
 
     def __better_print__(self):
         """Convert the tensor size to MB. This is just for debugging.
@@ -145,7 +150,6 @@ class FastAlltoAllMetadata:
             kv_replica_mask=kv_replica_mask,
             single_stream=single_stream,
         )
-        
 
     def get_slice(self, rank):
         """

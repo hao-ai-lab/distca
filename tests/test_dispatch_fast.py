@@ -19,7 +19,7 @@ from d2.runtime.attn_kernels.dispatch import (
     fast_a2a_qkv
 )
 from d2.runtime.compute_metadata import from_planner_output
-from d2.runtime.fast_alltoall_metadata import FastAlltoAllMetadata
+from d2.runtime.metadata import FastAlltoAllMetadata
 
 from test_util import (
     BaseWorker, init_worker_torch_distributed,

@@ -5,7 +5,7 @@ import torch
 
 from megatron.core.packed_seq_params import PackedSeqParams
 
-from d2.runtime.fast_alltoall_metadata import FastAlltoAllMetadata
+from d2.runtime.metadata import FastAlltoAllMetadata
 
 
 def _to_cuda_int32(tensor: Optional[torch.Tensor]):

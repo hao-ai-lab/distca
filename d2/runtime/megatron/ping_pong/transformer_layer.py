@@ -9,7 +9,7 @@ from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingP
 from d2.runtime.megatron.ops import TickSync, FusedCommAttn, post_a2a_attn_out_with_lse
 from d2.runtime.megatron.ops.fused_comm_attn import FlashAttnArgs
 from d2.runtime.megatron.ping_pong.utils import splits_all, repack_args, gather_tensor
-from d2.runtime.fast_dispatch_fn import (
+from d2.runtime.dispatch_fn import (
     all_to_all, post_all2all_layout_transfer, pre_all2all_layout_transfer
 )
 
