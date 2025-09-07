@@ -1,3 +1,11 @@
+"""
+Analyze nsys export sqlite database to get the NVTX hierarchy and kernel runtimes.
+
+References
+https://docs.nvidia.com/nsight-systems/2022.1/nsys-exporter/examples.html#thread-summary-composite
+https://docs.nvidia.com/nsight-systems/2022.1/nsys-exporter/exported_data.html
+https://docs.nvidia.com/cupti/main/main.html?highlight=nvtx#nvidia-tools-extension-callbacks
+"""
 # %% [markdown]
 # NVTX hierarchy (per-thread) from Nsight Systems SQLite
 # -----------------------------------------------------
