@@ -45,10 +45,6 @@ class LogicalShape:
 
 @dataclass
 class AlltoAllMetadata:
-    """
-    NOTE: AlltoAllMetadata has some duplicated fields with Metadata.
-    With FastAlltoAll enabled, the original Metadata is not used.
-    """
     # sender_send_offset, sender_transfer_sz, sender_recv_offset, recver_transfer_sz
     fa2a_metadata: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
     # List of (world_size,) tensors, each of shape (num_sequences,). If a slice, no world_size dimension.

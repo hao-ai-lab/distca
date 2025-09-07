@@ -38,7 +38,7 @@ from omegaconf import OmegaConf
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
-from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
+from d2.runtime.attn_kernels.ops import DispatcherWrapper
 from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
 from d2.runtime.compute_metadata import get_attn_metadata
 
@@ -902,7 +902,7 @@ def test(args):
                     rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.recv_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb)
 
                 # Check size:
-                buffer_size = FastDispatcherWrapper.instance[0].buffer_size
+                buffer_size = DispatcherWrapper.instance[0].buffer_size
                 def _check_overflow(fa2a_metadata):
                     send_sz = [torch.sum(m.fa2a_metadata[1][as_rank]).item() for m in fa2a_metadata]
                     # send_sz + sender_recv_offset = sender_recv_last_token
@@ -946,12 +946,12 @@ def test(args):
                 rich.print(f"🔴 [Rank {rank}] Force update buffer_size to = {recommended_buffer_size} GB")
                 buffer_size = recommended_buffer_size * 1024**3 # bytes
 
-                FastDispatcherWrapper.update_buffer_size(buffer_size)
-                # FastDispatcherWrapper.instance[0]._update_buffer_size(buffer_size)
-                # FastDispatcherWrapper.instance[1]._update_buffer_size(buffer_size)
+                DispatcherWrapper.update_buffer_size(buffer_size)
+                # DispatcherWrapper.instance[0]._update_buffer_size(buffer_size)
+                # DispatcherWrapper.instance[1]._update_buffer_size(buffer_size)
 
                 rich.print(f"🟡 [Rank {rank}] Successfully force updated buffer_size to = {buffer_size / 1024**3} GB")
-                buffer_size = FastDispatcherWrapper.instance[0].buffer_size
+                buffer_size = DispatcherWrapper.instance[0].buffer_size
                 
                 # raise ValueError(f"[Rank {rank}] Overflow check failed for fa2a_metadata_0 or fa2a_metadata_1 with all tolerance_factor with buffer_size {buffer_size / 1024**3} GB. Try a bigger buffer size instead. Inspected required_buffer_size = {required_buffer_size}")
             

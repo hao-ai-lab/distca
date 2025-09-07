@@ -13,7 +13,7 @@ from megatron.core.transformer.transformer_block import (
 )
 from megatron.core.utils import WrappedTensor, make_viewless_tensor
 
-from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
+from d2.runtime.attn_kernels.ops import DispatcherWrapper
 from d2.runtime.megatron.ops.fused_comm_attn import dummy_backward
 from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams
 from d2.runtime.megatron.ping_pong.tick_ops import (
@@ -51,7 +51,7 @@ class PingPongTransformerBlockInterface(MegatronTransformerBlock):
         assert not self.ping_pong_comm_initialized
         self.comm_stream = torch.cuda.Stream(device=device, priority=-1)
         self.ping_pong_comm_initialized = True
-        FastDispatcherWrapper.comm_stream = self.comm_stream
+        DispatcherWrapper.comm_stream = self.comm_stream
 
     def ping_pong_forward(
         self,
