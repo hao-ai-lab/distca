@@ -455,6 +455,7 @@ def from_planner_output(
         world_size, scheduler_output, q_bytes, k_bytes, element_size,
         compute_attn_out_metadata=True, attn_out_bytes=out_bytes,
     )
+    # FIXME(junda): print only when environment variable is set
     import rich
     # qkv_linear_to_attn, qkv_grad_attn_to_linear, out_attn_to_linear,
     #  out_grad_linear_to_attn, attn_metadata
@@ -512,6 +513,7 @@ def backward_from_planner_output(
         world_size, scheduler_output_bwd, q_bytes, k_bytes, element_size,
         compute_attn_out_metadata=False, attn_out_bytes=None
     )
+    # FIXME(junda): print only when environment variable is set
     import rich
     rank = torch.distributed.get_rank()
     if rank % 8 == 0:

@@ -27,11 +27,12 @@ import argparse
 from megatron.core.packed_seq_params import PackedSeqParams
 import torch
 
+from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
+from d2.runtime.compute_metadata import from_planner_output, get_attn_metadata
 from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
-from d2.runtime.compute_metadata import from_planner_output
 
 from test_util import random_shard_info_linear_layout_dp
-from test_megatron_layer import MegatronLayerWorker
+from test_megatron_layer import MegatronLayerWorker, init_megatron_test
 
 
 class PingPangLayerWorker(MegatronLayerWorker):
@@ -45,6 +46,7 @@ class PingPangLayerWorker(MegatronLayerWorker):
         # it is on.
         super().init_torch_distributed()
         self.stream = torch.cuda.Stream(device=self.device, priority=-1)
+        FastDispatcherWrapper.comm_stream = self.stream
 
     def forward_ping_pang(self, tensor_input: torch.Tensor, packed_seq_params: PingPangPackedSeqParams,
                           run_backward: bool = False):
