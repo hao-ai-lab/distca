@@ -1,3 +1,4 @@
+import pynvml
 import torch
 import torch.distributed
 import json
@@ -22,11 +23,28 @@ def set_memory_usage_log_file(x: str):
     global memory_usage_log_file
     memory_usage_log_file = x
 
-def log_memory_usage(message: str):
+
+def get_pynvml_gpu_memory_usage(device):   
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(device)
+    info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    used = info.used / (1024**2)
+    pynvml.nvmlShutdown()
+    return used
+    
+
+def get_torch_cuda_memory_usage(device):
+    
+    allocated_cur = torch.cuda.memory_allocated(device) / (1024 ** 2) # MB
+    allocated_peak = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
+    total_alloc = (allocated_cur + torch.cuda.memory_reserved(device) / (1024 ** 2))
+    return allocated_cur, allocated_peak, total_alloc
+
+def log_memory_usage(message: str, force: bool = False):
     
     global memory_usage
 
-    if os.getenv("EXPERIMENT_LOG_MEMORY_USAGE", "0") != "1":
+    if os.getenv("EXPERIMENT_LOG_MEMORY_USAGE", "0") != "1" and not force:
         return
     # Check if `CUDA_LAUNCH_BLOCKING` is set
     if os.getenv("CUDA_LAUNCH_BLOCKING", "0") != "1":
@@ -45,19 +63,23 @@ def log_memory_usage(message: str):
     message += f" ({caller_info[0]}:{caller_info[1]})"
 
     device = torch.cuda.current_device()
-    allocated_cur = torch.cuda.memory_allocated(device) / (1024 ** 2) # MB
-    allocated_peak = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
-    total_alloc = (allocated_cur + torch.cuda.memory_reserved(device) / (1024 ** 2))
+    allocated_cur, allocated_peak, total_alloc = get_torch_cuda_memory_usage(device)
+
+    # also use nvidia-smi to get the allocated memory
+    pynvml_gpu_memory_usage = get_pynvml_gpu_memory_usage(device)
+    
 
     print(f"Ⓜ️ [{message}] Allocated: {(allocated_cur/ 1024):.2f} GB | "
           f"Peak: {(allocated_peak/ 1024):.2f} GB | "
-          f"Total alloc (approx): {(total_alloc/ 1024):.2f} GB")
+          f"Total alloc (approx): {(total_alloc/ 1024):.2f} GB | "
+          f"nvidia-smi reported usage: {(pynvml_gpu_memory_usage/1024):.2f} GB")
     
     new_entry = {
         "message": message,
         "allocated_cur": allocated_cur,
         "allocated_peak": allocated_peak,
         "total_alloc": total_alloc,
+        "pynvml_gpu_memory_usage": pynvml_gpu_memory_usage,
     }
     memory_usage.append(new_entry)
     

@@ -216,7 +216,8 @@ def fast_a2a(
         FastDispatcherWrapper.get_instance(instance_id).handle,
         sender_send_disp, sender_transfer_sz,
         sender_recv_disp, recver_transfer_sz,
-        my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz
+        my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
+        False,
     )
 
 
