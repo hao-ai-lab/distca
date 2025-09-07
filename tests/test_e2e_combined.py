@@ -11,6 +11,34 @@ bash test_e2e_combined.multi.sh <rzv_endpoint> <n_nodes>
 ```
 
 """
+
+
+# ----------------
+# Taskset confirm
+# ----------------
+
+import os, re, socket, torch
+
+torch.cuda.set_device(int(os.getenv("LOCAL_RANK", os.getenv("SLURM_LOCALID", "0"))))
+
+def read_status_field(field: str) -> str:
+    with open("/proc/self/status") as f:
+        for line in f:
+            if line.startswith(field + ":"):
+                return line.split(":",1)[1].strip()
+    return "N/A"
+
+aff = read_status_field("Cpus_allowed_list")
+mems = read_status_field("Mems_allowed_list")
+lr = int(os.getenv("LOCAL_RANK", os.getenv("SLURM_LOCALID", "0")))
+dev = torch.cuda.current_device()
+
+print(f"[{socket.gethostname()}] RANK={os.getenv('RANK')} "
+      f"LOCAL_RANK={lr} CUDA_DEV={dev} "
+      f"CPUS={aff} MEMS={mems}", flush=True)
+
+
+
 # ----------------
 # Main Imports
 # ----------------
@@ -26,6 +54,8 @@ import rich
 import signal
 import traceback
 import sys
+from contextlib import contextmanager
+
 def timeout_handler(signum, frame):
     raise TimeoutError("forward_backward_batch operation timed out after 5 minutes")
 
@@ -79,10 +109,17 @@ def set_random_seed(seed, set_megatron: bool=True):
         tensor_parallel.model_parallel_cuda_manual_seed(seed)
 
 
-def log_memory_usage(message: str):
+def log_memory_usage(message: str, force:bool = False):
     import d2.mem
-    d2.mem.log_memory_usage(message)
+    d2.mem.log_memory_usage(message, force=force)
 
+@contextmanager
+def log_memory_usage_context():
+    import d2.mem
+    old_env_var = os.environ.get("EXPERIMENT_LOG_MEMORY_USAGE", "0")
+    os.environ["EXPERIMENT_LOG_MEMORY_USAGE"] = "1"
+    yield
+    os.environ["EXPERIMENT_LOG_MEMORY_USAGE"] = old_env_var
 
 class MegatronE2eWorker(MegatronBaseWorker):
     def __init__(self, rank: int, world_size: int):
@@ -178,6 +215,10 @@ class MegatronE2eWorker(MegatronBaseWorker):
                     "activations_checkpoint_granularity", "full"
                 )
                 tf_config.recompute_num_layers = gradient_checkpointing_cfg.get("activations_checkpoint_num_layers", -1)
+                # tf_config.distribute_saved_activations = gradient_checkpointing_cfg.get("activations_checkpoint_distribute_saved_activations", None)
+                tf_config.recompute_modules = gradient_checkpointing_cfg.get("activations_checkpoint_recompute_modules", None)
+
+                print(f"🟡 [Rank {self.rank}] Adding selective checkpoint: {gradient_checkpointing_cfg}")
 
         add_optimization_config_to_tf_config(tf_config)
 
@@ -575,7 +616,22 @@ def test(args):
     memory_log_output_dir = os.path.join(output_dir, "mem-log")
     enable_memory_usage_logging(memory_log_output_dir)
 
-    worker.set_config(dtype=dtype)
+    enable_gradient_checkpointing = False
+    gradient_checkpointing_kwargs = {}
+    if os.environ.get("EXPERIMENT_ADD_SELECTIVE_CKPT", "0") == "1":
+        enable_gradient_checkpointing = True
+        gradient_checkpointing_kwargs = dict(
+                activations_checkpoint_method="mlp",
+                activations_checkpoint_granularity="selective",
+                activations_checkpoint_num_layers=None, # num-layers
+                activations_checkpoint_recompute_modules = ["mlp"],
+            )
+        # print(f"🟡 [Rank {worker.rank}] Adding selective checkpoint: {gradient_checkpointing_kwargs}")
+    worker.set_config(
+        dtype=dtype,
+        enable_gradient_checkpointing=enable_gradient_checkpointing,
+        gradient_checkpointing_kwargs=gradient_checkpointing_kwargs
+    )
     worker.init(model_path, seed=seed)
     rich.print(f"🟡 [Rank {worker.rank}] init done")
     log_memory_usage("init done")
@@ -754,7 +810,7 @@ def test(args):
             
             rank = torch.distributed.get_rank()
             
-            debug_print(f"doc_lens", doc_lens)
+            print(f"🟡 [Rank {rank}] doc_lens={doc_lens}")
             assert cp_size == cp_degree
 
             # local_context_length = total_seq_len * 2
@@ -1047,34 +1103,35 @@ def test(args):
 
 
 
-        log_memory_usage("warmup start")
         if sample_id == 0:
-            # Warmup
-            warmup_times = 5
-            try:
-                warmup_times = int(os.environ.get("EXPERIMENT_WARMUP_TIMES", 5))
-            except:
-                pass
+            log_memory_usage("warmup start")
+            with log_memory_usage_context():
+                # Warmup
+                warmup_times = 5
+                try:
+                    warmup_times = int(os.environ.get("EXPERIMENT_WARMUP_TIMES", 5))
+                except:
+                    pass
 
-            warmup_timeout_sec = 60
-            try:
-                warmup_timeout_sec = int(os.environ.get("EXPERIMENT_WARMUP_TIMEOUT_SEC", 60))
-            except:
-                warmup_timeout_sec = 60
+                warmup_timeout_sec = 240
+                try:
+                    warmup_timeout_sec = int(os.environ.get("EXPERIMENT_WARMUP_TIMEOUT_SEC", 240))
+                except:
+                    pass
 
-            # Test passing the nvshmem init
-            try:
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(warmup_timeout_sec)  # 60 seconds = 1 minute
-                ref = worker.forward_backward_batch(
-                    microbatches=microbatches,
-                    normal_forward_fn=normal_forward_fn,
-                    forward_only=False,
-                )
-                signal.alarm(0)
-            except TimeoutError as e:
-                print("🔴 Timeout at the first warmup forward_backward function. It may suggest our all2all kernel failed.")
-                sys.exit(1)
+                # Test passing the nvshmem init
+                try:
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(warmup_timeout_sec)  # 60 seconds = 1 minute
+                    ref = worker.forward_backward_batch(
+                        microbatches=microbatches,
+                        normal_forward_fn=normal_forward_fn,
+                        forward_only=False,
+                    )
+                    signal.alarm(0)
+                except TimeoutError as e:
+                    print(f"🔴 Timeout {warmup_timeout_sec} seconds at the first warmup forward_backward function. It may suggest our all2all kernel failed, or just warmup did not completed.")
+                    sys.exit(1)
 
             
             for warmup_idx in range(max(warmup_times - 1, 0)):
@@ -1089,7 +1146,7 @@ def test(args):
             torch.distributed.barrier()
             if rank == 0:
                 print("=" * 20 + "warmup done")
-        log_memory_usage("warmup done")
+            log_memory_usage("warmup done")
         
         # Real Experiment
         N = 3
@@ -1128,14 +1185,22 @@ def test(args):
         torch.distributed.barrier()
         end_time = time.time()
         duration = end_time - start_time
-        duration_ms = duration * 1000
+        # duration_ms = duration * 1000
         # avg_duration_ms = duration_ms / N
         avg_duration_ms = sum(iteration_times) / len(iteration_times) * 1000
         sample_times.append(avg_duration_ms)
         if rank == 0:
-            if mode == "baseline":
-                rich.print(f"[Sample ID=({sample_id})] seq_lens = {seq_lens}")
             rich.print(f"[Sample ID=({sample_id})] Mode={mode} forward_backward_batch: avg_time_per_iteration = {avg_duration_ms:.2f} ms")
+        device = torch.cuda.current_device()
+        
+        if rank % 8 == 0:
+            (
+                allocated_cur, 
+                allocated_peak, 
+                total_alloc
+            ) = d2.mem.get_torch_cuda_memory_usage(device)
+            pynvml_gpu_memory_usage = d2.mem.get_pynvml_gpu_memory_usage(device)
+            rich.print(f"Ⓜ️Ⓜ️ [Sample ID=({sample_id})] Memory usage: allocated_cur: {(allocated_cur/1024):.2f} GB, allocated_peak: {(allocated_peak/1024):.2f} GB, total_alloc: {(total_alloc/1024):.2f} GB, pynvml_gpu_memory_usage: {(pynvml_gpu_memory_usage/1024):.2f} GB")
             
 
         time.sleep(2) # to ensure the profile sees a better profiling result
@@ -1239,6 +1304,10 @@ def test(args):
 
     # for idx, (sample, duration) in enumerate(zip(iterated_samples, sample_times)):
     #     rich.print(f"🟢 Sample {idx}: {sample}, duration: {duration} ms")
+
+    # Report memory usage
+    save_memory_usage_to_file(memory_usage_output_dir)
+    
 
     # Cleanup and exit
     rich.print(f"❄️ [Rank {rank}] Finished test and exit.")        
@@ -1353,6 +1422,7 @@ if __name__ == "__main__":
             raise e
         finally:
             save_memory_usage_to_file(memory_usage_output_dir)
+    log_memory_usage("test:end", force=True)
         
     
     if should_profile_memory:

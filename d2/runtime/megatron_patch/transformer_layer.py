@@ -630,6 +630,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         arg_group_1: Dict[str, Any],
         compute_stream: torch.cuda.Stream,
     ):
+        log_memory_usage(f"(L{l_no}) forward_layers:(start)")
         nvtx_range_push(f"PingPong.forward_layers[{l_no}]")
 
         layer = self.layers[l_no]
@@ -721,6 +722,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
 
         nvtx_range_pop(f"PingPong.forward_layers[{l_no}]")
 
+        log_memory_usage(f"(L{l_no}) forward_layers:(end)")
         return arg_group_0, arg_group_1, hidden_states, context
 
     def _forward_pre_core_attn(layer: TransformerLayer, args: Dict[str, Any]):
