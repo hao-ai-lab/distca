@@ -897,12 +897,12 @@ def test(args):
                     attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb = fa2a_metadata_0[1].fa2a_metadata[3] // 1024 // 1024
                             
                     # Print qkv_fwd_fa2a_metadata
-                    rich.print(f"🟡 [Rank {rank}] qkv_fwd_fa2a_metadata.send_transfer_sz_mb = ", qkv_fwd_fa2a_metadata__send_transfer_sz_mb)
-                    rich.print(f"🟡 [Rank {rank}] qkv_fwd_fa2a_metadata.recv_transfer_sz_mb = ", qkv_fwd_fa2a_metadata__recv_transfer_sz_mb)
+                    rich.print(f"🟡 [Rank {rank}] qkv_fwd_fa2a_metadata.send_transfer_sz_mb = ", qkv_fwd_fa2a_metadata__send_transfer_sz_mb.tolist())
+                    rich.print(f"🟡 [Rank {rank}] qkv_fwd_fa2a_metadata.recv_transfer_sz_mb = ", qkv_fwd_fa2a_metadata__recv_transfer_sz_mb.tolist())
                     
                     # Print attn_out_fwd_fa2a_metadata
-                    rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.send_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__send_transfer_sz_mb)
-                    rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.recv_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb)
+                    rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.send_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__send_transfer_sz_mb.tolist())
+                    rich.print(f"🟡 [Rank {rank}] attn_out_fwd_fa2a_metadata.recv_transfer_sz_mb = ", attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb.tolist())
 
                 # Check size:
                 buffer_size = FastDispatcherWrapper.instance[0].buffer_size
@@ -967,11 +967,11 @@ def test(args):
             mlp_seq_params_0 = get_attn_metadata(mlp_shard_len_0[as_rank], get_packed_seq_params=True)
             mlp_seq_params_1 = get_attn_metadata(mlp_shard_len_1[as_rank], get_packed_seq_params=True)
 
-            if rank % 8 == 0:
-                rich.print(f"🟡 [Rank {rank}] all_metadata[0] -> qkv_fwd_fa2a_metadata =", fa2a_metadata_0[0].fa2a_metadata.__better_print__())
-                rich.print(f"🟡 [Rank {rank}] all_metadata[0] -> qkv_rev_fa2a_metadata =", fa2a_metadata_0[1].fa2a_metadata.__better_print__())
-                rich.print(f"🟡 [Rank {rank}] all_metadata[1] -> qkv_fwd_fa2a_metadata =", fa2a_metadata_1[0].fa2a_metadata.__better_print__())
-                rich.print(f"🟡 [Rank {rank}] all_metadata[1] -> qkv_rev_fa2a_metadata =", fa2a_metadata_1[1].fa2a_metadata.__better_print__())
+            # if rank % 8 == 0:
+            #     rich.print(f"🟡 [Rank {rank}] all_metadata[0] -> qkv_fwd_fa2a_metadata =", fa2a_metadata_0[0].fa2a_metadata.__better_print__())
+            #     rich.print(f"🟡 [Rank {rank}] all_metadata[0] -> qkv_rev_fa2a_metadata =", fa2a_metadata_0[1].fa2a_metadata.__better_print__())
+            #     rich.print(f"🟡 [Rank {rank}] all_metadata[1] -> qkv_fwd_fa2a_metadata =", fa2a_metadata_1[0].fa2a_metadata.__better_print__())
+            #     rich.print(f"🟡 [Rank {rank}] all_metadata[1] -> qkv_rev_fa2a_metadata =", fa2a_metadata_1[1].fa2a_metadata.__better_print__())
 
             def debug_set_metadata_transfer_size_to_0(ping_pang_params: 'PingPangSingleStepPackedSeqParams'):
                 for param in [
