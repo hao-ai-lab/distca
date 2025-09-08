@@ -5,8 +5,6 @@
 #   bash salloc_srun.sh
 # 
 
-export ENABLE_NSYS=0
-export EXPERIMENT_LOG_MEMORY_USAGE=0
 export NNODES=${NNODES:-32}
 export TP_SIZE=8
 # export JOBID=
@@ -25,22 +23,26 @@ sleep 1
 
 
 TS=$(TZ=America/Los_Angeles date +%m%d_%H%M%S)_PST
-export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250907_large_scale_v6/logs
-export MAX_SAMPLE_ID=20
+export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250907_large_scale_v6/logs.v-sweep
+export MAX_SAMPLE_ID=5
 export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2
 export TP_SIZE=8
-export ENABLE_NSYS=0
+export ENABLE_NSYS=1
+# export EXPERIMENT_LOG_MEMORY_USAGE=1
 export EXPERIMENT_LOG_MEMORY_USAGE=0
-export EXPERIMENT_REPEAT_TIMES=3
-export EXPERIMENT_WARMUP_TIMES=3
+export EXPERIMENT_REPEAT_TIMES=1
+export EXPERIMENT_WARMUP_TIMES=1
+export EXPERIMENT_D2_FLASH_ATTN_SKIP_GET_BACKEND=1 # default 1
 export SHOULD_ADD_DEBUG_CASES=0
+# export EXPERIMENT_FA2A_BARRIER=1
+# export EXPERIMENT_DEBUG_SET_METADATA_TRANSFER_SIZE_TO_0=0 # default 0
 
 DRY_RUN=${DRY_RUN:-0}
 
 # export MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Llama-8B
 # export MODEL_PATH=codellama/CodeLlama-34b-hf
 export MODEL_PATH=codellama/CodeLlama-34b-hf
-export NUM_LAYERS=48 
+export NUM_LAYERS=6
 
 
 # ------------------------------------
@@ -62,10 +64,11 @@ fi
 # ------------------------------------
 # Run experiments
 # ------------------------------------
+    # "1 1 $((NNODES / 8)) 524288 8" \
+    # "1 1 $((NNODES / 8)) 262144 4" \
+    # "0 0 $((NNODES / 8)) 131072 2"; do
 for config in \
-    "0 0 $((NNODES / 8)) 131072 2" \
-    "1 1 $((NNODES / 8)) 262144 4" \
-    "1 1 $((NNODES / 8)) 524288 8"; do
+    "0 0 $((NNODES / 8)) 131072 2"; do
     
     read -r selective_ckpt resend_qkv batch_size num_tokens elongate_factor <<< "$config"
     
@@ -88,9 +91,15 @@ for config in \
         bash test_e2e_combined.salloc.sh
         echo "🟡 Finished running d2 with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
     fi
+    exit 0
+
+
+    # continue
 
     # Run wlbllm mode with different CP sizes
-    for CP_SIZE in 32 16 8 4 2 1; do
+
+    # for CP_SIZE in 32 16 8 4 2 1; do
+    for CP_SIZE in 16 ; do
         if [ $CP_SIZE -gt $NNODES ]; then
             continue
         fi
@@ -110,6 +119,7 @@ for config in \
             bash test_e2e_combined.salloc.sh
             echo "🟡 Finished running wlbllm with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
         fi
+        # exit 0
     done
     
 done

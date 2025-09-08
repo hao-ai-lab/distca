@@ -139,7 +139,7 @@ class FastDispatcherWrapper:
             FastDispatcherWrapper.get_instance(instance_id).release_event
         )
         # TODO:(Hack) for perf test don't do anything
-        # _ops.wait_and_consume_buffer(FastDispatcherWrapper.get_instance(instance_id).handle)
+        _ops.wait_and_consume_buffer(FastDispatcherWrapper.get_instance(instance_id).handle)
 
     def release(instance_id: int):
         assert FastDispatcherWrapper.is_acquired[instance_id]
@@ -212,13 +212,23 @@ def fast_a2a(
         # acquiring here ensures the sync in acquire is always on the same stream as all2all
         FastDispatcherWrapper.acquire(instance_id)
 
-    return _ops.fast_a2a(
+    if os.environ.get("EXPERIMENT_FA2A_BARRIER", "0") == "1":
+        rank = torch.distributed.get_rank()
+        if rank == 0:
+            print("🛑 enabled fast_a2a barrier - reached barrier")
+        torch.cuda.synchronize()
+        torch.distributed.barrier()
+        if rank == 0:
+            print("🛑 enabled fast_a2a barrier - passed")
+    ret = _ops.fast_a2a(
         FastDispatcherWrapper.get_instance(instance_id).handle,
         sender_send_disp, sender_transfer_sz,
         sender_recv_disp, recver_transfer_sz,
         my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
-        False,
+        True,
     )
+
+    return ret
 
 
 def _debug_dump_buffer(

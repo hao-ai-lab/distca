@@ -10,6 +10,9 @@ Usage:
 bash test_e2e_combined.multi.sh <rzv_endpoint> <n_nodes>
 ```
 """
+import time
+start_time__ = time.time()
+
 import psutil, os
 rank = int(os.environ.get("RANK", os.environ.get("SLURM_PROCID","0")))
 local = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID","0")))
@@ -276,7 +279,10 @@ class MegatronE2eWorker(MegatronBaseWorker):
         with torch.cuda.nvtx.range("optimizer_step"):
             # torch.cuda.synchronize()
             log_memory_usage("optimizer_step:(start)")
-            update_successful, grad_norm, num_zeros_in_grad = self.optimizer.step()
+            if os.getenv("EXPERIMENT_SKIP_OPTIMIZER_STEP", "0") == "1":
+                update_successful, grad_norm, num_zeros_in_grad = True, 0.0, 0
+            else:
+                update_successful, grad_norm, num_zeros_in_grad = self.optimizer.step()
             # torch.cuda.synchronize()
             log_memory_usage("optimizer_step:(end)")
         return losses_reduced, grad_norm
@@ -505,6 +511,7 @@ except ImportError:
 
 
 def test(args):
+    global start_time__
     num_nodes = args.num_nodes
     num_gpus_per_node = args.num_gpus_per_node
     seed = args.seed
@@ -538,7 +545,7 @@ def test(args):
     # TODO: (Refactor) If WLBLLM is set, we must inform the transformer_engine to use the WLBLLM function. 
     os.environ["WLBLLM_MODE"] = "1" if mode == "wlbllm" else "0"
 
-    start_time__ = time.time()
+
     
     def write_status_log(message):
         # get the caller's file and line number
@@ -1052,11 +1059,29 @@ def test(args):
                 try:
                     signal.signal(signal.SIGALRM, timeout_handler)
                     signal.alarm(warmup_timeout_sec)  # 60 seconds = 1 minute
-                    ref = worker.forward_backward_batch(
-                        microbatches=microbatches,
-                        normal_forward_fn=normal_forward_fn,
-                        forward_only=False,
-                    )
+
+                    should_dump_traceback = os.environ.get("EXPERIMENT_SHOULD_DUMP_TRACEBACK", "0") == "1"
+                    if should_dump_traceback:
+                        with torch.profiler.profile(
+                            activities=[
+                                torch.profiler.ProfilerActivity.CPU,
+                                torch.profiler.ProfilerActivity.CUDA,
+                            ],
+                            record_shapes=True,
+                            with_stack=True,
+                        ) as prof:
+                            ref = worker.forward_backward_batch(
+                                microbatches=microbatches,
+                                normal_forward_fn=normal_forward_fn,
+                                forward_only=False,
+                            )
+                        prof.export_chrome_trace(os.path.join(output_dir, "trace.json"))
+                    else:
+                        ref = worker.forward_backward_batch(
+                            microbatches=microbatches,
+                            normal_forward_fn=normal_forward_fn,
+                            forward_only=False,
+                        )
                     signal.alarm(0)
                 except TimeoutError as e:
                     print(f"🔴 Timeout {warmup_timeout_sec} seconds at the first warmup forward_backward function. It may suggest our all2all kernel failed, or just warmup did not completed.")

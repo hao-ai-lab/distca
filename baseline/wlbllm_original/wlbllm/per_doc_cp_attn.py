@@ -142,7 +142,7 @@ class PerDocumentCPAttention(torch.autograd.Function):
                     duration_ms__ag = (end_time__ag - start_time__ag) * 1000
                     print(f"🟡 PerDocumentCPAttention allgather-v time: {duration_ms__ag} ms")
 
-                print("🟡 All gather local_k.shape =", local_k.shape)
+                # print("🟡 All gather local_k.shape =", local_k.shape)
 
             start_time__shuffle = time.time()
             
