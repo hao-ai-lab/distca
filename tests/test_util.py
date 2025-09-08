@@ -5,7 +5,7 @@ import os
 import random
 import socket
 from typing import Optional
-
+from datetime import timedelta
 
 from megatron.core import parallel_state as mpu
 import ray
@@ -83,7 +83,19 @@ class BaseWorker:
 
     def init_torch_distributed(self,):
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", rank=self.rank, world_size=self.world_size)
+
+            timeout = None
+            EXPERIMENT_TORCH_DIST_TIMEOUT = os.environ.get("EXPERIMENT_TORCH_DIST_TIMEOUT", "-1")
+            try:
+                EXPERIMENT_TORCH_DIST_TIMEOUT = int(EXPERIMENT_TORCH_DIST_TIMEOUT)
+                if EXPERIMENT_TORCH_DIST_TIMEOUT > 0:
+                    timeout = timedelta(seconds=EXPERIMENT_TORCH_DIST_TIMEOUT)
+            except:
+                pass
+                
+            torch.distributed.init_process_group(
+                backend="cpu:gloo,cuda:nccl", rank=self.rank, world_size=self.world_size, timeout=timeout
+            )
             try:
                 local_rank = int(os.environ.get("LOCAL_RANK"))
                 self.device = torch.device(f"cuda:{local_rank}")

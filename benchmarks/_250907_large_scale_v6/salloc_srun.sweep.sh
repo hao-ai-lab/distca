@@ -64,12 +64,31 @@ fi
 # ------------------------------------
 # Run experiments
 # ------------------------------------
-    # "1 1 $((NNODES / 8)) 524288 8" \
-    # "1 1 $((NNODES / 8)) 262144 4" \
-    # "0 0 $((NNODES / 8)) 131072 2"; do
+# for config in \
+#     "1 1 $((NNODES / 8)) 524288 8" \
+#     "1 1 $((NNODES / 8)) 262144 4" \
+#     "0 0 $((NNODES / 8)) 131072 2"; do
+
+# for config in \
+#     "1 1 1 524288 8" \
+#     "1 1 1 262144 4" \
+#     "0 0 1 131072 2" \
+#     "1 1 2 524288 8" \
+#     "1 1 2 262144 4" \
+#     "0 0 2 131072 2" \
+#     "1 1 4 524288 8" \
+#     "1 1 4 262144 4" \
+#     "0 0 4 131072 2" \
+#     "1 1 1 1048576 8" \
+#     ; do
+
 for config in \
-    "0 0 $((NNODES / 8)) 131072 2"; do
-    
+    "1 1 4 524288 8" \
+    "1 1 4 262144 4" \
+    "0 0 4 131072 2" \
+    ; do
+
+
     read -r selective_ckpt resend_qkv batch_size num_tokens elongate_factor <<< "$config"
     
     export EXPERIMENT_ADD_SELECTIVE_CKPT=$selective_ckpt
@@ -91,15 +110,11 @@ for config in \
         bash test_e2e_combined.salloc.sh
         echo "🟡 Finished running d2 with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
     fi
-    exit 0
-
-
-    # continue
 
     # Run wlbllm mode with different CP sizes
 
-    # for CP_SIZE in 32 16 8 4 2 1; do
-    for CP_SIZE in 16 ; do
+    # for CP_SIZE in 16 ; do
+    for CP_SIZE in 32 16 8 4 2 1; do
         if [ $CP_SIZE -gt $NNODES ]; then
             continue
         fi
@@ -119,7 +134,6 @@ for config in \
             bash test_e2e_combined.salloc.sh
             echo "🟡 Finished running wlbllm with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
         fi
-        # exit 0
     done
     
 done

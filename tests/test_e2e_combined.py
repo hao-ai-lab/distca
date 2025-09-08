@@ -963,21 +963,11 @@ def test(args):
             mlp_seq_params_0 = get_attn_metadata(mlp_shard_len_0[as_rank], get_packed_seq_params=True)
             mlp_seq_params_1 = get_attn_metadata(mlp_shard_len_1[as_rank], get_packed_seq_params=True)
 
-            def debug_set_metadata_transfer_size_to_0(ping_pang_params: 'PingPangSingleStepPackedSeqParams'):
-                for param in [
-                    ping_pang_params.qkv_fwd_metadata,
-                    ping_pang_params.qkv_bwd_metadata,
-                    ping_pang_params.attn_out_fwd_metadata,
-                    ping_pang_params.attn_out_bwd_metadata,
-                ]:
-                    param.fa2a_metadata[1][:] = 1
-                    param.fa2a_metadata[3][:] = 1
-                    param.my_rank_send_sz = 1
-                return
-            
-            if os.environ.get("EXPERIMENT_DEBUG_SET_METADATA_TRANSFER_SIZE_TO_0", "0") == "1":
-                debug_set_metadata_transfer_size_to_0(ping_pang_params_0)
-                debug_set_metadata_transfer_size_to_0(ping_pang_params_1)
+            if rank % 8 == 0:
+                rich.print(f"🟡 [Rank {rank}] all_metadata[0] -> qkv_fwd_fa2a_metadata =", fa2a_metadata_0[0].fa2a_metadata.__better_print__())
+                rich.print(f"🟡 [Rank {rank}] all_metadata[0] -> qkv_rev_fa2a_metadata =", fa2a_metadata_0[1].fa2a_metadata.__better_print__())
+                rich.print(f"🟡 [Rank {rank}] all_metadata[1] -> qkv_fwd_fa2a_metadata =", fa2a_metadata_1[0].fa2a_metadata.__better_print__())
+                rich.print(f"🟡 [Rank {rank}] all_metadata[1] -> qkv_rev_fa2a_metadata =", fa2a_metadata_1[1].fa2a_metadata.__better_print__())
 
             def debug_set_metadata_transfer_size_to_0(ping_pang_params: 'PingPangSingleStepPackedSeqParams'):
                 for param in [
@@ -990,9 +980,10 @@ def test(args):
                     param.fa2a_metadata[3][:] = 1
                     param.my_rank_send_sz = 1
                 return
-
+            
             
             if os.environ.get("EXPERIMENT_DEBUG_SET_METADATA_TRANSFER_SIZE_TO_0", "0") == "1":
+                print(f"🟡 [Rank {rank}] Debug set metadata transfer size to 0")
                 debug_set_metadata_transfer_size_to_0(ping_pang_params_0)
                 debug_set_metadata_transfer_size_to_0(ping_pang_params_1)
 
@@ -1062,6 +1053,7 @@ def test(args):
 
                     should_dump_traceback = os.environ.get("EXPERIMENT_SHOULD_DUMP_TRACEBACK", "0") == "1"
                     if should_dump_traceback:
+                        print("Start profiling with stack trace...")
                         with torch.profiler.profile(
                             activities=[
                                 torch.profiler.ProfilerActivity.CPU,
@@ -1075,14 +1067,17 @@ def test(args):
                                 normal_forward_fn=normal_forward_fn,
                                 forward_only=False,
                             )
-                        prof.export_chrome_trace(os.path.join(output_dir, "trace.json"))
+                        signal.alarm(0)
+                        print("End profiling with stack trace. Now dumping stack trace to trace.json...")
+                        if rank == 0:
+                            prof.export_chrome_trace(os.path.join(output_dir, "trace.json"))
                     else:
                         ref = worker.forward_backward_batch(
                             microbatches=microbatches,
                             normal_forward_fn=normal_forward_fn,
                             forward_only=False,
                         )
-                    signal.alarm(0)
+                        signal.alarm(0)
                 except TimeoutError as e:
                     print(f"🔴 Timeout {warmup_timeout_sec} seconds at the first warmup forward_backward function. It may suggest our all2all kernel failed, or just warmup did not completed.")
                     sys.exit(1)
