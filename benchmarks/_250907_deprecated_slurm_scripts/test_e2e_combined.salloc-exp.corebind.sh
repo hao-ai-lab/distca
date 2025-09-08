@@ -1,61 +1,3 @@
-# TODO(Deprecate): Consolidate the `test_e2e_combined.salloc-exp.sh` and `test_e2e_combined.slurm.sh` into a single script.
-
-#!/bin/bash
-
-#SBATCH --job-name=d2-e2e
-#SBATCH --nodes=4
-#SBATCH --output=logs/slurm/stdout.%j.log
-#SBATCH --error=logs/slurm/stderr.%j.log
-#SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:8
-#SBATCH --cpus-per-task=96
-#SBATCH --mem=512G
-#SBATCH --exclusive
-#SBATCH --time=01:00:00
-#SBATCH --exclude=fs-mbz-gpu-684,fs-mbz-gpu-697,fs-mbz-gpu-286,fs-mbz-gpu-877,fs-mbz-gpu-757,fs-mbz-gpu-806,fs-mbz-gpu-377,fs-mbz-gpu-906,fs-mbz-gpu-168,fs-mbz-gpu-708,fs-mbz-gpu-868
-#SBATCH --mail-user=seiners_uncut_9y@icloud.com
-#SBATCH --mail-type=END,FAIL
-#SBATCH --partition=lowprio 
-#SBATCH --qos=lowprio
-#SBATCH --requeue 
-
-# ===================================
-# D2 E2E Combined Test - Slurm Script
-# ===================================
-#
-# USAGE:
-#   sbatch test_e2e_combined.slurm.sh                      # Run with default parameters
-#   PP_SIZE=4 BATCH_SIZE=2 sbatch test_e2e_combined.slurm.sh  # Override specific parameters
-#
-# CHANGING NODE/GPU CONFIGURATION:
-# - To change the number of nodes:
-#   * Edit the "#SBATCH --nodes=4" line at the top of this script
-#   * Or use: sbatch --nodes=8 test_e2e_combined.slurm.sh
-#
-# - To change the number of GPUs per node:
-#   * Edit the "#SBATCH --gres=gpu:8" line at the top of this script
-#   * Or use: sbatch --gres=gpu:4 test_e2e_combined.slurm.sh
-#   * The script automatically detects GPU count from Slurm environment variables
-#
-# PARAMETER CONFIGURATION:
-# - All experiment parameters can be set as environment variables before submission
-# - Parameters will use default values if not explicitly set
-# - Key parameters to consider setting:
-#   * PP_SIZE: Pipeline parallelism size (default: 2)
-#   * TP_SIZE: Tensor parallelism size (default: GPUS_PER_NODE)
-#   * BATCH_SIZE: Batch size for training (default: 1)
-#   * NUM_TOKENS: Number of tokens to process (default: 262144)
-#   * NUM_LAYERS: Number of model layers (default: 4)
-#   * MODE: Experiment mode (default: baseline)
-#   * MODEL_PATH: Path to the model (default: deepseek-ai/DeepSeek-R1-Distill-Llama-8B)
-#
-# EXAMPLES:
-#   PP_SIZE=4 TP_SIZE=2 MODE=dynamic sbatch test_e2e_combined.slurm.sh
-#   BATCH_SIZE=2 NUM_TOKENS=131072 sbatch test_e2e_combined.slurm.sh
-#   sbatch --nodes=2 test_e2e_combined.slurm.sh
-#
-
-
 
 # ------------------------------------------------------
 # Handle salloc+srun env variables
@@ -267,6 +209,8 @@ RZV_ID=${RZV_ID:-$head_node_ip}
 REPLAN_ITER=${REPLAN_ITER:-0}
 SHOULD_PROFILE_MEMORY=${SHOULD_PROFILE_MEMORY:-0}
 
+
+# bash ./redirect_log.sh 
 TORCHRUN_CMD=(
   --nnodes=${NNODES} \
   --nproc_per_node=${NPROC_PER_NODE} \
@@ -275,7 +219,7 @@ TORCHRUN_CMD=(
   --rdzv_id=${RZV_ID} \
   --max_restarts=0 \
   --no-python \
-  bash ./bind_and_exec.sh python test_e2e_combined.py \
+  python test_e2e_combined.py \
     --model-path ${MODEL_PATH} \
     --mode ${MODE} \
     --replan-iter ${REPLAN_ITER} \
@@ -321,11 +265,11 @@ SRUN_BASE=(
   srun
   -N ${NNODES}
   -G ${WORLD_SIZE}
-#   --ntasks-per-node=1
-  # --gpus-per-task=${GPUS_PER_NODE}     # <= crucial
-  # --cpus-per-task=128
-  --cpu-bind=cores
-  --gpu-bind=closest
+  # --ntasks-per-node=1
+  # --gpus-per-task=8
+  # --cpus-per-task=64
+  # --cpu-bind=cores
+  # --gpu-bind=closest
   # --kill-on-bad-exit=1
   -w "$head_node"
   --mem=0 # inherit the memory from the salloc
@@ -400,7 +344,7 @@ if [ ${ENABLE_NSYS} -eq 1 ]; then
   nsys_str="nsys profile --show-output=true --force-overwrite=true -o ${NSYS_PATH}/%h.nsys-rep --sample=none -t cuda,nvtx"
 fi
 
-
+unset OMP_NUM_THREADS
 start_time=$(TZ='America/Los_Angeles' date +%s)
 
 "${SRUN_BASE[@]}" \
@@ -408,7 +352,7 @@ start_time=$(TZ='America/Los_Angeles' date +%s)
     --error="${LOG_DIR}/%N.%j.%s.out" \
     bash -lc '
         set -x
-        export OMP_NUM_THREADS=1
+        # export OMP_NUM_THREADS=1
         hostname
         nvidia-smi topo -p2p w     # Check nvidia-smi topology
         

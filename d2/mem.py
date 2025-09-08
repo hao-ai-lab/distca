@@ -41,11 +41,11 @@ def get_torch_cuda_memory_usage(device):
     return allocated_cur, allocated_peak, total_alloc
 
 def log_memory_usage(message: str, force: bool = False):
+    if os.getenv("EXPERIMENT_LOG_MEMORY_USAGE", "0") != "1":
+        return
     
     global memory_usage
-
-    if os.getenv("EXPERIMENT_LOG_MEMORY_USAGE", "0") != "1" and not force:
-        return
+    
     # Check if `CUDA_LAUNCH_BLOCKING` is set
     if os.getenv("CUDA_LAUNCH_BLOCKING", "0") != "1":
         if not hasattr(log_memory_usage, "_warned_cuda_launch_blocking"):

@@ -5,7 +5,7 @@ import os
 import random
 import socket
 from typing import Optional
-
+from datetime import timedelta
 
 from megatron.core import parallel_state as mpu
 import ray
@@ -83,7 +83,19 @@ class BaseWorker:
 
     def init_torch_distributed(self,):
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", rank=self.rank, world_size=self.world_size)
+
+            timeout = None
+            EXPERIMENT_TORCH_DIST_TIMEOUT = os.environ.get("EXPERIMENT_TORCH_DIST_TIMEOUT", "-1")
+            try:
+                EXPERIMENT_TORCH_DIST_TIMEOUT = int(EXPERIMENT_TORCH_DIST_TIMEOUT)
+                if EXPERIMENT_TORCH_DIST_TIMEOUT > 0:
+                    timeout = timedelta(seconds=EXPERIMENT_TORCH_DIST_TIMEOUT)
+            except:
+                pass
+                
+            torch.distributed.init_process_group(
+                backend="cpu:gloo,cuda:nccl", rank=self.rank, world_size=self.world_size, timeout=timeout
+            )
             try:
                 local_rank = int(os.environ.get("LOCAL_RANK"))
                 self.device = torch.device(f"cuda:{local_rank}")
@@ -200,7 +212,7 @@ class MegatronBaseWorker(BaseWorker):
 def init_worker_torch_distributed(
     world_size, buffer_size, worker_cls=BaseWorker, parallel_config=None
 ):
-    assert world_size == int(os.environ.get("WORLD_SIZE"))
+    assert world_size == int(os.environ.get("WORLD_SIZE")), f"world_size: {world_size} != WORLD_SIZE: {os.environ.get('WORLD_SIZE')}"
     rank = int(os.environ.get("RANK"))
     local_rank = int(os.environ.get("LOCAL_RANK"))
     worker = worker_cls(
@@ -536,6 +548,9 @@ def create_qkv_dispatch_pipeline_tick(
         ref_doc_lens, add_dummy, is_backward=False, num_batches = num_batches, use_planner=use_planner,
         **create_pp_doclen_kwargs, 
     )
+    assert isinstance(cur_tick_per_rank_doc_lens, list), f"cur_tick_per_rank_doc_lens: {cur_tick_per_rank_doc_lens} is not a list"
+    print(f"🟡 cur_tick_per_rank_doc_lens: {cur_tick_per_rank_doc_lens}")
+    exit(0)
 
     # This should be a general function for DP and CP. But we only call it when CP: len(cur_tick_per_rank_doc_lens) <= world_size.
     # After call this function: len(cur_tick_per_rank_doc_lens) == as_world_size
