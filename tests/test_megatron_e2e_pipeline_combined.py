@@ -1,12 +1,12 @@
 """
 Debug example:
-NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_pipeline.py --num-gpus-per-node 2 --pp-size 2 --num-microbatch 2
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_pipeline_combined.py --num-gpus-per-node 2 --pp-size 2 --num-microbatch 2
 
 Planner example:
-NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_pipeline.py --num-gpus-per-node 4 --pp-size 2 --num-microbatch 2 --use-planner
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_pipeline_combined.py --num-gpus-per-node 4 --pp-size 2 --num-microbatch 2 --use-planner
 
 Planner + CP layout example:
-NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_pipeline.py --num-gpus-per-node 4 --pp-size 2 --num-microbatch 2 --use-planner --num-batches 1 --num-tokens 2048
+NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 torchrun --nnodes 1 --nproc_per_node 4 test_megatron_e2e_pipeline_combined.py --num-gpus-per-node 4 --pp-size 2 --num-microbatch 2 --use-planner --num-batches 1 --num-tokens 2048
 """
 import argparse
 from functools import partial
@@ -31,20 +31,77 @@ from megatron_test_utils import (
 )
 
 
+NVTE_ALLOW_NONDETERMINISTIC_ALGO = os.environ.get("NVTE_ALLOW_NONDETERMINISTIC_ALGO", "1")
+if NVTE_ALLOW_NONDETERMINISTIC_ALGO == "0":
+    print("⚠️⚠️⚠️ Forcefully setting NVTE_ALLOW_NONDETERMINISTIC_ALGO to 1 to ensure attention is flops-efficient. This flag has introduced various hard-to-debug performance issues. If you really need to debug, set it back to 0 in your code.")
+    os.environ["NVTE_ALLOW_NONDETERMINISTIC_ALGO"] = "1"
+
+
+def debug_print(*args, **kwargs):
+    rank = int(os.environ.get("RANK", 0))
+    print(f"🟡 [Rank {rank}]", *args, **kwargs)
+    return
+
+
 class MegatronE2eWorker(BaseMegatronE2eWorker):
     def __init__(self, rank: int, world_size: int):
         super().__init__(rank, world_size)
         local_rank = int(os.getenv("LOCAL_RANK"))
         torch.cuda.set_device(local_rank)
         torch.set_default_device(torch.device("cuda", local_rank))
+        self.init_comm_mode = None
 
-    def forward_backward_batch(self, microbatches: list[dict], forward_only: bool=False,
-                               mode: str="ping_pong", with_dummy: bool=True):
+    def set_init_comm_mode(self, mode: str):
+        self.init_comm_mode = mode
+
+    def init_comm(self, buffer_size: int, parallel_config: ParallelConfig, local_rank: int):
+        assert self.init_comm_mode is not None, "init_comm_mode is not set. Should be either 'd2' or 'wlbllm'."
+        if self.init_comm_mode == "d2":
+            super().init_comm(buffer_size, parallel_config, local_rank)
+        elif self.init_comm_mode == "wlbllm":
+            # Init megatron communication.
+            self.init_torch_distributed()
+            # NOTE: do not set to local_rank here because the cuda visible device is set by ray.
+            mpu.initialize_model_parallel(
+                tensor_model_parallel_size=parallel_config.tensor_model_parallel_size,
+                pipeline_model_parallel_size=parallel_config.pipeline_model_parallel_size,
+                virtual_pipeline_model_parallel_size=parallel_config.virtual_pipeline_model_parallel_size,
+                pipeline_model_parallel_split_rank=None,
+                use_sharp=False,
+                context_parallel_size=parallel_config.context_parallel_size,
+                expert_model_parallel_size=parallel_config.expert_model_parallel_size,
+                expert_tensor_parallel_size=parallel_config.expert_tensor_parallel_size,
+                nccl_communicator_config_path=None,
+            )
+            # self.as_world_size = parallel_config.pipeline_model_parallel_size * parallel_config.data_parallel_size 
+            # self.as_rank = 
+            # TODO: What are the sizes of the AS group should be?
+            dp_size = mpu.get_data_parallel_world_size()
+            pp_size = mpu.get_pipeline_model_parallel_world_size()
+            dp_rank = mpu.get_data_parallel_rank()
+            pp_rank = mpu.get_pipeline_model_parallel_rank()
+            self.as_world_size = dp_size * pp_size
+            self.as_rank = dp_rank * pp_size + pp_rank
+            debug_print(f"WLBLLM comm init finished - {self.as_world_size = }, {self.as_rank =}. This may fail if the ordering of the ranks changes underlying.")
+        return
+        
+
+    def forward_backward_batch(
+        self, microbatches: list[dict], forward_only: bool=False, mode: str="ping_pong", with_dummy: bool=True):
+        # TODO: refactor this to ensure all names / modes are defined in one place.
+        if mode == "d2":
+            mode = "ping_pong"
+            pass
+
+        # TODO: What are the debug modes for?
+        # debug = (mode != "ping_pong" and mode != "wlbllm")
+        debug = False
+        debug_fwd_impl = mode if debug else None
 
         microbatches = [{
             k: arg_to_cuda(v) for k, v in microbatch.items()
         } for microbatch in microbatches]
-        if "orig" in mode:
+        if "orig" in mode or "wlbllm" in mode:
             for mb in microbatches:
                 psp = mb["packed_seq_params"]
                 if isinstance(psp, PingPangSingleStepPackedSeqParams):
@@ -59,9 +116,10 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # thd layout
         total_seqlen = microbatches[0]['input_ids'].shape[0]
 
-        def loss_func(output):
-            # NOTE: this is a dummy loss function.
-            loss = output.mean()
+        def loss_func(logits):
+            loss = logits.sum()  # no gradient, but can trigger backward
+            # Print the memory usage here
+            # log_memory_usage("loss_func")
             return loss, {'loss': loss}
 
         def forward_step(batch_iter, model):
@@ -96,11 +154,9 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         ]
         dummy_bwd_packed_seq_params = dummy_bwd_packed_seq_params[pp_rank:] + dummy_bwd_packed_seq_params[:pp_rank]
 
-        assert mode in ["ping_pong", "orig_reimpl", "single_sided"]
+        assert mode in ["ping_pong", "orig_reimpl", "single_sided", "wlbllm"]
 
         for module in self.train_module:
-            debug = (mode != "ping_pong")
-            debug_fwd_impl = mode if debug else None
             unwrap_model(module).set_debug(debug=debug, debug_fwd_impl=debug_fwd_impl)
             unwrap_model(module).train()
         assert len(self.train_module) == 1, "only support one module"
@@ -113,9 +169,14 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # if mpu.get_pipeline_model_parallel_world_size() > 1:
 
         torch.cuda.synchronize()
-        from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
-        nvshmem_barrier_all()
+        if mode == "ping_pong":
+            from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
+            nvshmem_barrier_all()
+        else:
+            torch.cuda.synchronize()
+        
         if with_dummy:
+            raise RuntimeError("At performance test, we should not use dummy backward.")
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,
                 data_iterator=batch_generator,
@@ -127,6 +188,7 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
                 dummy_bwd_func=partial(
                     dummy_backward_step,
                     dummy_bwd_iter=dummy_bwd_packed_seq_params_iter,
+                    # TODO: Why skipping when orig is in mode?
                     skip="orig" in mode,
                 ),
             )
@@ -151,28 +213,45 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
 
 def init_megatron_e2e_test(
     hidden_size_q: int, hidden_size_kv: int, num_heads: int, num_tokens: int,
-    world_size: int, max_cp_degree: int, tp_size: int, pp_size: int,
-    dtype, worker_cls=MegatronE2eWorker
+    world_size: int, cp_degree: int, tp_size: int, pp_size: int,
+    dtype, worker_cls=MegatronE2eWorker, mode='d2' # 'd2' or 'wlbllm' or 'baseline
 ):
     token_bytes_q = hidden_size_q * dtype.itemsize // tp_size
     token_bytes_kv = hidden_size_kv * dtype.itemsize // tp_size
     max_tokens_query = num_tokens * (world_size // tp_size)
     max_tokens_key_value = num_tokens * (world_size // tp_size)
+    
+    # TODO: Buffer size with env var.
     buffer_size = (
         token_bytes_q * max_tokens_query * 3 +
         # lse_norm. TODO: the factor of 2 might be removed
         num_heads * torch.float32.itemsize * 2 * max_tokens_query +
-        token_bytes_kv * max_tokens_key_value * max_cp_degree * 2
+        token_bytes_kv * max_tokens_key_value * cp_degree * 2
     )
-    print(f'{buffer_size=}', flush=True)
+    debug_print(f'{buffer_size = }')
     parallel_config = ParallelConfig(
         tensor_model_parallel_size=tp_size,
         pipeline_model_parallel_size=pp_size,
     )
 
-    worker = init_worker_torch_distributed(
-        world_size, buffer_size, worker_cls, parallel_config
-    )
+    # worker = init_worker_torch_distributed(
+    #     world_size, buffer_size, worker_cls, parallel_config
+    # ) # originally called from test_util.py, but since we have different comm group initialization process for wlbllm, we need to use the original one.
+    WORLD_SIZE = os.environ.get("WORLD_SIZE")
+    RANK = os.environ.get("RANK")
+    LOCAL_RANK = os.environ.get("LOCAL_RANK")
+    rank = int(RANK)
+    local_rank = int(LOCAL_RANK)
+    assert world_size == int(WORLD_SIZE), f"world_size: {world_size} != WORLD_SIZE: {WORLD_SIZE}. RANK: {RANK}, LOCAL_RANK: {LOCAL_RANK}"
+    
+    worker = worker_cls(rank, world_size)
+    worker.set_init_comm_mode(mode)
+    debug_print(f"init_comm_mode: {mode}")
+    if parallel_config is not None:
+        worker.init_comm(buffer_size, parallel_config, local_rank)
+    else:
+        worker.init_comm(buffer_size, local_rank)
+    
     print("Communication groups initialized")
     return worker
 
@@ -189,14 +268,15 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
     bwd_metadata = []
     microbatches = []
     if use_planner:
-        print("Enable planner. Get real batch.")
+        debug_print("Enable planner. Get real batch.")
     else:
-        print("No planner. Use random batch.")
+        debug_print("No planner. Use random batch.")
     for i in range(num_microbatch + pp_degree - 1):
         # For the last few ticks (drain-out ticks)
         # add a dummy forward microbatch at PP rank 0.
         add_dummy_forward = i >= num_microbatch
 
+        
         (
             fa_fwd_params, fa_bwd_params,
             qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
@@ -277,6 +357,16 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
 
 
 def test(args):
+    mode = args.mode
+    model_path = args.model_path
+    num_layers = args.num_layers
+    output_dir = args.output_dir
+    # TODO: (Refactor) This is a hack to set the number of layers. It should be properly set in the HuggingFace config, not here
+    if num_layers is not None:
+        # See `megatron_test_utils.py` for more details.
+        os.environ["NUM_LAYERS"] = str(num_layers)
+
+    
     seed = args.seed
     # test scale
     num_tokens = args.num_tokens
@@ -311,7 +401,6 @@ def test(args):
     dtype = torch.bfloat16
     element_size = dtype.itemsize
 
-    model_path = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
     hf_config = AutoConfig.from_pretrained(model_path)
     hidden_size_q = hf_config.hidden_size
 
@@ -323,7 +412,7 @@ def test(args):
     worker: MegatronE2eWorker = init_megatron_e2e_test(
         hidden_size_q, hidden_size_kv, hf_config.num_attention_heads, num_tokens,
         world_size, max_cp_degree, tp_size, pp_size,
-        dtype, MegatronE2eWorker
+        dtype, MegatronE2eWorker, mode=mode
     )
     worker.set_config(dtype=dtype)
     worker.init(model_path, seed=seed)
@@ -342,9 +431,9 @@ def test(args):
     hidden_size_k_tp = hidden_size_kv // tp_size
     num_head_in_dtype = (hf_config.num_attention_heads *
                          torch.float32.itemsize // element_size // tp_size)
-    if args.use_planner:
-        from global_batch_provider import setup_global_batch
-        setup_global_batch(total_seq_len=total_seq_len)
+    # if args.use_planner:
+    from global_batch_provider import setup_global_batch
+    setup_global_batch(total_seq_len=total_seq_len)
         
     # this total_seq_len is token per rank.
     # Some explanations of the parameters inside `create_pp_microbatches`:
@@ -446,14 +535,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--num-batches", type=int)  # this is for cp. set num_batches and num_tokens to control cp doc length.
-    parser.add_argument("--cp-degree", type=int, default=2)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
     parser.add_argument("--num-gpus-per-node", type=int, default=4)
+    parser.add_argument("--cp-degree", type=int, default=2)
     parser.add_argument("--tp-size", type=int, default=1)
     parser.add_argument("--pp-size", type=int, default=4)
     parser.add_argument("--num-microbatch", type=int, default=2)
     parser.add_argument("--use-planner", action="store_true")
+
+
+    parser.add_argument("--mode", type=str, default="d2", choices=["d2", "baseline", "wlbllm"])
+    parser.add_argument("--model-path", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
+    parser.add_argument("--num-layers", type=int, default=8)
+
+    parser.add_argument("--output-dir", type=str, default="./logs/")
     args = parser.parse_args()
     test(args)
