@@ -540,6 +540,7 @@ def test(args):
     filter_ratio = args.filter_ratio
     should_add_debug_cases = args.should_add_debug_cases
     resend_qkv = args.should_resend_qkv
+    sample_start_idx = args.sample_start_idx
     if num_layers is not None:
         os.environ["NUM_LAYERS"] = str(num_layers)
 
@@ -673,7 +674,7 @@ def test(args):
 
     max_sample_id = max_sample_id
     sample_times = []
-    for sample_id in range(max_sample_id):
+    for sample_id in range(sample_start_idx, max_sample_id):
         if mode == "baseline":
             try:
                 # TOOD: This should be batch_size * 2
@@ -870,7 +871,6 @@ def test(args):
                 break
             
             # Rebalance Ping pong
-            should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
             def balance_ping_pong(seq_lens: list[list[int]]) -> list[list[int]]:
                 # taking a list of batch, and interleave them by sorted workload.
                 sorted_attn_workload = sorted(seq_lens, key=lambda x: sum(y ** 2 for y in x))
@@ -885,10 +885,15 @@ def test(args):
                 return ping, pong
                 
             rich.print(f"🟡 [Rank {rank}] _seq_lens = {_seq_lens}")
+
+            should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
             if should_d2_balance_ping_pong:
+                print(f"🟢 [Rank {rank}] Balancing ping pong")
                 seq_lens_0, seq_lens_1 = balance_ping_pong(_seq_lens)
             else:
-                seq_lens_0, seq_lens_1 = _seq_lens, _seq_lens
+                print(f"🟡 [Rank {rank}] Not Balancing ping pong")
+                seq_lens_0, seq_lens_1 = _seq_lens[:batch_size], _seq_lens[batch_size:]
+            
             rich.print(f"🟡 [Rank {rank}] seq_lens_0 = {seq_lens_0}")
             rich.print(f"🟡 [Rank {rank}] seq_lens_1 = {seq_lens_1}")
 
@@ -905,9 +910,12 @@ def test(args):
             
             # Try different tolerance factors and see which one fits the buffer size.
             # This will sacrifice performance for safety.
+            
+            # TODO: Pass a knob as a tradeoff of network and latency balance.
             verbose = (rank % 8 == 0)
             did_pass_overflow_check = False
-            required_buffer_size = []
+            required_buffer_size: list[float] = []
+            can_pass_tolerance_factor: list[bool] = []
             for tolerance_factor in [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
                 planner = Planner(world_size, parallel_config, model_config=model_config, tolerance_factor=tolerance_factor)
                 
@@ -959,12 +967,13 @@ def test(args):
                             f.write(json.dumps({
                                 "sample_id": sample_id,
                                 "tolerance_factor": tolerance_factor,
-                                "qkv_fwd_fa2a_metadata__send_transfer_sz_mb_to_others": qkv_fwd_fa2a_metadata__send_transfer_sz_mb_to_others.tolist(),
-                                "qkv_fwd_fa2a_metadata__recv_transfer_sz_mb_to_others": qkv_fwd_fa2a_metadata__recv_transfer_sz_mb_to_others.tolist(),
                                 "qkv_fwd_fa2a_metadata__send_transfer_sz_mb": qkv_fwd_fa2a_metadata__send_transfer_sz_mb.tolist(),
                                 "qkv_fwd_fa2a_metadata__recv_transfer_sz_mb": qkv_fwd_fa2a_metadata__recv_transfer_sz_mb.tolist(),
                                 "attn_out_fwd_fa2a_metadata__send_transfer_sz_mb": attn_out_fwd_fa2a_metadata__send_transfer_sz_mb.tolist(),
                                 "attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb": attn_out_fwd_fa2a_metadata__recv_transfer_sz_mb.tolist(),
+
+                                "qkv_fwd_fa2a_metadata__send_transfer_sz_mb_to_others": qkv_fwd_fa2a_metadata__send_transfer_sz_mb_to_others.tolist(),
+                                "qkv_fwd_fa2a_metadata__recv_transfer_sz_mb_from_others": qkv_fwd_fa2a_metadata__recv_transfer_sz_mb_to_others.tolist(),
                                 "bandwidth_mb": bandwidth_mb,
                                 "send_time_ms": send_time_ms.tolist(),
                                 "recv_time_ms": recv_time_ms.tolist(),
@@ -975,17 +984,18 @@ def test(args):
 
                 # Check size:
                 buffer_size = FastDispatcherWrapper.instance[0].buffer_size
-                def _check_overflow(fa2a_metadata):
-                    send_sz = [torch.sum(m.fa2a_metadata[1][as_rank]).item() for m in fa2a_metadata]
-                    # self_send_sz = send_sz - m.fa2a_metadata[1][as_rank][as_rank]
-                    send_last_offset = [(m.fa2a_metadata[1] + m.fa2a_metadata[2])[as_rank] for m in fa2a_metadata]
-                    recv_sz = [torch.sum(m.fa2a_metadata[3][as_rank]).item() for m in fa2a_metadata]
+                
+                def _check_self_overflow(fa2a_metadata, as_rank_):
+                    send_sz = [torch.sum(m.fa2a_metadata[1][as_rank_]).item() for m in fa2a_metadata]
+                    send_last_offset = [(m.fa2a_metadata[1] + m.fa2a_metadata[2])[as_rank_] for m in fa2a_metadata]
+                    recv_sz = [torch.sum(m.fa2a_metadata[3][as_rank_]).item() for m in fa2a_metadata]
                     max_send_sz = max(send_sz)
                     max_recv_sz = max(recv_sz)
                     
                     if rank % 8 == 0:
                         rich.print(
-                            f"🟡 [Rank {rank}] Overflow check: {max_send_sz / 1024**3:.2f} GB, "
+                            f"🟡 [Rank {rank}]  Overflow check of as_rank_ = {as_rank_}: "
+                            f"{max_send_sz / 1024**3:.2f} GB send size, "
                             f"{max_recv_sz / 1024**3:.2f} GB recv size, "
                             f"{max(torch.max(o).item() for o in send_last_offset) / 1024**3:.2f} GB send last offset, "
                             f"{buffer_size / 1024**3:.2f} GB buffer size"
@@ -998,16 +1008,31 @@ def test(args):
                         return False, max_size_provisioned
                     return True, max_size_provisioned
 
-                check_0, max_size_provisioned_0 = _check_overflow(fa2a_metadata_0)
-                check_1, max_size_provisioned_1 = _check_overflow(fa2a_metadata_1)
+                def _check_all_overflow(fa2a_metadata, as_world_size_):
+                    all_max_size_provisioned = 0
+                    states = []
+                    for as_rank_ in range(as_world_size_):
+                        state, max_size_provisioned = _check_self_overflow(fa2a_metadata, as_rank_)
+                        all_max_size_provisioned = max(all_max_size_provisioned, max_size_provisioned)
+                        states.append(state)
+                    all_state = all(states)
+                    return all_state, all_max_size_provisioned
+                    
+
+                check_0, max_size_provisioned_0 = _check_all_overflow(fa2a_metadata_0, as_world_size)
+                check_1, max_size_provisioned_1 = _check_all_overflow(fa2a_metadata_1, as_world_size)
                 max_size_provisioned = max(max_size_provisioned_0, max_size_provisioned_1) / 1024**3
                 required_buffer_size.append(max_size_provisioned)
                 
+                
+                can_pass_tolerance_factor.append(check_0 and check_1)
                 if not (check_0 and check_1):
                     rich.print(f"⚠️ [Rank {rank}] Overflow check failed for fa2a_metadata_0 or fa2a_metadata_1 with tolerance_factor {tolerance_factor} and buffer_size {buffer_size / 1024**3} GB. Retry...")
                 else:
                     did_pass_overflow_check = True
                     break
+
+                    
             
             if not did_pass_overflow_check:
                 rich.print(f"🔴 [Rank {rank}] Inspected required_buffer_size = {required_buffer_size}")
@@ -1217,7 +1242,6 @@ def test(args):
         # Real Experiment
         # --------------
         N = 3
-        
         try:
             N = int(os.environ.get("EXPERIMENT_REPEAT_TIMES", 3))
         except:
@@ -1230,10 +1254,14 @@ def test(args):
         iteration_times = []
         start_time = time.time()
         torch.cuda.nvtx.range_push(f"sample_{sample_id}(repeat={N})")
+        
         for repeat_idx in range(N):
+            # start_event = torch.cuda.Event(enable_timing=True)
+            # end_event = torch.cuda.Event(enable_timing=True)pr:
             write_status_log(f"Start Forward_backward_batch (sample_id={sample_id},repeat={repeat_idx})")
             torch.cuda.synchronize()
             torch.distributed.barrier()
+            # start_event.record()
             start_it_time = time.time()
             log_memory_usage(f"forward_backward_batch:start(sample_id={sample_id},repeat={repeat_idx})")
             ref = worker.forward_backward_batch(
@@ -1243,11 +1271,12 @@ def test(args):
             )
             torch.cuda.synchronize()
             torch.distributed.barrier()
+            # end_event.record()
             end_it_time = time.time()
             log_memory_usage(f"forward_backward_batch:done(sample_id={sample_id},repeat={repeat_idx})")
             iteration_time = end_it_time - start_it_time
-            iteration_times.append(iteration_time)
             write_status_log(f"Finish Forward_backward_batch (sample_id={sample_id},repeat={repeat_idx})")
+            iteration_times.append(iteration_time)
         torch.cuda.nvtx.range_pop()
         
         torch.cuda.synchronize()
@@ -1291,7 +1320,7 @@ def test(args):
             output_file = os.path.join(output_dir, "benchmark.raw.jsonl")
             with open(output_file, 'a') as f:
                 f.write(json.dumps(items))
-                    f.write('\n')
+                f.write('\n')
 
     torch.cuda.synchronize()
     torch.distributed.barrier()
@@ -1308,13 +1337,13 @@ def test(args):
 
         summary_log_file = os.path.join(output_dir, "summary.log")
         with open(summary_log_file, "w") as f:
-            f.write("Summary Log\n===============\n")
+            f.write("===============Summary Log===============\n")
 
         def log_to_console_and_file(*args, **kwargs):
             rich.print(*args, **kwargs)
             if rank == 0:
                 with open(summary_log_file, "a") as f:
-                    rich.print(*args, **kwargs, file=f)
+                    print(*args, **kwargs, file=f)
 
         
         log_to_console_and_file(f"🟢 Test {__file__} passed")
@@ -1432,7 +1461,8 @@ if __name__ == "__main__":
     parser.add_argument("--should-add-debug-cases", action="store_true")
     parser.add_argument("--should-profile-memory", type=str, default=None)
     parser.add_argument("--should-resend-qkv", action="store_true", help="Whether to resend qkv in the backward pass")
-    parser.add_argument("--output-dir", type=str, default=None)    
+    parser.add_argument("--output-dir", type=str, default=None)   
+    parser.add_argument("--sample-start-idx", type=int, default=0, help="Start index of the sample ids to sample") 
     
     args = parser.parse_args()
     print(f"🟡 Args: {args}")

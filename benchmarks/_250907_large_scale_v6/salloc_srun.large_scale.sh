@@ -24,8 +24,8 @@ sleep 1
 
 
 TS=$(TZ=America/Los_Angeles date +%m%d_%H%M%S)_PST
-export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250907_large_scale_v6/logs.v1-large_scale/${TS}
-export MAX_SAMPLE_ID=15
+export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250907_large_scale_v6/logs.v2-large_scale/
+export MAX_SAMPLE_ID=10
 export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2
 export TP_SIZE=8
 export ENABLE_NSYS=1
@@ -54,7 +54,7 @@ export NUM_LAYERS=48
 # Check and skip success runs
 # ------------------------------------
 eid_file=$OUTPUT_DIR_PREFIX/success_eids.txt
-python query_success_runs.py --folder $OUTPUT_DIR_PREFIX --output_file $eid_file
+python /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250907_large_scale_v6/query_success_runs.py --folder $OUTPUT_DIR_PREFIX --output_file $eid_file
 
 # check the success_eids.txt file
 SUCCESS_EIDS=""
@@ -66,6 +66,75 @@ else
 fi
 
 
+
+# Run one d2 + one wlbllm-cpMax to justify the result.
+for config in \
+    "1 1 4 131072 2" \
+    "1 1 4 262144 4" \
+    "1 1 1 131072 2" \
+    "1 1 1 262144 4" \
+    "1 1 1 524288 8" \
+    "1 1 2 524288 8" \
+    "1 1 4 524288 8" \
+    ; do
+
+
+    read -r selective_ckpt resend_qkv batch_size num_tokens elongate_factor <<< "$config"
+    
+    export EXPERIMENT_ADD_SELECTIVE_CKPT=$selective_ckpt
+    export EXPERIMENT_SHOULD_RESEND_QKV=$resend_qkv
+    export BATCH_SIZE=$batch_size
+    export NUM_TOKENS=$num_tokens
+    export ELONGATE_FACTOR=$elongate_factor
+
+    # Run d2 mode with all on
+    export MODE=d2
+    export EXPERIMENT_D2_BALANCE_PING_PONG=0
+    export OUTPUT_DIR_SUFFIX_ADDON="-normal"
+    eid="d2-cp1-n${NNODES}-b${BATCH_SIZE}-t${NUM_TOKENS}"
+    if [[ "$SUCCESS_EIDS" =~ "$eid" ]]; then
+        echo "🟢 Skip: $eid"
+        continue
+    fi
+    echo "🟡 Running d2 with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR"
+    if [ $DRY_RUN -eq 0 ]; then
+        bash test_e2e_combined.salloc.sh
+        echo "🟡 Finished running d2 with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
+        echo "\a"
+    fi
+
+    
+    # Run wlbllm mode with different CP sizes
+    counter=0
+    for CP_SIZE in 32 16 8 4 2 1; do
+        if [ $CP_SIZE -gt $NNODES ]; then
+            continue
+        fi
+        DP_SIZE=$((NNODES / CP_SIZE))
+        if [ $DP_SIZE -gt $(($BATCH_SIZE * 2)) ]; then
+            continue
+        fi
+
+        export MODE=wlbllm CP_SIZE=$CP_SIZE
+        export OUTPUT_DIR_SUFFIX_ADDON=""
+        eid="wlbllm-cp${CP_SIZE}-n${NNODES}-b${BATCH_SIZE}-t${NUM_TOKENS}"
+        if [[ "$SUCCESS_EIDS" =~ "$eid" ]]; then
+            echo "🟢 Skip: $eid"
+            continue
+        fi
+        echo "🟡 Running wlbllm with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR"
+        if [ $DRY_RUN -eq 0 ]; then
+            bash test_e2e_combined.salloc.sh
+            echo "🟡 Finished running wlbllm with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
+            echo "\a"
+        fi
+        break # <- breaking after the max permissible cp size is run
+    done
+
+done
+
+
+# Run all wlbllm-cp except max 
 for config in \
     "1 1 4 131072 2" \
     "1 1 4 262144 4" \
@@ -84,18 +153,6 @@ for config in \
     export BATCH_SIZE=$batch_size
     export NUM_TOKENS=$num_tokens
     export ELONGATE_FACTOR=$elongate_factor
-
-    # Run d2 mode with all on
-    export MODE=d2
-    export EXPERIMENT_D2_BALANCE_PING_PONG=0
-    export OUTPUT_DIR_SUFFIX_ADDON="-normal"
-    echo "🟡 Running d2 with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR"
-    if [ $DRY_RUN -eq 0 ]; then
-        bash test_e2e_combined.salloc.sh
-        echo "🟡 Finished running d2 with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
-        echo "\a"
-    fi
-
     
     # Run wlbllm mode with different CP sizes
     counter=0
@@ -106,6 +163,11 @@ for config in \
         DP_SIZE=$((NNODES / CP_SIZE))
         if [ $DP_SIZE -gt $(($BATCH_SIZE * 2)) ]; then
             continue
+        fi
+
+        counter=$((counter + 1))
+        if [ $counter -le 1 ]; then
+            continue # <- skipping the first one case as it has been run before
         fi
 
         echo "🟡 Running wlbllm with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR"

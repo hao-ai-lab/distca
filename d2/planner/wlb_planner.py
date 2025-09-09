@@ -9,7 +9,7 @@ def get_length(micro_batch: list[int]) -> int:
 
 def get_workload(micro_batch: list[int]) -> int:
     # TODO: Fix this get_workload function to calculate the `breakpoint` of a model.
-    a = [ i / (64 * K) for i in micro_batch]
+    a = [ i / (128 * K) for i in micro_batch]
     return sum(i ** 2 + i for i in a)
 
 def flatten(seq_lens: list[list[int]]) -> list[int]:
