@@ -13,7 +13,7 @@ _ops = torch.ops.dispatch_kernels
 
 ###### NVSHMEM utils ######
 
-
+_is_nvshmem_initialized = False
 def nvshmem_get_unique_id() -> torch.Tensor:
     return _ops.nvshmem_get_unique_id()
 
@@ -35,6 +35,7 @@ def nvshmem_init(uid: torch.Tensor, rank: int, world_size: int, local_rank: int=
     import traceback
     # traceback.print_stack()
     print("nvshmem_init passed barrier.")
+    _is_nvshmem_initialized = True
     return status
 
 def nvshmem_alltoall(dest: torch.Tensor, source: torch.Tensor) -> None:
@@ -58,9 +59,13 @@ def nvshmem_malloc(
     return _ops.nvshmem_malloc(shape, dtype, device)
 
 def nvshmem_barrier_all() -> None:
+    if not _is_nvshmem_initialized:
+        return
     _ops.nvshmem_barrier_all()
 
 def nvshmem_barrier_all_on_current_stream() -> None:
+    if not _is_nvshmem_initialized:
+        return
     _ops.nvshmem_barrier_all_on_current_stream()
 
 

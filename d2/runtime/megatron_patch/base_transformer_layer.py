@@ -281,6 +281,10 @@ class TransformerLayer(MegatronTransformerLayer):
         inference_params: Optional[Any] = None,
         return_debug: bool = False,
     ):
+        # import traceback
+        # traceback.print_stack()
+        # print(packed_seq_params)
+        # exit(0)
         """Debug use. normal forward with output hooked."""
         assert inference_params is None, "inference not supported yet"
         assert inference_context is None, "inference not supported yet"

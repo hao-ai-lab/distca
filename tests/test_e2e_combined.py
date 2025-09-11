@@ -510,6 +510,8 @@ try:
     import wlbllm
     import wlbllm.utils
     import wlbllm.registry
+    import wlbllm.megatron_patch.dot_product_attention
+    import wlbllm.megatron_patch.backends
 except ImportError:
     print("""⚠️ WLBLLM is not installed. This only affects if you're testing WLBLLM tests. To install:
 
@@ -517,6 +519,8 @@ except ImportError:
     pip install -e .
     """)
     pass
+
+
 
 
 def test(args):

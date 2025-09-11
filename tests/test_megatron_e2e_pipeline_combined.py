@@ -56,81 +56,17 @@ def debug_print(*args, **kwargs):
     print(f"🟡 [Rank {rank}]", *args, **kwargs)
     return
 
+from d2.utils.traceback import (
+    enable_clickable_excepthook, 
+    enable_trace_calls,
+    should_enable_clickable_excepthook,
+    should_trace_calls,
+)
 
-# --------------------------------
-# Better traceback formatting
-# --------------------------------
-# TODO: Put this into some debug file
-import sys, traceback, os
-
-RED = "\033[31m"
-BLUE = "\033[34m"
-RESET = "\033[0m"
-
-def clickable_excepthook(exc_type, exc_value, tb):
-    for filename, lineno, func, text in traceback.extract_tb(tb):
-        path = os.path.abspath(filename)
-        print(f"{path}:{lineno}: in {func}")
-        if text:
-            print(f"    {text}")
-    # error in red
-    print(f"{RED}{exc_type.__name__}: {exc_value}{RESET}")
-
-if os.environ.get("EXPERIMENT_PYTHON_BETTER_TRACEBACK", "1") == "1":
-    sys.excepthook = clickable_excepthook
-
-# --------------------------------
-# Know where I get stuck
-# --------------------------------
-# TODO: Put this into some debug file
-
-import sys
-
-should_trace_calls = os.environ.get("EXPERIMENT_PYTHON_DEBUG_TRACE_CALLS", "0") == "1"
-def trace_calls(frame, event, arg):
-    if event == "call":
-        code = frame.f_code
-        print(f"--> Enter {code.co_name} ({code.co_filename}:{frame.f_lineno})")
-    elif event == "return":
-        code = frame.f_code
-        print(f"<-- Exit {code.co_name} ({code.co_filename}:{frame.f_lineno})")
-    return trace_calls
-
-import sys
-
-class TraceFunctions:
-    def __init__(self, filter_path=None):
-        self.filter_path = filter_path
-        self._oldtrace = None
-        self.indent = 0
-
-    def _trace(self, frame, event, arg):
-        if event in ("call", "return"):
-            code = frame.f_code
-            filename = code.co_filename
-            if self.filter_path and self.filter_path not in filename:
-                return
-            if event == "call":
-                print(f"{BLUE}{' ' * self.indent}--> Enter {code.co_name} ({filename}:{frame.f_lineno}){RESET}")
-                self.indent += 1
-            elif event == "return":
-                print(f"{BLUE}{' ' * self.indent}<-- Exit  {code.co_name} ({filename}:{frame.f_lineno}){RESET}")
-                self.indent -= 1
-        return self._trace
-
-    def __enter__(self):
-        self._oldtrace = sys.gettrace()
-        if not should_trace_calls:
-            return self
-        sys.settrace(self._trace)
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        sys.settrace(self._oldtrace)
-
-# if should_trace_calls:
-#     print("🟡 Enabling python debug trace calls.")
-#     sys.settrace(trace_calls)
+if should_enable_clickable_excepthook:
+    enable_clickable_excepthook()
+if should_trace_calls:
+    enable_trace_calls()
 
 
 # --------------------------------
@@ -461,6 +397,13 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
 
 
 def test(args):
+    
+    should_run_baseline_dummy = True
+    should_run_baseline_no_dummy = True
+    should_run_wlbllm = False
+    should_run_pingpong_dummy = True
+
+
     mode = args.mode
     model_path = args.model_path
     num_layers = args.num_layers
@@ -560,10 +503,6 @@ def test(args):
     # ---------------------------
     # Prepare the microbatches
     # ---------------------------
-    should_run_baseline_dummy = True
-    should_run_baseline_no_dummy = True
-    should_run_wlbllm = False
-    should_run_pingpong_dummy = True
     # microbatch - dict(
     #   position_ids: tensor, 
     #   packed_seq_params: PingPangSingleStepPackedSeqParams, 
@@ -590,46 +529,46 @@ def test(args):
     wlbllm_metadatas = [] # used to register for wlbllm.registry.
     d2_microbatches = []
 
-    # Constrcut WLBLLM microbatches
-    # - use the `orig_cur_tick_per_rank_doc_lens_0` and `orig_cur_tick_per_rank_doc_lens_1` ticks.
-    # - create balanced microbatches by reordering.
-    # - construct the microbatch: dict(input_ids, position_ids, packed_seq_params: PackedSeqParams)
-    # - register these variables as global variables into the wlbllm utils. 
-    #     This is a historic hack from us to enable WLBLLM: 
-    #     variables like cp_stream, etc, are slightly hard to pass down the chain. 
-    all_doc_lens = orig_cur_tick_per_rank_doc_lens_0 + orig_cur_tick_per_rank_doc_lens_1
-    debug_print(f"wlbllm all_doc_lens: {all_doc_lens}")
-
     
-    wlb_plan_size = dp_size * pp_size
-    wlb_plan_rank = dp_rank + pp_rank * dp_size
-    _, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
-        wlb_plan_size, wlb_plan_rank, total_seq_len, 
-        # Here, the number of batches we pass is (num_batches * num_microbatch).
-        # Inside the function, we use (num_batches * num_microbatch * 2) to distribute the workload.
-        # This is becuase `orig_cur_tick_per_rank_doc_lens_0` has num_microbatch * batches, elements.
-        # and we are taking 2 of them.
-        num_batches * num_microbatch, 
-        all_doc_lens,
-        ENABLE_BALANCED_FLOS_NO_DEFER=True,
-        model_config=hf_config, # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
-    )
-    # TODO: Log the workload of differnet batches...
-    debug_print(f"wlbllm: taking {num_batches * num_microbatch} batches, getting new_batch: {new_batch}")
-    assert len(new_batch) == num_batches * num_microbatch
 
-    # Take this DP-rank's all PP batches, and organizes them into a list of microbatch(es).
-    wlb_my_dp_rank_microbatches: list[list[int]] = new_batch[dp_rank * pp_size: (dp_rank + 1) * pp_size]
-    debug_print(f"wlbllm: taking {dp_rank * pp_size} to {dp_rank + pp_size} batches, getting wlb_my_batches: {wlb_my_dp_rank_microbatches}")
-    debug_print(f"wlbllm: dp_rank: {dp_rank} - token_per_batch: {[sum(mb) for mb in wlb_my_dp_rank_microbatches]}")
-
-
-
-    
+    # TODO: (In progress) Still have some bugs undone.
     if should_run_wlbllm:
+        # Constrcut WLBLLM microbatches
+        # - use the `orig_cur_tick_per_rank_doc_lens_0` and `orig_cur_tick_per_rank_doc_lens_1` ticks.
+        # - create balanced microbatches by reordering.
+        # - construct the microbatch: dict(input_ids, position_ids, packed_seq_params: PackedSeqParams)
+        # - register these variables as global variables into the wlbllm utils. 
+        #     This is a historic hack from us to enable WLBLLM: 
+        #     variables like cp_stream, etc, are slightly hard to pass down the chain. 
+        all_doc_lens = orig_cur_tick_per_rank_doc_lens_0 + orig_cur_tick_per_rank_doc_lens_1
+        debug_print(f"wlbllm all_doc_lens: {all_doc_lens}")
+
+        
+        wlb_plan_size = dp_size * pp_size
+        wlb_plan_rank = dp_rank + pp_rank * dp_size
+        _, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
+            wlb_plan_size, wlb_plan_rank, total_seq_len, 
+            # Here, the number of batches we pass is (num_batches * num_microbatch).
+            # Inside the function, we use (num_batches * num_microbatch * 2) to distribute the workload.
+            # This is becuase `orig_cur_tick_per_rank_doc_lens_0` has num_microbatch * batches, elements.
+            # and we are taking 2 of them.
+            num_batches * num_microbatch, 
+            all_doc_lens,
+            ENABLE_BALANCED_FLOS_NO_DEFER=True,
+            model_config=hf_config, # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
+        )
+        # TODO: Log the workload of differnet batches...
+        debug_print(f"wlbllm: taking {num_batches * num_microbatch} batches, getting new_batch: {new_batch}")
+        assert len(new_batch) == num_batches * num_microbatch, f"len(new_batch) must be equal to num_batches * num_microbatch. Current len(new_batch): {len(new_batch)}, num_batches: {num_batches}, num_microbatch: {num_microbatch}"
+
+        # Take this DP-rank's all PP batches, and organizes them into a list of microbatch(es).
+        wlb_my_dp_rank_microbatches: list[list[int]] = new_batch[dp_rank * pp_size: (dp_rank + 1) * pp_size]
+        debug_print(f"wlbllm: taking {dp_rank * pp_size} to {dp_rank + pp_size} batches, getting wlb_my_batches: {wlb_my_dp_rank_microbatches}")
+        debug_print(f"wlbllm: dp_rank: {dp_rank} - token_per_batch: {[sum(mb) for mb in wlb_my_dp_rank_microbatches]}")
+
         cp_rank = mpu.get_context_parallel_rank()
         assert cp_size == mpu.get_context_parallel_world_size()
-        
+
         wlbllm.registry.clear()
         cp_stream = torch.cuda.current_stream()
         wlbllm.registry.set("cp_stream", cp_stream)
@@ -691,8 +630,7 @@ def test(args):
                 wlbllm.registry.set("max_seqlen_q_list", max_seqlen_q_list)
                 wlbllm.registry.set("max_seqlen_kv_list", max_seqlen_k_list)
                 wlbllm.registry.set("global_tensor_length", (total_seq_len * cp_size * 2))
-
-
+            wlbllm_metadatas.append(register_wlbllm_variables)
             pass
 
 
@@ -804,23 +742,25 @@ def test(args):
 
 
     if should_run_wlbllm:
-        debug_print("Start Forward backward wlbllm")
-        start_time = time.time()
-        torch.cuda.synchronize()
-        torch.distributed.barrier()
-        # Patch the attention and all stuff...
-        loss_wlbllm, grad_wlbllm = worker.forward_backward_batch(
-            microbatches=wlbllm_microbatches,
-            forward_only=False,
-            mode="wlbllm",
-            with_dummy=False,
-        )
-        torch.cuda.synchronize()
-        torch.distributed.barrier()
-        end_time = time.time()
-        duration = end_time - start_time
-        duration_ms = duration * 1000
-        debug_print(f"⚪ Finish WLBLLM in {duration_ms:.2f} ms")
+        with wlbllm.megatron_patch.dot_product_attention.monkey_patch_context():
+            with wlbllm.megatron_patch.backends.monkey_patch_context():
+                debug_print("Start Forward backward wlbllm")
+                start_time = time.time()
+                torch.cuda.synchronize()
+                torch.distributed.barrier()
+                # Patch the attention and all stuff...
+                loss_wlbllm, grad_wlbllm = worker.forward_backward_batch(
+                    microbatches=wlbllm_microbatches,
+                    forward_only=False,
+                    mode="wlbllm",
+                    with_dummy=False,
+                )
+                torch.cuda.synchronize()
+                torch.distributed.barrier()
+                end_time = time.time()
+                duration = end_time - start_time
+                duration_ms = duration * 1000
+                debug_print(f"⚪ Finish WLBLLM in {duration_ms:.2f} ms")
     else:
         debug_print(f"⚪ Skipping WLBLLM")
         pass

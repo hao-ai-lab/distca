@@ -90,6 +90,31 @@ def send_forward_backward_recv_forward_backward(output_tensors, input_tensor_gra
 forward_backward_pipelining_without_interleaving_first_run = True
 
 
+import wlbllm.registry
+def wlb_swap_next_forward_metadata():
+    # Call this function before entering forward step.
+    swap_metadata_fn = wlbllm.registry.get("swap_metadata_fn")
+    forward_cnt = wlbllm.registry.get("forward_cnt")
+    print(f"🟡 wlb_swap_next_forward_metadata[{forward_cnt}]: start swapping forward metadata")
+    swap_metadata_fn(forward_cnt)
+    print(f"🟡 wlb_swap_next_forward_metadata[{forward_cnt}]: end swapping forward metadata")
+    wlbllm.registry.set("forward_cnt", forward_cnt + 1)
+    return
+
+def wlb_swap_next_backward_metadata():
+    # Call this function before entering backward step.
+    swap_metadata_fn = wlbllm.registry.get("swap_metadata_fn")
+    backward_cnt = wlbllm.registry.get("backward_cnt")
+    print(f"🟡 wlb_swap_next_backward_metadata[{backward_cnt}]: start swapping backward metadata")
+    swap_metadata_fn(backward_cnt)
+    print(f"🟡 wlb_swap_next_backward_metadata[{backward_cnt}]: end swapping backward metadata")
+    wlbllm.registry.set("backward_cnt", backward_cnt + 1)
+    return
+
+import os
+def is_wlb_func():
+    return os.environ["WLBLLM_MODE"] == "1"
+
 def forward_backward_pipelining_without_interleaving(
     *,
     forward_step_func,
@@ -106,6 +131,17 @@ def forward_backward_pipelining_without_interleaving(
 ):
     """Run non-interleaved 1F1B schedule, with communication between pipeline
     stages. Returns dictionary with losses if the last stage, empty dict otherwise."""
+
+    if is_wlb_func():
+        # Patch the forward and backward step functions that swaps the wlb metadata when called.
+        def forward_step_func_with_wlb_metadata(*args, **kwargs):
+            wlb_swap_next_forward_metadata()
+            return forward_step_func(*args, **kwargs)
+        def backward_step_func_with_wlb_metadata(*args, **kwargs):
+            wlb_swap_next_backward_metadata()
+            return backward_step_func(*args, **kwargs)
+        forward_step_func = forward_step_func_with_wlb_metadata
+        backward_step_func = backward_step_func_with_wlb_metadata
 
     if isinstance(model, list):
         assert (
@@ -219,7 +255,9 @@ def forward_backward_pipelining_without_interleaving(
     num_warmup_microbatches_including_dummy = parallel_state.get_pipeline_model_parallel_world_size() - 1
 
     # Run warmup forward passes.
+    print(f"pp warmup phase - {num_warmup_microbatches_including_dummy = } steps")
     for i in range(num_warmup_microbatches_including_dummy):
+        print(f"pp warmup phase - {i = }, {rank = }")
         if i < rank:
             with torch.no_grad():
                 _ = forward_step(
@@ -284,7 +322,9 @@ def forward_backward_pipelining_without_interleaving(
     #     input_tensor = recv_forward(recv_tensor_shapes, config)
 
     # Run 1F1B in steady state.
+    print(f"pp steady state - {num_microbatches = } steps")
     for i in range(num_microbatches):
+        print(f"pp steady state - {i = }, {rank = }")
         forward_dummy = i >= num_microbatches_remaining
         backward_dummy = i < num_warmup_microbatches
         next_forward_dummy = i + 1 >= num_microbatches_remaining
@@ -391,7 +431,9 @@ def forward_backward_pipelining_without_interleaving(
 
     # Run cooldown backward passes.
     if not forward_only:
+        print(f"pp cooldown phase - {num_warmup_microbatches_including_dummy = } steps")
         for i in range(num_warmup_microbatches_including_dummy):
+            print(f"pp cooldown phase - {i = }, {rank = }")
             dummy = i + rank >= num_warmup_microbatches_including_dummy
             next_dummy = i + 1 + rank >= num_warmup_microbatches_including_dummy
             if dummy:
@@ -409,7 +451,7 @@ def forward_backward_pipelining_without_interleaving(
                 input_tensor = input_tensors.pop(0)
                 output_tensor = output_tensors.pop(0)
 
-                input_tensor_grad = backward_step(
+                input_tensor_grad = backward_step_func(
                     input_tensor, output_tensor, output_tensor_grad, model_type, config
                 )
 
