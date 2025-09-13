@@ -6,6 +6,8 @@ import argparse
 from functools import partial
 import os
 import time
+import json
+import traceback
 
 import megatron.core.parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -33,6 +35,10 @@ import wlbllm.megatron_patch.dot_product_attention
 import wlbllm.megatron_patch.backends
 import wlbllm.megatron_patch.pp_schedules
 from dataclasses import dataclass
+
+from d2.utils.traceback import enable_clickable_excepthook, clickable_excepthook
+
+enable_clickable_excepthook()
 
 @dataclass
 class WLBPackedSeqParams():
@@ -227,9 +233,27 @@ def pad_doc_lens(doc_lens: list[int], cp_size: int, dp_size: int):
     return doc_lens
 
 
-
+from d2.mem import set_memory_usage_log_file, log_memory_usage
 
 def test(args):
+    rank = os.environ.get("RANK")
+
+    output_dir = args.output_dir
+    benchmark_log_path = os.path.join(output_dir, "benchmark.raw.jsonl")
+    benchmark_final_path = os.path.join(output_dir, "benchmark.json")
+    
+    config_path = os.path.join(output_dir, "config.json")
+    with open(config_path, "w") as f:
+        # Namespace to dict
+        args_dict = vars(args)
+        json.dump(args_dict, f, indent=2)
+    
+    memory_usage_dir = os.path.join(output_dir, "memory_usage")
+    memory_usage_log_path = os.path.join(memory_usage_dir, f"mem.{rank}.log")
+    os.makedirs(memory_usage_dir, exist_ok=True)
+    set_memory_usage_log_file(memory_usage_log_path)
+
+    log_memory_usage("test start")
     os.environ["WLBLLM_MODE"] = "1"
     seed = args.seed
 
@@ -248,6 +272,7 @@ def test(args):
     
     # Setup testing scales
     num_tokens = args.num_tokens   
+    max_sample_id = args.max_sample_id
     total_seq_len = args.num_tokens
     cp_size = args.cp_size
     tp_size = args.tp_size
@@ -258,12 +283,32 @@ def test(args):
     assert world_size == int(os.environ.get("WORLD_SIZE")), f"world_size: {world_size} != WORLD_SIZE: {os.environ.get('WORLD_SIZE')}"
     dp_size = world_size // (tp_size * pp_size * cp_size)
 
+    config = dict(
+        mode="wlbllm", 
+        nodes=args.num_nodes,
+        num_gpus_per_node=args.num_gpus_per_node,
+        tp_size=tp_size, dp_size=dp_size, cp_size=cp_size, 
+        num_tokens=num_tokens, model_path=model_path, num_layers=num_layers, 
+        max_sample_id=max_sample_id, up_sample_factor=args.up_sample_factor, filter_threshold=args.filter_threshold, filter_ratio=args.filter_ratio, 
+        elongate_factor=args.elongate_factor,
+    )
+
+
+    # Prepare files
+
     # Setup the get batch logic
     # - each batch will contain num_tokens tokens.
     # - if cp is specified, then this num_tokens will be on one CP group.
     setup_global_batch(
-        num_tokens
+        num_tokens,
+        up_sample_factor=args.up_sample_factor,
+        elongate_factor=args.elongate_factor,
+        filter_threshold=args.filter_threshold,
+        filter_ratio=args.filter_ratio,
     )
+
+    # for _ in range(20):
+    #     print(f"🟡 get_next_batch: {get_next_batch(batch_size * 2)}")
 
     # Setup the model and configuration
     hf_config = AutoConfig.from_pretrained(model_path)
@@ -286,6 +331,8 @@ def test(args):
     # set again to potentially adapt to the ray launch case.
     set_random_seed(seed, set_megatron=False)
 
+    log_memory_usage("init worker done")
+
     # Check rank correctness
     dp_rank = mpu.get_data_parallel_rank()
     pp_rank = mpu.get_pipeline_model_parallel_rank()
@@ -297,11 +344,7 @@ def test(args):
     wlbllm.registry.clear()
     wlbllm.registry.set("cp_group", cp_group)
     wlbllm.registry.set("cp_stream", torch.cuda.current_stream())
-    wlbllm.registry.set("global_tensor_length", (num_tokens * cp_size * 2))
     wlbllm.registry.set("num_microbatch", num_microbatch)
-    wlbllm.registry.set("forward_cnt", 0)
-    wlbllm.registry.set("backward_cnt", 0)
-    
     def swap_metadata_fn(counter: int):
         wlb_metadata = wlbllm.registry.get(counter)
         for key, value in wlb_metadata.items():
@@ -315,96 +358,170 @@ def test(args):
     
     num_microbatches_including_dummy = num_microbatch + (pp_size - 1) # num_warmup_microbatches_including_dummy
 
-    def get_next_batch_including_dummy(batch_size: int, mb_idx: int):
-        if mb_idx >= num_microbatch:
-            return [128] * batch_size   
-        return get_next_batch(batch_size * 2)
-
-
-    microbatches = []
-    for mb_idx in range(num_microbatch): # for mb_idx in range(num_microbatch):        
-        _seq_lens: list[list[int]] = get_next_batch_including_dummy(batch_size, mb_idx)
-        print(f"🟡 get_next_batch_including_dummy[{mb_idx}]: _seq_lens: {_seq_lens}")
-        seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
-            dp_size, dp_rank, total_seq_len, batch_size, _seq_lens, 
-            ENABLE_BALANCED_FLOS_NO_DEFER=True,
-            # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
-            model_config=hf_config, 
-        )
-        doc_lens = flatten(seq_lens)
-        print(f"🟡 balance_data_for_wlbllm[{mb_idx}]: doc_lens: {doc_lens}")
-        context_length = sum(doc_lens) # maximum possible context length is just the num_tokens
-        num_tokens_this_rank = local_context_length = context_length // cp_size
-        doc_shards = wlbllm.utils.compute_per_doc_cp_shard_doc_len(
-            doc_lens, context_length, cp_size
-        )
-        (
-            cu_seqlens_q_list, cu_seqlens_k_list, 
-            max_seqlen_q_list, max_seqlen_k_list, 
-            kv_idx_list,
-        ) = wlbllm.utils.compute_per_doc_metadate_combined__metadata_only(    
-            context_length, 
-            doc_lens, 
-            doc_shards,
-            cp_size, 
-            cp_rank, 
-            device=torch.cuda.current_device()
-        )
-
-        # Only take the number of tokens in this rank
-        # seq_lens is already the dp_rank's doc_lens. 
-        # so here we only take the cp-shard of it.
-        input_ids = torch.randint(10, 1000, (num_tokens_this_rank,))
-        position_ids = torch.arange(num_tokens_this_rank)
+    final_durations_ms = []
+    all_seq_lens = []
+    for sample_idx in range(max_sample_id):
         
-        wlb_metadata = dict(
-            doc_lens=doc_lens,
-            doc_shards=doc_shards,
-            kv_idx_list=kv_idx_list,
-            cu_seqlens_q_list=cu_seqlens_q_list,
-            cu_seqlens_kv_list=cu_seqlens_k_list,
-            max_seqlen_q_list=max_seqlen_q_list,
-            max_seqlen_kv_list=max_seqlen_k_list,
-            # global_tensor_length: 
-            global_tensor_length=(num_tokens * cp_size * 2),
-        )
-        packed_seq_params = WLBPackedSeqParams(
-            qkv_format="thd",
-            cu_seqlens_q=cu_seqlens_q_list[-1],
-            cu_seqlens_kv=cu_seqlens_k_list[-1],
-            max_seqlen_q=max_seqlen_q_list[-1].item(),
-            max_seqlen_kv=max_seqlen_k_list[-1].item(),
-        )
-        packed_seq_params.wlb_metadata = wlb_metadata
-        microbatch = {
-            "input_ids": input_ids,
-            "position_ids": position_ids,
-            "packed_seq_params": packed_seq_params,
-        }
-        microbatches.append(microbatch)
-        wlbllm.registry.set(mb_idx, wlb_metadata)
-        print(f"🟡 wlbllm.registry.set mb_idx: {mb_idx}, wlb_metadata: {wlb_metadata}")
+        microbatches = []
+        _all_seq_lens = []
+        for mb_idx in range(num_microbatch): # for mb_idx in range(num_microbatch):        
+            
+            # This is the global batch for this iteration (including DP)
+            _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            _all_seq_lens.append(_seq_lens)
+            
+            # Take only the DP shard of the _seq_lens
+            _seq_lens = _seq_lens[
+                dp_rank * batch_size: (dp_rank + 1) * batch_size
+            ]
+
+            print(f"🟡 get_next_batch[{mb_idx}]: _seq_lens: {_seq_lens}")
+            seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
+                dp_size, dp_rank, total_seq_len, batch_size, _seq_lens, 
+                ENABLE_BALANCED_FLOS_NO_DEFER=True,
+                # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
+                model_config=hf_config, 
+            )
+            doc_lens = flatten(seq_lens)
+            print(f"🟡 balance_data_for_wlbllm[{mb_idx}]: doc_lens: {doc_lens}")
+            print(f"🟡 new_batch: {new_batch}")
+            context_length = sum(doc_lens) # maximum possible context length is just the num_tokens
+            print(f"🟡 context_length: {context_length}")
+            
+            # wlbllm.registry.set("global_tensor_length", (num_tokens * cp_size * 2))
+            wlbllm.registry.set("global_tensor_length", context_length)
+
+            num_tokens_this_rank = context_length // cp_size
+            assert num_tokens_this_rank * cp_size == context_length, f"num_tokens_this_rank * cp_size == context_length, {num_tokens_this_rank * cp_size} != {context_length}"
+            doc_shards = wlbllm.utils.compute_per_doc_cp_shard_doc_len(
+                doc_lens, context_length, cp_size
+            )
+            print(f"🟡 doc_shards: {doc_shards}")
+            (
+                cu_seqlens_q_list, cu_seqlens_k_list, 
+                max_seqlen_q_list, max_seqlen_k_list, 
+                kv_idx_list,
+            ) = wlbllm.utils.compute_per_doc_metadate_combined__metadata_only(    
+                context_length, 
+                doc_lens, 
+                doc_shards,
+                cp_size, 
+                cp_rank, 
+                device=torch.cuda.current_device()
+            )
+
+            # Only take the number of tokens in this rank
+            # seq_lens is already the dp_rank's doc_lens. 
+            # so here we only take the cp-shard of it.
+            input_ids = torch.randint(10, 1000, (num_tokens_this_rank,))
+            position_ids = torch.arange(num_tokens_this_rank)
+            
+            wlb_metadata = dict(
+                doc_lens=doc_lens,
+                doc_shards=doc_shards,
+                kv_idx_list=kv_idx_list,
+                cu_seqlens_q_list=cu_seqlens_q_list,
+                cu_seqlens_kv_list=cu_seqlens_k_list,
+                max_seqlen_q_list=max_seqlen_q_list,
+                max_seqlen_kv_list=max_seqlen_k_list,
+                # global_tensor_length: 
+                global_tensor_length=(num_tokens * cp_size * 2),
+            )
+            packed_seq_params = WLBPackedSeqParams(
+                qkv_format="thd",
+                cu_seqlens_q=cu_seqlens_q_list[-1],
+                cu_seqlens_kv=cu_seqlens_k_list[-1],
+                max_seqlen_q=max_seqlen_q_list[-1].item(),
+                max_seqlen_kv=max_seqlen_k_list[-1].item(),
+            )
+            packed_seq_params.wlb_metadata = wlb_metadata
+            microbatch = {
+                "input_ids": input_ids,
+                "position_ids": position_ids,
+                "packed_seq_params": packed_seq_params,
+            }
+            microbatches.append(microbatch)
+            wlbllm.registry.set(mb_idx, wlb_metadata)
+            print(f"🟡 wlbllm.registry.set mb_idx: {mb_idx}, wlb_metadata: {wlb_metadata}")
+
+        all_seq_lens.append(_all_seq_lens)
+        
+        set_random_seed(seed, set_megatron=True)
+        
+        rank = torch.distributed.get_rank()
+        
+        max_warmup_cnt = 0
+        max_repeat_cnt = 2
+        durations_ms = []
+        for repeat_idx in range(max_repeat_cnt + max_warmup_cnt):
+            wlbllm.registry.set("forward_cnt", 0)
+            wlbllm.registry.set("backward_cnt", 0)
+    
+            print(f"[Rank {rank}] [repeat {repeat_idx}] Start running wlbllm")
+            
+            with torch.cuda.nvtx.range(f"sample_{sample_idx}(repeat={repeat_idx})"):
+                torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
+                loss, grad = worker.forward_backward_batch(
+                    microbatches=microbatches,
+                    forward_only=False,
+                    mode="orig_reimpl", # actually wlbllm
+                    with_dummy=False,
+                )
+                torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
+
+                duration = end_time - start_time
+                duration_ms = duration * 1000
+                print(f"⚪ [Rank {rank}] [repeat {repeat_idx}] Finish running wlbllm: {duration_ms:.2f} ms")
+                if repeat_idx >= max_warmup_cnt:
+                    durations_ms.append(duration_ms)
+                    pass
+            log_memory_usage(f"forward_backward_batch:done(sample_id={sample_idx},repeat={repeat_idx})")
+
+        average_duration_ms = sum(durations_ms) / len(durations_ms) if durations_ms else 0
+        
+        final_durations_ms.append(average_duration_ms)
+
+        if rank == 0:
+            with open(benchmark_log_path, "a") as f:
+                f.write(json.dumps({
+                    "sample_id": sample_idx,
+                    "duration_ms": average_duration_ms,
+                    "duration_list": durations_ms,
+                    "samples": all_seq_lens,
+                }) + "\n")
+
+            print(f"🟡 Write benchmark log to {benchmark_log_path}")
+
+        pass
 
     
-    set_random_seed(seed, set_megatron=True)
 
-    time.sleep(2)
-    
-    print("Prepare to run wlbllm")
-    loss, grad = worker.forward_backward_batch(
-        microbatches=microbatches,
-        forward_only=False,
-        mode="orig_reimpl", # actually wlbllm
-        with_dummy=False,
-        # with_dummy=True,
-    )
-    
-    torch.cuda.synchronize()
-    torch.distributed.barrier()
-    print("finish wlbllm")
-    
-
-    print("=" * 20 + "forward_backward_batch attention server, done")
+    print("=" * 20 + "wlbllm with pp done")
+    if rank == 0:
+        from datetime import datetime
+        import pytz
+        pst = pytz.timezone('US/Pacific')
+        timestamp = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S PST")
+        with open(benchmark_final_path, "w") as f:
+            benchmark_data = {
+                "test_file": __file__,
+                "args": str(args),
+                "timestamp": timestamp,
+                "config": config,
+                "samples": [],
+            }
+            
+            for idx in range(len(final_durations_ms)):
+                samples = all_seq_lens[idx]
+                duration = final_durations_ms[idx]
+                benchmark_data["samples"].append({
+                    "sample_id": idx,
+                    "duration_ms": duration,
+                    "samples": samples,
+                })
+            
+            with open(benchmark_final_path, "w") as f:
+                json.dump(benchmark_data, f, indent=2)
 
 
 if __name__ == "__main__":
@@ -424,5 +541,33 @@ if __name__ == "__main__":
     parser.add_argument("--num-layers", type=int, default=8)
     parser.add_argument("--output-dir", type=str, default="./logs/")
 
+    parser.add_argument("--max-sample-id", type=int, default=3)
+
+    parser.add_argument("--up-sample-factor", type=int, default=4)
+    parser.add_argument("--elongate-factor", type=int, default=1)
+    parser.add_argument("--filter-threshold", type=int, default=65536)
+    parser.add_argument("--filter-ratio", type=float, default=0.50)
+
     args = parser.parse_args()
-    test(args)
+    
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+    error_log_dir = os.path.join(output_dir, "error_logs")
+    os.makedirs(error_log_dir, exist_ok=True)
+    try:
+        test(args)
+    except Exception as e:
+        rank = os.environ.get("RANK")
+        print(f"🟡 Error: {e}")
+        with open(os.path.join(error_log_dir, f"error.{rank}.log"), "w") as file:
+            import traceback
+            tb = traceback.extract_tb(e.__traceback__)
+            for filename, lineno, func, text in tb:
+                path = os.path.abspath(filename)
+                print(f"{path}:{lineno}: in {func}", file=file)
+                if text:
+                    print(f"    {text}", file=file)
+            # error in red
+            print(f"{type(e)}: {e}", file=file)
+            print(f"🟡 Write error log to {os.path.join(error_log_dir, f'error.{rank}.log')}")
+        raise e

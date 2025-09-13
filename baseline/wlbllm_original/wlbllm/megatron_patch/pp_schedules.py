@@ -93,12 +93,37 @@ def forward_backward_pipelining_without_interleaving(
             wlb_swap_next_backward_metadata()
             return backward_step(*args, **kwargs)
         
-        modified_forward_step = forward_step_func_with_wlb_metadata
-        modified_backward_step = backward_step_func_with_wlb_metadata
+        forward_step__func = forward_step_func_with_wlb_metadata
+        backward_step__func = backward_step_func_with_wlb_metadata
     else:
-        modified_forward_step = forward_step
-        modified_backward_step = backward_step
+        forward_step__func = forward_step
+        backward_step__func = backward_step
         pass
+
+
+    # Add the counter of forward and backward steps.
+    forward_batch_id = 0
+    backward_batch_id = 0
+
+    # Add nvtx around forward/backward step
+    def forward_step__with_nvtx(*args, **kwargs):
+        nonlocal forward_batch_id
+        with torch.cuda.nvtx.range(f"forward_step[{forward_batch_id}]"):
+            ret = forward_step__func(*args, **kwargs)
+        forward_batch_id += 1
+        return ret
+    
+    def backward_step__with_nvtx(*args, **kwargs):
+        nonlocal backward_batch_id
+        with torch.cuda.nvtx.range(f"backward_step[{backward_batch_id}]"):
+            ret = backward_step__func(*args, **kwargs)
+        backward_batch_id += 1
+        return ret
+    
+    modified_forward_step = forward_step__with_nvtx
+    modified_backward_step = backward_step__with_nvtx
+
+
 
     if isinstance(model, list):
         assert (

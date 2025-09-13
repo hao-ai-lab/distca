@@ -210,7 +210,7 @@ class MegatronBaseWorker(BaseWorker):
 
 
 def init_worker_torch_distributed(
-    world_size, worker_cls, parallel_config
+    world_size, buffer_size, worker_cls, parallel_config
 ):
     assert world_size == int(os.environ.get("WORLD_SIZE")), f"world_size: {world_size} != WORLD_SIZE: {os.environ.get('WORLD_SIZE')}"
     rank = int(os.environ.get("RANK"))
@@ -447,6 +447,7 @@ def create_pipeline_doclens(
     dp_size: int,
     num_batches: int = None,
     use_planner: bool = False,
+    return_original_doclen: bool = False,
 ) -> list[list[int]]: # list of batch[int]
     """
     Create `num_batches` batch for a microbatch (one pp-tick).
@@ -486,6 +487,7 @@ def create_pipeline_doclens(
             print(f"In util.py, before calling get_next_batch: GLOBAL_BATCH is: {GLOBAL_BATCH}")
             num_batches = num_batches or dp_size 
             pp_head_new_doc_len = get_next_batch(num_batches)
+    print(f"In util.py, after calling get_next_batch: pp_head_new_doc_len is: {pp_head_new_doc_len}")
 
     #  pp_head_new_doc_len : shape : [dp, num_seqs]  We should sample seq_len here.
     # And add the sampled seq_len to the batch. 
@@ -498,6 +500,11 @@ def create_pipeline_doclens(
         dummy_fwd_num = world_size - dp_size
         other_pp_doc_len = [[tp_size] for _ in range(dummy_fwd_num)]
     tick_per_rank_doc_len = pp_head_new_doc_len + other_pp_doc_len
+    print(f"In util.py, finally tick_per_rank_doc_len is: {tick_per_rank_doc_len}")
+
+    if return_original_doclen:
+        return (tick_per_rank_doc_len, pp_head_new_doc_len)
+    # exit(0)
     return tick_per_rank_doc_len
 
 
@@ -550,13 +557,13 @@ def create_qkv_dispatch_pipeline_tick(
         dp_size=dp_size,
     )
     # for perf test. Get doc_lens from GLOBAL_BATCH
-    cur_tick_per_rank_doc_lens = create_pipeline_doclens(
+    cur_tick_per_rank_doc_lens, original_cur_tick_per_rank_doc_lens = create_pipeline_doclens(
         ref_doc_lens, add_dummy, is_backward=False, num_batches = num_batches, use_planner=use_planner,
-        **create_pp_doclen_kwargs, 
+        **create_pp_doclen_kwargs, return_original_doclen=True,
     )
     assert isinstance(cur_tick_per_rank_doc_lens, list), f"cur_tick_per_rank_doc_lens: {cur_tick_per_rank_doc_lens} is not a list"
     print(f"🟡 cur_tick_per_rank_doc_lens: {cur_tick_per_rank_doc_lens}, len(cur_tick_per_rank_doc_lens): {len(cur_tick_per_rank_doc_lens)}")
-    orig_cur_tick_per_rank_doc_lens = cur_tick_per_rank_doc_lens
+    print(f"🟡 original_cur_tick_per_rank_doc_lens: {original_cur_tick_per_rank_doc_lens}, len(original_cur_tick_per_rank_doc_lens): {len(original_cur_tick_per_rank_doc_lens)}")
 
 
     # This should be a general function for DP and CP. But we only call it when CP: len(cur_tick_per_rank_doc_lens) <= world_size.
@@ -629,14 +636,12 @@ def create_qkv_dispatch_pipeline_tick(
          softmax_lse_size, element_size,
      )
 
-    #  orig_cur_tick_per_rank_doc_lens
-
     ret = (fwd_attn_metadata, bwd_attn_metadata,
             qkv_linear_to_attn_fa2a, qkv_grad_attn_to_linear_fa2a,
             out_attn_to_linear_fa2a, qkv_resend_and_out_grad_linear_to_attn_fa2a,
             cur_tick_per_rank_doc_lens,)
     if return_original_doclen:
-        ret += (orig_cur_tick_per_rank_doc_lens,)
+        ret += (original_cur_tick_per_rank_doc_lens,)
     return ret
 
 

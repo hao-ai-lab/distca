@@ -444,7 +444,7 @@ def init_wlbllm_e2e_test(
 
 
 from typing import Iterable, List, Optional
-from d2.simulator.optimizers.samples import sample_wlbllm_docs_upsample, batch_documents
+from d2.simulator.optimizers.samples import sample_wlbllm_docs_upsample, batch_documents, sample_prolong_docs
 
 ITERATION_ID = 0
 GLOBAL_BATCH: Optional[Iterable[List[int]]] = None
@@ -463,21 +463,32 @@ def setup_global_batch(
     filter_threshold=64 * 1024,
     filter_ratio=0.90,
     should_add_debug_cases=False,
+    change_long_doc_ratio=0.0,
+    sample_name='wlbllm',
 ):
     global GLOBAL_BATCH
     if GLOBAL_BATCH is not None:
         return
 
+    assert elongate_factor > 0, f"elongate_factor: {elongate_factor} must be greater than 0"
+
+    if sample_name == 'wlbllm':
+        sample_func = sample_wlbllm_docs_upsample
+    elif sample_name == 'prolong':
+        sample_func = sample_prolong_docs
+    else:
+        raise ValueError(f"Invalid sample_name: {sample_name}")
+
     GLOBAL_BATCH = batch_documents(
-        sample_wlbllm_docs_upsample(
+        sample_func(
             size=10000,
             filter_threshold=filter_threshold,
             filter_ratio=filter_ratio,
             upsample_long_factor=up_sample_factor,
             elongate_factor=elongate_factor,
+            change_long_doc_ratio=change_long_doc_ratio,
         ), max_ctx_length=total_seq_len
     )
-
     
     if should_add_debug_cases:
         GLOBAL_BATCH = list(GLOBAL_BATCH)
@@ -674,6 +685,8 @@ def test(args):
         filter_threshold=filter_threshold,
         filter_ratio=filter_ratio,
         should_add_debug_cases=should_add_debug_cases,
+        change_long_doc_ratio=args.change_long_doc_ratio,
+        sample_name=args.sample_name,
     )
 
     max_sample_id = max_sample_id
@@ -1467,6 +1480,8 @@ if __name__ == "__main__":
     parser.add_argument("--should-resend-qkv", action="store_true", help="Whether to resend qkv in the backward pass")
     parser.add_argument("--output-dir", type=str, default=None)   
     parser.add_argument("--sample-start-idx", type=int, default=0, help="Start index of the sample ids to sample") 
+    parser.add_argument("--change-long-doc-ratio", type=float, default=0.0, help="Ratio of long docs to change")
+    parser.add_argument("--sample-name", type=str, default="wlbllm", help="Name of the sample to use", choices=["wlbllm", "prolong"])
     
     args = parser.parse_args()
     print(f"🟡 Args: {args}")

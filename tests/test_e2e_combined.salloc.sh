@@ -42,6 +42,8 @@ FILTER_THRESHOLD=${FILTER_THRESHOLD:-65536}
 FILTER_RATIO=${FILTER_RATIO:-0.50}
 SHOULD_ADD_DEBUG_CASES=${SHOULD_ADD_DEBUG_CASES:-0}
 PROFILE_MEMORY_PATH=${PROFILE_MEMORY_PATH:"${OUTPUT_DIR}/"}
+SAMPLE_NAME=${SAMPLE_NAME:-"wlbllm"}
+CHANGE_LONG_DOC_RATIO=${CHANGE_LONG_DOC_RATIO:-0.0}
 
 JOBID=${JOBID:-${SLURM_JOB_ID}}
 if [ -z "$JOBID" ]; then
@@ -211,6 +213,11 @@ echo head_node_ip=$head_node_ip port=$port
 RZV_BACKEND=c10d
 RZV_ENDPOINT=$head_node_ip:$port
 echo RZV_ENDPOINT=$RZV_ENDPOINT
+if [ -z "$head_node" ]; then
+    echo -e "\033[31mERROR: head_node is empty. Please set HEAD_NODE_IP environment variable.\033[0m"
+    exit 1
+fi
+
 
 # Get GPU count from Slurm's environment variables
 # SLURM_GPUS_PER_NODE is set by Slurm when using --gpus-per-node or --gres=gpu:N
@@ -283,6 +290,8 @@ TORCHRUN_CMD=(
     --filter-threshold ${FILTER_THRESHOLD}
     --filter-ratio ${FILTER_RATIO}
     --output-dir ${OUTPUT_DIR}
+    --sample-name ${SAMPLE_NAME}
+    --change-long-doc-ratio ${CHANGE_LONG_DOC_RATIO}
 )
 
 if [ ${SHOULD_ADD_DEBUG_CASES} -eq 1 ]; then

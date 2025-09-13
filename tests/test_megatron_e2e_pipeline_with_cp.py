@@ -12,7 +12,8 @@ import argparse
 from functools import partial
 import os
 import time
-
+import json
+from global_batch_provider import setup_global_batch, get_next_batch
 import megatron.core.parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
@@ -261,7 +262,8 @@ def init_megatron_e2e_test(
     )
 
     worker = init_worker_torch_distributed(
-        world_size, buffer_size, worker_cls, parallel_config
+        world_size, buffer_size,
+        worker_cls, parallel_config
     )
     print("Communication groups initialized")
     return worker
@@ -274,7 +276,9 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
                            num_head_in_dtype: int, tp_size: int, dp_size: int,
                            num_token_per_rank: int,
                            num_batches: int = None,
-                           use_planner: bool=False):
+                           use_planner: bool=False,
+                           return_seq_lens: bool=False
+):
     tick_per_rank_doc_lens = None
     bwd_metadata = []
     microbatches = []
@@ -282,6 +286,9 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
         print("Enable planner. Get real batch.")
     else:
         print("No planner. Use random batch.")
+
+
+    all_original_seq_lens = []
     for i in range(num_microbatch + pp_degree - 1):
         # For the last few ticks (drain-out ticks)
         # add a dummy forward microbatch at PP rank 0.
@@ -291,7 +298,7 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
             fa_fwd_params, fa_bwd_params,
             qkv_fwd_fa2a_metadata, qkv_bwd_fa2a_metadata,
             attn_out_fwd_fa2a_metadata, attn_out_qkv_bwd_fa2a_metadata,
-            tick_per_rank_doc_lens,
+            tick_per_rank_doc_lens, original_tick_per_rank_doc_lens,
         ) = create_qkv_dispatch_pipeline_tick(
             as_world_size, total_seq_len, num_seqs, max_cp_degree,
             hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
@@ -301,8 +308,10 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
             dp_size=dp_size,
             num_token_per_rank=num_token_per_rank,
             num_batches=num_batches,
-            use_planner=use_planner
+            use_planner=use_planner,
+            return_original_doclen=return_seq_lens,
         )
+        all_original_seq_lens.append(original_tick_per_rank_doc_lens)
         
         # For MLP-CP, we need to transfer List[List[int]] from CP layout back to DP, so each rank knows its number of tokens.
         #   Example1 DP case:
@@ -363,7 +372,11 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
         packed_seq_params.qkv_bwd_metadata = qkv_bwd_metadata
         packed_seq_params.attn_out_bwd_metadata = attn_out_bwd_metadata
         packed_seq_params.bwd_packed_seq_params = bwd_packed_seq_params
-    return microbatches
+    
+    ret = microbatches
+    if return_seq_lens:
+        ret = (microbatches, all_original_seq_lens)
+    return ret
 
 
 from contextlib import contextmanager
@@ -383,9 +396,24 @@ def test(args):
     seed = args.seed
     # test scale
     num_tokens = args.num_tokens
-    max_cp_degree = args.cp_degree
+    cp_size = args.cp_size
     num_seqs = args.num_seqs
+    num_batches = args.num_batches
+
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+    benchmark_log_path = os.path.join(output_dir, "benchmark.raw.jsonl")
+    benchmark_log_path__d2 = os.path.join(output_dir, "benchmark.raw.d2.jsonl")
+    benchmark_log_path__baseline = os.path.join(output_dir, "benchmark.raw.baseline.jsonl")
+    benchmark_log_path__baseline_with_dummy = os.path.join(output_dir, "benchmark.raw.baseline_with_dummy.jsonl")
+    benchmark_final_path = os.path.join(output_dir, "benchmark.json")
     
+    config_path = os.path.join(output_dir, "config.json")
+    with open(config_path, "w") as f:
+        # Namespace to dict
+        args_dict = vars(args)
+        json.dump(args_dict, f, indent=2)
+
     # parallelization
     tp_size = args.tp_size
     pp_size = args.pp_size
@@ -398,23 +426,34 @@ def test(args):
     # Set num_batches. 
     # If None, we use MLP-DP. will get DP number of new batches per tick.
     # If set, num_batches < dp_size && dp_size % num_batches == 0, Will get num_batches number of List per tick.
-    if not args.num_batches:
-        num_batches = dp_size
-        num_token_per_rank = args.num_tokens
-        total_seq_len = args.num_tokens # when no CP, total_seq_len == args.num_tokens
-        print(f"MLP-DP, num_batches: {num_batches}, num_token_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}")
+    if False:
+        # Legacy logic to take batches -- this is not good!!
+        if not args.num_batches:
+            num_batches = dp_size
+            num_token_per_rank = args.num_tokens
+            total_seq_len = args.num_tokens # when no CP, total_seq_len == args.num_tokens
+            print(f"MLP-DP, num_batches: {num_batches}, num_token_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}")
+        else:
+            assert args.num_batches <= dp_size, "num-batches must be <= dp_size"
+            assert dp_size % args.num_batches == 0, "dp_size must be divisible by num-batches"
+            num_batches = args.num_batches
+            num_token_per_rank = args.num_tokens * num_batches // dp_size
+            total_seq_len = args.num_tokens * num_batches  # total_seq_len is max possible seq_len.
+            if args.num_batches <= dp_size:
+                print(f"MLP-CP, num_batches: {num_batches}, num_token_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}")
     else:
-        assert args.num_batches <= dp_size, "num-batches must be <= dp_size"
-        assert dp_size % args.num_batches == 0, "dp_size must be divisible by num-batches"
-        num_batches = args.num_batches
-        num_token_per_rank = args.num_tokens * num_batches // dp_size
-        total_seq_len = args.num_tokens * num_batches  # total_seq_len is max possible seq_len.
-        if args.num_batches <= dp_size:
-            print(f"MLP-CP, num_batches: {num_batches}, num_token_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}")
+        num_token_per_rank = num_tokens * num_batches // dp_size
+        total_seq_len = num_tokens 
+        pass
     dtype = torch.bfloat16
     element_size = dtype.itemsize
 
-    model_path = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+    max_sample_id = args.max_sample_id
+    model_path = args.model_path
+    num_layers = args.num_layers
+    if num_layers is not None:
+        os.environ["NUM_LAYERS"] = str(num_layers)
+
     hf_config = AutoConfig.from_pretrained(model_path)
     hidden_size_q = hf_config.hidden_size
 
@@ -425,7 +464,7 @@ def test(args):
 
     worker: MegatronE2eWorker = init_megatron_e2e_test(
         hidden_size_q, hidden_size_kv, hf_config.num_attention_heads, num_tokens,
-        world_size, max_cp_degree, tp_size, pp_size,
+        world_size, cp_size, tp_size, pp_size,
         dtype, MegatronE2eWorker
     )
     worker.set_config(dtype=dtype)
@@ -445,130 +484,186 @@ def test(args):
     hidden_size_k_tp = hidden_size_kv // tp_size
     num_head_in_dtype = (hf_config.num_attention_heads *
                          torch.float32.itemsize // element_size // tp_size)
-    if args.use_planner:
-        from global_batch_provider import setup_global_batch
-        setup_global_batch(total_seq_len=total_seq_len)
+
+    setup_global_batch(
+        total_seq_len=num_tokens,
+        up_sample_factor=args.up_sample_factor,
+        elongate_factor=args.elongate_factor,
+        filter_threshold=args.filter_threshold,
+        filter_ratio=args.filter_ratio,
+    )
+
+    # for _ in range(20):
+    #     print(f"🟡 get_next_batch: {get_next_batch(num_batches * 2)}")    
+
+    for sample_idx in range(max_sample_id):
+        # this total_seq_len is token per rank.
+        # Some explanations of the parameters inside `create_pp_microbatches`:
+        # - num_microbatch: 
+        #   Iterate `num_microbatch + pp_degree - 1` to create each tick's metadata
+        # - num_batches: 
+        #   For each tick, getting `num_batches` number of list from the data loader (GLOBAL_BATCH iterator). 
+        #   This is the parameter controlling the number of batches per tick.
+        # 
         
-    # this total_seq_len is token per rank.
-    # Some explanations of the parameters inside `create_pp_microbatches`:
-    # - num_microbatch: 
-    #   Iterate `num_microbatch + pp_degree - 1` to create each tick's metadata
-    # - num_batches: 
-    #   For each tick, getting `num_batches` number of list from the data loader (GLOBAL_BATCH iterator). 
-    #   This is the parameter controlling the number of batches per tick.
-    # 
-    microbatches_0 = create_pp_microbatches(
-        args.num_microbatch, pp_size, as_rank,
-        as_world_size, total_seq_len, num_seqs, max_cp_degree,
-        hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
-        tp_size, dp_size, 
-        num_token_per_rank, num_batches, args.use_planner,  
-    )
-    microbatches_1 = create_pp_microbatches(
-        args.num_microbatch, pp_size, as_rank,
-        as_world_size, total_seq_len, num_seqs, max_cp_degree,
-        hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
-        tp_size, dp_size, 
-        num_token_per_rank, num_batches, args.use_planner,
-    )
-    set_random_seed(seed, set_megatron=True)
-    microbatches = []
-    orig_impl_microbatches = []
-    for mb_0, mb_1 in zip(microbatches_0, microbatches_1):
-        mb_0_psp = mb_0["packed_seq_params"]
-        mb_1_psp = mb_1["packed_seq_params"]
-        mb_0_mlp_psp = mb_0_psp.mlp_packed_seq_params
-        mb_1_mlp_psp = mb_1_psp.mlp_packed_seq_params
-        mb_0_psp.dispatcher_id = 0
-        mb_1_psp.dispatcher_id = 1
-        ping_pong_params = PingPangPackedSeqParams(
-            seq_params = [mb_0_psp, mb_1_psp],
-            mlp_layout_seq_params = [mb_0_mlp_psp, mb_1_mlp_psp],
-            max_seqlen_q = max(mb_0_mlp_psp.max_seqlen_q, mb_1_mlp_psp.max_seqlen_q),
-            max_seqlen_kv = max(mb_0_mlp_psp.max_seqlen_kv, mb_1_mlp_psp.max_seqlen_kv),
+        microbatches_0, tick_per_rank_doc_lens_0 = create_pp_microbatches(
+            args.num_microbatch, pp_size, as_rank,
+            as_world_size, total_seq_len, num_seqs, cp_size,
+            hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
+            tp_size, dp_size, 
+            num_token_per_rank, num_batches, args.use_planner,  
+            return_seq_lens=True,
         )
-        num_tokens = sum(mb["position_ids"].numel() for mb in [mb_0, mb_1])
-        input_ids = torch.randint(10, 1000, (num_tokens,))
-        mb = {
-            "input_ids": input_ids,
-            "position_ids": torch.concat([mb_0["position_ids"], mb_1["position_ids"]]),
-            "packed_seq_params": ping_pong_params,
-        }
-        microbatches.append(mb)
-        packed_seq_params = PackedSeqParams(
-            qkv_format="thd",
-            cu_seqlens_q = torch.concat([
-                mb_0_mlp_psp.cu_seqlens_q, mb_1_mlp_psp.cu_seqlens_q[1:] + mb_0_mlp_psp.cu_seqlens_q[-1]
-            ]),
-            cu_seqlens_kv = torch.concat([
-                mb_0_mlp_psp.cu_seqlens_kv, mb_1_mlp_psp.cu_seqlens_kv[1:] + mb_0_mlp_psp.cu_seqlens_kv[-1]
-            ]),
-            max_seqlen_q = ping_pong_params.max_seqlen_q,
-            max_seqlen_kv = ping_pong_params.max_seqlen_kv,
+        microbatches_1, tick_per_rank_doc_lens_1 = create_pp_microbatches(
+            args.num_microbatch, pp_size, as_rank,
+            as_world_size, total_seq_len, num_seqs, cp_size,
+            hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
+            tp_size, dp_size, 
+            num_token_per_rank, num_batches, args.use_planner,
+            return_seq_lens=True,
         )
-        orig_mb = {
-            "input_ids": mb["input_ids"],
-            "position_ids": mb["position_ids"],
-            "packed_seq_params": packed_seq_params,
-        }
-        orig_impl_microbatches.append(orig_mb)
-
-    time.sleep(2)
-
-    should_run_baseline_with_dummy = False
-    should_run_baseline = True
-    should_run_d2 = True
-
-    torch.cuda.cudart().cudaProfilerStart()
-    if should_run_baseline_with_dummy:
-        for _ in range(3):
-            print(f"⚪ Start baseline dummy {_}")
-            torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-            loss_orig_reimpl, grad_orig_reimpl = worker.forward_backward_batch(
-                microbatches=orig_impl_microbatches,
-                forward_only=False,
-                mode="orig_reimpl",
-                with_dummy=True,
+        seq_lens = [tick_per_rank_doc_lens_0, tick_per_rank_doc_lens_1]
+        print(f"In test_megatron_e2e_pipeline_with_cp.py, seq_lens is: {seq_lens}")
+        set_random_seed(seed, set_megatron=True)
+        microbatches = []
+        orig_impl_microbatches = []
+        for mb_0, mb_1 in zip(microbatches_0, microbatches_1):
+            mb_0_psp = mb_0["packed_seq_params"]
+            mb_1_psp = mb_1["packed_seq_params"]
+            mb_0_mlp_psp = mb_0_psp.mlp_packed_seq_params
+            mb_1_mlp_psp = mb_1_psp.mlp_packed_seq_params
+            mb_0_psp.dispatcher_id = 0
+            mb_1_psp.dispatcher_id = 1
+            ping_pong_params = PingPangPackedSeqParams(
+                seq_params = [mb_0_psp, mb_1_psp],
+                mlp_layout_seq_params = [mb_0_mlp_psp, mb_1_mlp_psp],
+                max_seqlen_q = max(mb_0_mlp_psp.max_seqlen_q, mb_1_mlp_psp.max_seqlen_q),
+                max_seqlen_kv = max(mb_0_mlp_psp.max_seqlen_kv, mb_1_mlp_psp.max_seqlen_kv),
             )
-            torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
-            duration_ms = (end_time - start_time) * 1000
-            print(f"⚪ Finish baseline dummy {_}: {duration_ms} ms")
-
-    if should_run_baseline:
-        for _ in range(3):
-            print(f"⚪ Start baseline {_}")
-            torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-            loss_orig, grad_orig = worker.forward_backward_batch(
-                microbatches=orig_impl_microbatches,
-                forward_only=False,
-                mode="orig_reimpl",
-                with_dummy=False,
+            num_tokens = sum(mb["position_ids"].numel() for mb in [mb_0, mb_1])
+            input_ids = torch.randint(10, 1000, (num_tokens,))
+            mb = {
+                "input_ids": input_ids,
+                "position_ids": torch.concat([mb_0["position_ids"], mb_1["position_ids"]]),
+                "packed_seq_params": ping_pong_params,
+            }
+            microbatches.append(mb)
+            packed_seq_params = PackedSeqParams(
+                qkv_format="thd",
+                cu_seqlens_q = torch.concat([
+                    mb_0_mlp_psp.cu_seqlens_q, mb_1_mlp_psp.cu_seqlens_q[1:] + mb_0_mlp_psp.cu_seqlens_q[-1]
+                ]),
+                cu_seqlens_kv = torch.concat([
+                    mb_0_mlp_psp.cu_seqlens_kv, mb_1_mlp_psp.cu_seqlens_kv[1:] + mb_0_mlp_psp.cu_seqlens_kv[-1]
+                ]),
+                max_seqlen_q = ping_pong_params.max_seqlen_q,
+                max_seqlen_kv = ping_pong_params.max_seqlen_kv,
             )
-            torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
-            duration_ms = (end_time - start_time) * 1000
-            print(f"⚪ Finish baseline {_}: {duration_ms} ms")
+            orig_mb = {
+                "input_ids": mb["input_ids"],
+                "position_ids": mb["position_ids"],
+                "packed_seq_params": packed_seq_params,
+            }
+            orig_impl_microbatches.append(orig_mb)
+
+
+
+        should_run_baseline_with_dummy = False
+        should_run_baseline = False
+        should_run_d2 = True
+
+        n_repeats = 2
+
+        rank = torch.distributed.get_rank()
+
+        if should_run_baseline_with_dummy:
+
+            durations = []
+            for _ in range(n_repeats):
+                print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start baseline dummy {_}")
+                with torch.cuda.nvtx.range(f"baseline_dummy_{_}"):
+                    torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
+                    loss_orig_reimpl, grad_orig_reimpl = worker.forward_backward_batch(
+                        microbatches=orig_impl_microbatches,
+                        forward_only=False,
+                        mode="orig_reimpl",
+                        with_dummy=True,
+                    )
+                    torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
+                    duration_ms = (end_time - start_time) * 1000
+                    durations.append(duration_ms)
+                    print(f"⚪ [Rank {rank}] [sample {sample_idx}] baseline dummy {_}: {duration_ms} ms")
+            
+            with open(benchmark_log_path__baseline_with_dummy, "a") as f:
+                f.write(json.dumps({
+                    "sample_id": sample_idx,
+                    "duration_ms": duration_ms,
+                    "duration_list": durations,
+                    "seq_lens": seq_lens,
+                }) + "\n")
+
+        if should_run_baseline:
+            durations = []
+            for _ in range(n_repeats):
+                print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start baseline {_}")
+                with torch.cuda.nvtx.range(f"baseline_{_}"):
+                    torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
+                    loss_orig, grad_orig = worker.forward_backward_batch(
+                        microbatches=orig_impl_microbatches,
+                        forward_only=False,
+                        mode="orig_reimpl",
+                        with_dummy=False,
+                    )
+                    torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
+                    duration_ms = (end_time - start_time) * 1000
+                    durations.append(duration_ms)
+                    print(f"⚪ [Rank {rank}] [sample {sample_idx}] baseline {_}: {duration_ms} ms")
+            
+            with open(benchmark_log_path__baseline, "a") as f:
+                f.write(json.dumps({
+                    "sample_id": sample_idx,
+                    "duration_ms": duration_ms,
+                    "duration_list": durations,
+                    "seq_lens": seq_lens,
+                }) + "\n")
+
+        
+
+        if should_run_d2:
+            durations = []
+            for _ in range(n_repeats):
+                print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start pingpong dummy {_}")
+                with torch.cuda.nvtx.range(f"pingpong_dummy_{_}"):
+                    torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
+                    loss_reduced, grad_sample = worker.forward_backward_batch(
+                        microbatches=microbatches,
+                        forward_only=False,
+                        mode="ping_pong",
+                        with_dummy=True,
+                    )
+                    torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
+                    duration_ms = (end_time - start_time) * 1000
+                    durations.append(duration_ms)
+                    print(f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms")
+                
+            if rank == 0:
+                with open(benchmark_log_path, "a") as f:
+                    f.write(json.dumps({
+                        "sample_id": sample_idx,
+                        "duration_ms": duration_ms,
+                        "duration_list": durations,
+                        "seq_lens": seq_lens,
+                    }) + "\n")
+        
+            
+            # print(f"{loss_reduced=}, {loss_orig_reimpl=}, {loss_orig=}")
+        # torch.testing.assert_close(grad_orig_reimpl, grad_orig)
+        # if worker.as_rank == 1:
+        #     torch.testing.assert_close(grad_orig_reimpl, grad_sample, rtol=1.1e-3, atol=1.1e-3)
     
-    time.sleep(2)
-    if should_run_d2:
-        for _ in range(3):
-            print(f"⚪ Start pingpong dummy {_}")
-            torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-            loss_reduced, grad_sample = worker.forward_backward_batch(
-                microbatches=microbatches,
-                forward_only=False,
-                mode="ping_pong",
-                with_dummy=True,
-            )
-            torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
-            duration_ms = (end_time - start_time) * 1000
-            print(f"⚪ Finish pingpong with dummy {_}: {duration_ms} ms")
-        # print(f"{loss_reduced=}, {loss_orig_reimpl=}, {loss_orig=}")
     torch.cuda.synchronize()
-    # torch.testing.assert_close(grad_orig_reimpl, grad_orig)
-    # if worker.as_rank == 1:
-    #     torch.testing.assert_close(grad_orig_reimpl, grad_sample, rtol=1.1e-3, atol=1.1e-3)
-    print(f"{worker.rank} finish pingpong")
-    torch.cuda.cudart().cudaProfilerStop()
+    print(f"⚪ [Rank {rank}] [sample {sample_idx}] finish pingpong")
+    print(f"🟡 [Rank {rank}] [sample {sample_idx}] Write benchmark log to {benchmark_log_path}")
 
     print("=" * 20 + "forward_backward_batch attention server, done")
 
@@ -576,8 +671,8 @@ def test(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-tokens", type=int, default=1024)
-    parser.add_argument("--num-batches", type=int)  # this is for cp. set num_batches and num_tokens to control cp doc length.
-    parser.add_argument("--cp-degree", type=int, default=2)
+    parser.add_argument("--num-batches", type=int, default=1)  # this is for cp. set num_batches and num_tokens to control cp doc length.
+    parser.add_argument("--cp-size", type=int, default=2)
     parser.add_argument("--num-seqs", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-nodes", type=int, default=1)
@@ -586,5 +681,20 @@ if __name__ == "__main__":
     parser.add_argument("--pp-size", type=int, default=4)
     parser.add_argument("--num-microbatch", type=int, default=2)
     parser.add_argument("--use-planner", action="store_true")
+
+    # dataset sampling settings
+    parser.add_argument("--up-sample-factor", type=int, default=4)
+    parser.add_argument("--elongate-factor", type=int, default=1)
+    parser.add_argument("--filter-threshold", type=int, default=65536)
+    parser.add_argument("--filter-ratio", type=float, default=0.50)
+
+    parser.add_argument("--model-path", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
+    parser.add_argument("--num-layers", type=int, default=8)
+    parser.add_argument("--max-sample-id", type=int, default=3)
+
+
+    parser.add_argument("--output-dir", type=str, default="./logs/")
+
     args = parser.parse_args()
+    print("args: ", args)
     test(args)

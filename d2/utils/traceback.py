@@ -13,14 +13,14 @@ RESET = "\033[0m"
 should_enable_clickable_excepthook = os.environ.get("EXPERIMENT_PYTHON_BETTER_TRACEBACK", "1") == "1"
 should_trace_calls = os.environ.get("EXPERIMENT_PYTHON_DEBUG_TRACE_CALLS", "0") == "1"
 
-def clickable_excepthook(exc_type, exc_value, tb):
+def clickable_excepthook(exc_type, exc_value, tb, file=None):
     for filename, lineno, func, text in traceback.extract_tb(tb):
         path = os.path.abspath(filename)
-        print(f"{path}:{lineno}: in {func}")
+        print(f"{path}:{lineno}: in {func}", file=file)
         if text:
-            print(f"    {text}")
+            print(f"    {text}", file=file)
     # error in red
-    print(f"{RED}{exc_type.__name__}: {exc_value}{RESET}")
+    print(f"{RED}{exc_type.__name__}: {exc_value}{RESET}", file=file)
 
 def enable_clickable_excepthook():
     print("🟡 Enabling clickable excepthook.")

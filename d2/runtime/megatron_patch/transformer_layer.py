@@ -874,6 +874,7 @@ def add_ping_pang_forward(block: MegatronTransformerBlock):
         """
         For Pipeline Parallel debugging, we use single-sided to ease debugging.
         """
+        # with torch.cuda.nvtx.range("PingPangGPTModel.forward"):
         if self._ping_pang_debug:
             assert self._debug_forward_impl in ["orig", "single_sided", "orig_reimpl"], self._debug_forward_impl
             if self._debug_forward_impl == "single_sided":

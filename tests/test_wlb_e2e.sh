@@ -237,13 +237,13 @@ TORCHRUN_CMD=(
     --num-layers ${NUM_LAYERS}
 
     # TODO: 
-    # --max-sample-id ${MAX_SAMPLE_ID}
+    --max-sample-id ${MAX_SAMPLE_ID}
 
-    # --up-sample-factor ${UP_SAMPLE_FACTOR}
-    # --elongate-factor ${ELONGATE_FACTOR}
-    # --filter-threshold ${FILTER_THRESHOLD}
-    # --filter-ratio ${FILTER_RATIO}
-    # --output-dir ${OUTPUT_DIR}
+    --up-sample-factor ${UP_SAMPLE_FACTOR}
+    --elongate-factor ${ELONGATE_FACTOR}
+    --filter-threshold ${FILTER_THRESHOLD}
+    --filter-ratio ${FILTER_RATIO}
+    --output-dir ${OUTPUT_DIR}
 )
 
 # if [ ${USE_PLANNER} -eq 1 ]; then
@@ -347,7 +347,7 @@ mkdir -p ${NSYS_PATH}
 # Try the 'nsys status --environment' command to learn more.
 nsys_str=""
 if [ ${ENABLE_NSYS} -eq 1 ]; then
-  nsys_str="nsys profile --show-output=true --capture-range=cudaProfilerApi --capture-range-end=stop --force-overwrite=true -o ${NSYS_PATH}/%h.nsys-rep -t cuda,nvtx"
+  nsys_str="nsys profile --show-output=true --force-overwrite=true -o ${NSYS_PATH}/%h.nsys-rep -t cuda,nvtx"
   #  -fno-omit-frame-pointer
 fi
 

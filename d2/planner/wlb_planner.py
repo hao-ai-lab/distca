@@ -93,6 +93,13 @@ def balance_data_for_wlbllm(
 
         # rich.print(f"🟡 wlbllm replanning: new_batch = {new_batch}, new_workloads = {workloads}, new_lengths = {lengths}")
 
+        # Check each batch and ensure it is not empty.
+        for i, batch in enumerate(new_batch):
+            if len(batch) == 0:
+                pad = 128
+                batch.append(pad) # Just append a padded doc.
+                print(f"⚠️ wlbllm replanning: new_batch[{i}] is empty, padded with {pad}. This means some DP ranks are empty.")
+
 
         seq_lens = [new_batch[dp_rank]]
 
