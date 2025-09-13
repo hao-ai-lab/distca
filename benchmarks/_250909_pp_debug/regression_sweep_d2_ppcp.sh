@@ -4,9 +4,11 @@ set -e
 export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250909_pp_debug/logs
 
 # export NUM_LAYERS=8
-# export MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Llama-8B
-export MODEL_PATH=codellama/CodeLlama-34b-hf
-export NUM_LAYERS=8
+export MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+# export MODEL_PATH=codellama/CodeLlama-34b-hf
+# export NUM_LAYERS=16
+export NUM_LAYERS=16
+export NNODES=8
 
 # 
 cases=(
@@ -27,7 +29,8 @@ cases=(
     # "32 1 4 262144 d2 2 4 8" # we are slower
     
     # 🟡 Running
-    "32 2 4 262144 d2 2 4 8" # we are slower
+    # "8 2 4 262144 d2 2 4 8" # we are slower
+    # "32 2 4 262144 d2 2 4 8" # we are slower
     # "16 2 2 65536 d2 2 4 8"
     # "32 4 8 65536 d2 4 8 8"
 
@@ -58,7 +61,16 @@ export ENABLE_NSYS=1
 # export EXPERIMENT_LOG_MEMORY_USAGE=1
 export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2
 export EXPERIMENT_SKIP_FA2A_OP=0 # (DebugOnly: Ensure not stuck at fast a2a op)
+export EXPERIMENT_SKIP_OPTIMIZER_STEP=1
 
+
+cases=(
+  # (n bs mb t mode cp pp tp)
+    # "4 2 4 65536 d2 2 2 8"
+    "2 2 8 32768 d2 2 2 4"
+    # "1 1 16 16384 d2 1 2 4"
+    # "1 2 4 32768 d2 1 2 4"
+)
 max_cases=1
 echo "🏁 Start regression sweep. Only running $max_cases cases."
 cases_index=0
@@ -76,13 +88,33 @@ for config in "${cases[@]}"; do
     export PP_SIZE=$pp_size
     export TP_SIZE=$tp_size
     
-    echo "🟡 Running config: NNODES=$NNODES, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, NUM_MICROBATCH=$NUM_MICROBATCH, CP_SIZE=$CP_SIZE, PP_SIZE=$PP_SIZE, TP_SIZE=$TP_SIZE, MODE=$MODE"
+
     
+
+
+    # D2 normal
+    export MODE="d2"
+    export OUTPUT_DIR_SUFFIX_ADDON="-normal"
+    echo "🟡 Running config: NNODES=$NNODES, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, NUM_MICROBATCH=$NUM_MICROBATCH, CP_SIZE=$CP_SIZE, PP_SIZE=$PP_SIZE, TP_SIZE=$TP_SIZE, MODE=$MODE"
+    bash test_megatron_e2e_pipeline_with_cp.sh
+    echo "🟡 Finished running config: NNODES=$NNODES, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, NUM_MICROBATCH=$NUM_MICROBATCH, CP_SIZE=$CP_SIZE, PP_SIZE=$PP_SIZE, TP_SIZE=$TP_SIZE, MODE=$MODE"
+    
+
+    # WLBLLM
+    export MODE="wlbllm"
+    echo "🟡 Running config: NNODES=$NNODES, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, NUM_MICROBATCH=$NUM_MICROBATCH, CP_SIZE=$CP_SIZE, PP_SIZE=$PP_SIZE, TP_SIZE=$TP_SIZE, MODE=$MODE"
+    bash test_wlb_e2e.sh
+    echo "🟡 Finished running config: NNODES=$NNODES, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, NUM_MICROBATCH=$NUM_MICROBATCH, CP_SIZE=$CP_SIZE, PP_SIZE=$PP_SIZE, TP_SIZE=$TP_SIZE, MODE=$MODE"
+
+    # # D2 signal-only
+    # export MODE="d2"
+    # export OUTPUT_DIR_SUFFIX_ADDON="-signal"
+    # echo "🟡 Running config: NNODES=$NNODES, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, NUM_MICROBATCH=$NUM_MICROBATCH, CP_SIZE=$CP_SIZE, PP_SIZE=$PP_SIZE, TP_SIZE=$TP_SIZE, MODE=$MODE"
+    # bash test_megatron_e2e_pipeline_with_cp.sh
+    # echo "🟡 Finished running config: NNODES=$NNODES, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, NUM_MICROBATCH=$NUM_MICROBATCH, CP_SIZE=$CP_SIZE, PP_SIZE=$PP_SIZE, TP_SIZE=$TP_SIZE, MODE=$MODE"
+
     cases_index=$((cases_index + 1))
     if [ $cases_index -gt $max_cases ]; then
         break
     fi
-    sleep 2.5
-    bash test_megatron_e2e_pipeline_with_cp.sh
-    echo "🟡 Finished running config: NNODES=$NNODES, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, NUM_MICROBATCH=$NUM_MICROBATCH, CP_SIZE=$CP_SIZE, PP_SIZE=$PP_SIZE, TP_SIZE=$TP_SIZE, MODE=$MODE"
 done
