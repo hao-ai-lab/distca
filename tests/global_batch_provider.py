@@ -15,7 +15,8 @@ def setup_global_batch(
     elongate_factor=1,
     filter_threshold=64 * 1024,
     filter_ratio=0.90,
-    should_add_debug_cases=False,
+    # should_add_debug_cases=True,
+    should_add_debug_cases=True,
     change_long_doc_ratio=0.0,
     sample_name='wlbllm',
 ):
@@ -45,8 +46,22 @@ def setup_global_batch(
     if should_add_debug_cases:
         GLOBAL_BATCH = list(GLOBAL_BATCH)
         manual_case = [
-            [total_seq_len], [total_seq_len // 8] * 8,
-            [total_seq_len], [total_seq_len // 8] * 8,
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            [total_seq_len], 
+            # [total_seq_len // 8] * 8,
+            # [total_seq_len], [total_seq_len // 8] * 8,
+            # [total_seq_len], [total_seq_len // 8] * 8,
+            # [total_seq_len], [total_seq_len // 8] * 8,
         ]
         GLOBAL_BATCH = manual_case * 4 + GLOBAL_BATCH
     GLOBAL_BATCH = iter(GLOBAL_BATCH)

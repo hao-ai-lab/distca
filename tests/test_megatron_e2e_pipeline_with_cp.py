@@ -201,16 +201,18 @@ def init_megatron_e2e_test(
     return worker
 
 
-def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
-                           as_world_size: int, total_seq_len: int, num_seqs: int,
-                           max_cp_degree: int, hidden_size_q_tp: int,
-                           hidden_size_k_tp: int, element_size: int,
-                           num_head_in_dtype: int, tp_size: int, dp_size: int,
-                           num_token_per_rank: int,
-                           num_batches: int = None,
-                           use_planner: bool=False,
-                           return_seq_lens: bool=False
+def create_pp_microbatches(
+    num_microbatch: int, pp_degree: int, as_rank: int,
+    as_world_size: int, total_seq_len: int, num_seqs: int,
+    max_cp_degree: int, hidden_size_q_tp: int,
+    hidden_size_k_tp: int, element_size: int,
+    num_head_in_dtype: int, tp_size: int, dp_size: int,
+    num_token_per_rank: int,
+    num_batches: int = None,
+    use_planner: bool=False,
+    return_seq_lens: bool=False
 ):
+    # print("Create pp microbatches")
     tick_per_rank_doc_lens = None
     bwd_metadata = []
     microbatches = []
@@ -243,6 +245,7 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
             use_planner=use_planner,
             return_original_doclen=return_seq_lens,
         )
+        print(f"🟡 fa_fwd_params: {fa_fwd_params}")
         all_original_seq_lens.append(original_tick_per_rank_doc_lens)
         
         # For MLP-CP, we need to transfer List[List[int]] from CP layout back to DP, so each rank knows its number of tokens.
@@ -269,6 +272,7 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
             attn_out_fwd_metadata=attn_out_fwd_fa2a_metadata.get_slice(as_rank),
             mlp_packed_seq_params=mlp_packed_seq_params,
         )
+        print(f"🟡 [bid = {i}] ping_pang_params", ping_pang_params)
 
         # NOTE: we init input_ids at the end after creating dispatching strategy
         # and seq lens of each iteration. This is to ensure that each
@@ -360,35 +364,32 @@ def test(args):
     assert world_size % (tp_size * pp_size) == 0
     dp_size = world_size // (tp_size * pp_size)
 
-    assert args.num_microbatch >= pp_size, "num_microbatch need bigger than pp_size. Current num_microbatch: {args.num_microbatch}, pp size: {pp_size}"
+    assert args.num_microbatch >= pp_size, f"num_microbatch need bigger than pp_size. Current num_microbatch: {args.num_microbatch}, pp size: {pp_size}"
 
     # Set num_batches. 
     # If None, we use MLP-DP. will get DP number of new batches per tick.
     # If set, num_batches < dp_size && dp_size % num_batches == 0, Will get num_batches number of List per tick.
-    if False:
-        # Legacy logic to take batches -- this is not good!!
-        if not args.num_batches:
-            num_batches = dp_size
-            num_token_per_rank = args.num_tokens
-            total_seq_len = args.num_tokens # when no CP, total_seq_len == args.num_tokens
-            print(f"MLP-DP, num_batches: {num_batches}, num_token_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}")
-        else:
-            assert args.num_batches <= dp_size, "num-batches must be <= dp_size"
-            assert dp_size % args.num_batches == 0, "dp_size must be divisible by num-batches"
-            num_batches = args.num_batches
-            num_token_per_rank = args.num_tokens * num_batches // dp_size
-            total_seq_len = args.num_tokens * num_batches  # total_seq_len is max possible seq_len.
-            if args.num_batches <= dp_size:
-                print(f"MLP-CP, num_batches: {num_batches}, num_token_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}")
-    else:
-        num_token_per_rank = num_tokens * num_batches // dp_size
-        total_seq_len = num_tokens 
-        pass
+    num_token_per_rank = num_tokens * num_batches // dp_size
+    total_seq_len = num_tokens 
+
     dtype = torch.bfloat16
     element_size = dtype.itemsize
 
     max_sample_id = args.max_sample_id
     model_path = args.model_path
+
+    should_log_memory_during_warmup = (
+        os.environ.get("EXPERIMENT_SHOULD_LOG_MEMORY_DURING_WARMUP", "0") == "1"
+    )
+
+    setup_global_batch(
+        total_seq_len=num_tokens,
+        up_sample_factor=args.up_sample_factor,
+        elongate_factor=args.elongate_factor,
+        filter_threshold=args.filter_threshold,
+        filter_ratio=args.filter_ratio,
+        should_add_debug_cases=True,
+    )
     
 
     hf_config = AutoConfig.from_pretrained(model_path)
@@ -411,6 +412,7 @@ def test(args):
 
     as_world_size = worker.as_world_size
     as_rank = worker.as_rank
+    rank = torch.distributed.get_rank()
 
     # Check rank correctness
     dp_rank = mpu.get_data_parallel_rank()
@@ -422,13 +424,6 @@ def test(args):
     num_head_in_dtype = (hf_config.num_attention_heads *
                          torch.float32.itemsize // element_size // tp_size)
 
-    setup_global_batch(
-        total_seq_len=num_tokens,
-        up_sample_factor=args.up_sample_factor,
-        elongate_factor=args.elongate_factor,
-        filter_threshold=args.filter_threshold,
-        filter_ratio=args.filter_ratio,
-    )
 
     # for _ in range(20):
     #     print(f"🟡 get_next_batch: {get_next_batch(num_batches * 2)}")    
@@ -460,11 +455,15 @@ def test(args):
             return_seq_lens=True,
         )
         seq_lens = [tick_per_rank_doc_lens_0, tick_per_rank_doc_lens_1]
-        print(f"In test_megatron_e2e_pipeline_with_cp.py, seq_lens is: {seq_lens}")
+        print(f"🟡 seq_lens is: {seq_lens}")
         set_random_seed(seed, set_megatron=True)
         microbatches = []
         orig_impl_microbatches = []
         for mb_0, mb_1 in zip(microbatches_0, microbatches_1):
+            # if rank % 8 == 2:
+            print(f"🟡 [sample_idx = {sample_idx}] mb_0", mb_0)
+            print(f"🟡 [sample_idx = {sample_idx}] mb_1", mb_1)
+
             mb_0_psp = mb_0["packed_seq_params"]
             mb_1_psp = mb_1["packed_seq_params"]
             mb_0_mlp_psp = mb_0_psp.mlp_packed_seq_params
@@ -486,14 +485,17 @@ def test(args):
             }
             print(f"🟡 input_ids: {input_ids.shape}")
             microbatches.append(mb)
+
+            cu_seqlens_q = torch.concat([
+                mb_0_mlp_psp.cu_seqlens_q, mb_1_mlp_psp.cu_seqlens_q[1:] + mb_0_mlp_psp.cu_seqlens_q[-1]
+            ])
+            cu_seqlens_kv = torch.concat([
+                mb_0_mlp_psp.cu_seqlens_kv, mb_1_mlp_psp.cu_seqlens_kv[1:] + mb_0_mlp_psp.cu_seqlens_kv[-1]
+            ])
             packed_seq_params = PackedSeqParams(
                 qkv_format="thd",
-                cu_seqlens_q = torch.concat([
-                    mb_0_mlp_psp.cu_seqlens_q, mb_1_mlp_psp.cu_seqlens_q[1:] + mb_0_mlp_psp.cu_seqlens_q[-1]
-                ]),
-                cu_seqlens_kv = torch.concat([
-                    mb_0_mlp_psp.cu_seqlens_kv, mb_1_mlp_psp.cu_seqlens_kv[1:] + mb_0_mlp_psp.cu_seqlens_kv[-1]
-                ]),
+                cu_seqlens_q = cu_seqlens_q,
+                cu_seqlens_kv = cu_seqlens_kv,
                 max_seqlen_q = ping_pong_params.max_seqlen_q,
                 max_seqlen_kv = ping_pong_params.max_seqlen_kv,
             )
@@ -522,7 +524,7 @@ def test(args):
             for _ in range(n_repeats + n_warmup):
 
                 mem_ctx = nullcontext()
-                if _ < n_warmup:
+                if _ < n_warmup and should_log_memory_during_warmup:
                     mem_ctx = d2.mem.log_memory_usage_context()
                     pass
 
@@ -556,7 +558,7 @@ def test(args):
             durations = []
             for _ in range(n_repeats + n_warmup):
                 mem_ctx = nullcontext()
-                if _ < n_warmup:
+                if _ < n_warmup and should_log_memory_during_warmup:
                     mem_ctx = d2.mem.log_memory_usage_context()
                     pass
 
@@ -592,7 +594,7 @@ def test(args):
             durations = []
             for _ in range(n_repeats + n_warmup):
                 mem_ctx = nullcontext()
-                if _ < n_warmup:
+                if _ < n_warmup and should_log_memory_during_warmup:
                     mem_ctx = d2.mem.log_memory_usage_context()
                     pass
 

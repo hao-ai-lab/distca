@@ -286,7 +286,7 @@ def test(args):
     tp_size = args.tp_size
     pp_size = args.pp_size
     world_size = args.num_nodes * args.num_gpus_per_node
-    assert world_size % (tp_size * pp_size * cp_size) == 0
+    assert world_size % (tp_size * pp_size * cp_size) == 0, f"world_size: {world_size} % (tp_size * pp_size * cp_size) == 0, {world_size} % {tp_size * pp_size * cp_size} != 0"
 
     assert world_size == int(os.environ.get("WORLD_SIZE")), f"world_size: {world_size} != WORLD_SIZE: {os.environ.get('WORLD_SIZE')}"
     dp_size = world_size // (tp_size * pp_size * cp_size)
@@ -313,6 +313,7 @@ def test(args):
         elongate_factor=args.elongate_factor,
         filter_threshold=args.filter_threshold,
         filter_ratio=args.filter_ratio,
+        should_add_debug_cases=True,
     )
 
     # for _ in range(20):
@@ -372,39 +373,43 @@ def test(args):
     for sample_idx in range(max_sample_id):
 
         # Get the unbalanced microbatches from the data loader
-        unbalanced_micro_batches = get_next_batch(batch_size * 2 * num_microbatch)
-        print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
 
-        # Now WLBLLM will do its magic to balance the data chunks.
-        # Assumme DP-PP, then total is DP*PP batches, we should take
-        #     PP + dp_rank, PP * dp_size + dp_rank, ...
-        # which is also
-        #     range(dp_rank, dp_size * pp_size, pp_size)
-        #
-        #
-        # You have DP number of workers, each has PP stages, each stage has num_microbatches batches,  
-        # each microbatch has batch_size * 2 data chunk.
-        # Therefore you need to organize it as DP_size * num_microbatch
-        # Therefore, for one DP rank, you need to take num_microbatch
-        #
-        #
-        # Each dp_rank will take num_microbatch batches.
-        my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
-        print(f"🟡 my_batch_ranks: {my_batch_ranks}")
-        balanced_seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
-            dp_size * num_microbatch, my_batch_ranks, total_seq_len, batch_size, 
-            unbalanced_micro_batches, 
-            ENABLE_BALANCED_FLOS_NO_DEFER=True,
-            # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
-            model_config=hf_config, 
-        )
+        ENABLE_BALANCED_FLOS_NO_DEFER = True
+
+        if ENABLE_BALANCED_FLOS_NO_DEFER:
+            unbalanced_micro_batches = get_next_batch(batch_size * 2 * num_microbatch)
+            print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
+            my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
+            print(f"🟡 my_batch_ranks: {my_batch_ranks}")
+            balanced_seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
+                dp_size * num_microbatch, my_batch_ranks, total_seq_len, batch_size, 
+                unbalanced_micro_batches, 
+                ENABLE_BALANCED_FLOS_NO_DEFER=ENABLE_BALANCED_FLOS_NO_DEFER,
+                # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
+                model_config=hf_config, 
+            )
+        else:
+            unbalanced_micro_batches = []
+            for i in range(num_microbatch):
+                a = get_next_batch(batch_size * 2 * num_microbatch)
+                all_seq_lens.append(a)
+                b = a[
+                    dp_rank * (batch_size * 2):
+                    (dp_rank + 1) * (batch_size * 2)
+                ]
+                unbalanced_micro_batches.append(b)
+                pass
+            balanced_seq_lens = [unbalanced_micro_batches[dp_rank]]
+            new_batch = unbalanced_micro_batches
+
+            pass
         print(f"🟡 {dp_size =} * {pp_size =}, {dp_rank =}, {my_batch_ranks =}")
         print(f"🟡 balanced_seq_lens: {balanced_seq_lens}, {len(balanced_seq_lens) = }")
         assert len(balanced_seq_lens) == num_microbatch, f"len(balanced_seq_lens) == num_microbatch, {len(balanced_seq_lens)} != {num_microbatch}"
         print(f"🟡 new_batch: {new_batch}")
         
         microbatches = []
-        _all_seq_lens = []
+        all_seq_lens.append(balanced_seq_lens)
         for mb_idx, seq_lens in enumerate(balanced_seq_lens):
             # doc_lens = flatten(seq_lens)
             # TODO: (Refactor) doc lens must satisfies the TP requirement
@@ -490,7 +495,7 @@ def test(args):
             if rank % 8 == 1:
                 print(f"🟡 wlbllm.registry.set mb_idx: {mb_idx}, wlb_metadata: {wlb_metadata}")
 
-        all_seq_lens.append(_all_seq_lens)
+        
         
         set_random_seed(seed, set_megatron=True)
         
@@ -506,10 +511,13 @@ def test(args):
             print(f"[Rank {rank}] [repeat {repeat_idx}] Start running wlbllm")
 
             is_warmup = repeat_idx < max_warmup_cnt
+            should_log_memory_during_warmup = (
+                os.environ.get("EXPERIMENT_SHOULD_LOG_MEMORY_DURING_WARMUP", "0") == "1"
+            )
 
             from contextlib import nullcontext
             memory_logging_ctx = nullcontext()
-            if is_warmup:
+            if is_warmup and should_log_memory_during_warmup:
                 memory_logging_ctx = log_memory_usage_context()
                 pass
             

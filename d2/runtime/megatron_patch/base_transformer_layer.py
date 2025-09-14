@@ -1,8 +1,8 @@
 from typing import Any, Optional
-
+import time
 import torch
 from torch import Tensor
-
+import os
 from megatron.core import tensor_parallel
 from megatron.core.models.common.embeddings.rope_utils import (
     apply_rotary_pos_emb,
@@ -151,6 +151,11 @@ class TransformerLayer(MegatronTransformerLayer):
         # ==================================
         # core attention computation
         # ==================================
+        should_d2_sync_time_core_attn = os.getenv("D2_SYNC_TIME_CORE_ATTN", "0") == "1"
+        start_time = time.time()
+        if should_d2_sync_time_core_attn:
+            torch.cuda.synchronize()
+            # torch.distributed.barrier()
         log_memory_usage(f"(L{self.layer_number}) _forward_core_attn:(start)")
         if self.self_attention.checkpoint_core_attention and self.training:
             log_memory_usage(f"(L{self.layer_number}) _forward_core_attn:(before checkpointed attention forward)")
@@ -181,6 +186,15 @@ class TransformerLayer(MegatronTransformerLayer):
                 packed_seq_params=packed_seq_params,
             )
             log_memory_usage(f"(L{self.layer_number}) _forward_core_attn:(after core attention forward)")
+        if should_d2_sync_time_core_attn:
+            torch.cuda.synchronize()
+            # torch.distributed.barrier()
+        end_time = time.time()
+        duration = end_time - start_time
+        duration_ms = duration * 1000
+        
+        if should_d2_sync_time_core_attn:
+            print(f"🟡 TransformerLayer._forward_core_attn[{self.layer_number}] duration: {duration_ms:.3f} ms")
 
         if packed_seq_params is not None and packed_seq_params.qkv_format == 'thd':
             # reshape to same output shape as unpacked case
