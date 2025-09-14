@@ -566,19 +566,6 @@ def create_qkv_dispatch_pipeline_tick(
     print(f"🟡 original_cur_tick_per_rank_doc_lens: {original_cur_tick_per_rank_doc_lens}, len(original_cur_tick_per_rank_doc_lens): {len(original_cur_tick_per_rank_doc_lens)}")
 
 
-    # This should be a general function for DP and CP. But we only call it when CP: len(cur_tick_per_rank_doc_lens) <= world_size.
-    # After call this function: len(cur_tick_per_rank_doc_lens) == as_world_size
-    # For CP: 
-    #   We need to tranfer CP list to MLP list for each rank, to match forward and backward.
-    #   If we use CP list directly, the PP flip can't have an effect.
-    # Example: 
-    # DEBUG: before: cur_tick_per_rank_doc_lens = [[2048], [1], [1]], as_world_size = 4, num_token_per_rank = 1024
-    # DEBUG: after: cur_tick_per_rank_doc_lens = [[512, 512], [512, 512], [1], [1]]
-    if len(cur_tick_per_rank_doc_lens) < world_size:
-        print(f"DEBUG, before : {cur_tick_per_rank_doc_lens}")
-        cur_tick_per_rank_doc_lens = cp_list_to_mlp_list(cur_tick_per_rank_doc_lens, as_world_size=world_size, num_token_per_rank = num_token_per_rank)
-        print(f"DEBUG: after: {cur_tick_per_rank_doc_lens}")
-
     if use_planner:
         # TODO: This pp_size should really come from mpu or some module that handles the world size...
         pp_size = world_size // dp_size        # in this function, world size is actual as_world_size. pp = world_size // dp_size
@@ -616,10 +603,16 @@ def create_qkv_dispatch_pipeline_tick(
          softmax_lse_size, element_size, is_pipeline_tick=True
         )
 
-    bwd_tick_per_rank_doc_lens = create_pipeline_doclens(
-        cur_tick_per_rank_doc_lens, add_dummy=False, is_backward=True,
-        **create_pp_doclen_kwargs,
-    )
+    # CP flip logic.
+    if len(cur_tick_per_rank_doc_lens) < world_size:
+        bwd_tick_per_rank_doc_lens = _block_reverse_list(cur_tick_per_rank_doc_lens, num_batches)
+    else:
+        # None CP flip logic.
+        bwd_tick_per_rank_doc_lens = create_pipeline_doclens(
+            cur_tick_per_rank_doc_lens, add_dummy=False, is_backward=True,
+            **create_pp_doclen_kwargs,
+        )
+
     if use_planner:
         items = batch_to_items_with_dummy(batches=bwd_tick_per_rank_doc_lens, 
                                           num_tokens_per_rank=num_token_per_rank,
@@ -634,7 +627,20 @@ def create_qkv_dispatch_pipeline_tick(
      bwd_attn_metadata) = backward_from_planner_output(
          world_size, bwd_planner_out, hidden_size_q, hidden_size_k,
          softmax_lse_size, element_size,
-     )
+    )
+
+    # This should be a general function for DP and CP. But we only call it when CP: len(cur_tick_per_rank_doc_lens) <= world_size.
+    # After call this function: len(cur_tick_per_rank_doc_lens) == as_world_size
+    # For CP: 
+    #   We need to tranfer CP list to MLP list for each rank, to match forward and backward.
+    #   If we use CP list directly, the PP flip can't have an effect.
+    # Example: 
+    # DEBUG: before: cur_tick_per_rank_doc_lens = [[2048], [1], [1]], as_world_size = 4, num_token_per_rank = 1024
+    # DEBUG: after: cur_tick_per_rank_doc_lens = [[512, 512], [512, 512], [1], [1]]
+    if len(cur_tick_per_rank_doc_lens) < world_size:
+        print(f"DEBUG, before : {cur_tick_per_rank_doc_lens}")
+        cur_tick_per_rank_doc_lens = cp_list_to_mlp_list(cur_tick_per_rank_doc_lens, as_world_size=world_size, num_token_per_rank = num_token_per_rank)
+        print(f"DEBUG: after: {cur_tick_per_rank_doc_lens}")
 
     ret = (fwd_attn_metadata, bwd_attn_metadata,
             qkv_linear_to_attn_fa2a, qkv_grad_attn_to_linear_fa2a,
