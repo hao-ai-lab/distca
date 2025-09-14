@@ -586,20 +586,6 @@ def test_cp_list_to_mlp_list():
     assert result_3 == [[256, 128, 128], [256, 256], [128, 128, 128, 128], [256, 256], [8], [8], [8], [8], [8], [8], [8], [8]]
 
     # Test Big CP Case:
-    cp_list_3 = [[1376, 4080, 2288, 3376, 5264], [8], [8], [8], [8], [8], [8], [8], [8]]
-    num_token_per_rank=2048
-    result_3 = cp_list_to_mlp_list(cp_list_3, as_world_size=16, num_token_per_rank=num_token_per_rank)
-    assert result_3 == [[1376, 336, 336],
-                        [1024, 1024],
-                        [680, 680, 344, 344],
-                        [800, 800, 224, 224],
-                        [1024, 1024],
-                        [440, 440, 584, 584],
-                        [1024, 1024],
-                        [1024, 1024],
-                        [8],[8],[8],[8],[8],[8],[8],[8]]
-
-    # Test Big CP Reversed Case:
     cp_list_4 = [[8], [8], [8], [8], [8], [8], [8], [8], [1376, 4080, 2288, 3376, 5264]]
     num_token_per_rank=2048
     result_4 = cp_list_to_mlp_list(cp_list_4, as_world_size=16, num_token_per_rank=num_token_per_rank)
@@ -614,6 +600,22 @@ def test_cp_list_to_mlp_list():
         [1024, 1024],
         [1024, 1024]
     ]
+    
+    # Test Big CP Reversed Case:
+    cp_list_3 = [[1376, 4080, 2288, 3376, 5264], [8], [8], [8], [8], [8], [8], [8], [8]]
+    num_token_per_rank=2048
+    result_3 = cp_list_to_mlp_list(cp_list_3, as_world_size=16, num_token_per_rank=num_token_per_rank)
+    assert result_3 == [[1376, 336, 336],
+                        [1024, 1024],
+                        [680, 680, 344, 344],
+                        [800, 800, 224, 224],
+                        [1024, 1024],
+                        [440, 440, 584, 584],
+                        [1024, 1024],
+                        [1024, 1024],
+                        [8],[8],[8],[8],[8],[8],[8],[8]]
+
+
 
 if __name__ == "__main__":
     test_cp_list_to_mlp_list()
