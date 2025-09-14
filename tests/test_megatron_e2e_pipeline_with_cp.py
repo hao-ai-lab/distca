@@ -222,12 +222,13 @@ def create_pp_microbatches(num_microbatch: int, pp_degree: int, as_rank: int,
         # tick_per_rank_doc_lens cp list: List[List[int]] = [[8], [8], [8], [8], [256, 768],[512, 10, 502] ]
         # tick_per_rank_doc_lens mlp list: [[8], [8], [8], [8], [256, 128, 128], [256, 256], [512], [10, 502]]
 
-        tick_per_rank_doc_lens = cp_list_to_mlp_list(tick_per_rank_doc_lens, as_world_size, num_token_per_rank)
-        this_rank_num_tokens = sum(tick_per_rank_doc_lens[as_rank])
+        tick_per_rank_doc_lens_after_cp_transfer = cp_list_to_mlp_list(tick_per_rank_doc_lens, as_world_size, num_token_per_rank)
+        
+        this_rank_num_tokens = sum(tick_per_rank_doc_lens_after_cp_transfer[as_rank])
         bwd_packed_seq_params = PackedSeqParams(
             qkv_format="thd", **fa_bwd_params[as_rank]
         )
-        tensor_doc_lens = torch.tensor(tick_per_rank_doc_lens[as_rank], dtype=torch.int32)
+        tensor_doc_lens = torch.tensor(tick_per_rank_doc_lens_after_cp_transfer[as_rank], dtype=torch.int32)
         mlp_packed_seq_params = get_attn_metadata(tensor_doc_lens, get_packed_seq_params=True)
 
         # Create packed_params. Note that we do not add backward params here.
