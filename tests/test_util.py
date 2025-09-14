@@ -641,10 +641,10 @@ def create_qkv_dispatch_pipeline_tick(
     # Example: 
     # DEBUG: before: cur_tick_per_rank_doc_lens = [[2048], [1], [1]], as_world_size = 4, num_token_per_rank = 1024
     # DEBUG: after: cur_tick_per_rank_doc_lens = [[512, 512], [512, 512], [1], [1]]
-    if len(cur_tick_per_rank_doc_lens) < world_size:
-        #print(f"DEBUG, before : {cur_tick_per_rank_doc_lens}")
-        cur_tick_per_rank_doc_lens = cp_list_to_mlp_list(cur_tick_per_rank_doc_lens, as_world_size=world_size, num_token_per_rank = num_token_per_rank)
-        #print(f"DEBUG: after: {cur_tick_per_rank_doc_lens}")
+    # if len(cur_tick_per_rank_doc_lens) < world_size:
+    #     #print(f"DEBUG, before : {cur_tick_per_rank_doc_lens}")
+    #     cur_tick_per_rank_doc_lens = cp_list_to_mlp_list(cur_tick_per_rank_doc_lens, as_world_size=world_size, num_token_per_rank = num_token_per_rank)
+    #     #print(f"DEBUG: after: {cur_tick_per_rank_doc_lens}")
 
     ret = (fwd_attn_metadata, bwd_attn_metadata,
             qkv_linear_to_attn_fa2a, qkv_grad_attn_to_linear_fa2a,
