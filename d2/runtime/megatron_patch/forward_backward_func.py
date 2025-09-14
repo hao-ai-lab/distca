@@ -132,49 +132,41 @@ def forward_backward_pipelining_without_interleaving(
     """Run non-interleaved 1F1B schedule, with communication between pipeline
     stages. Returns dictionary with losses if the last stage, empty dict otherwise."""
 
-    if is_wlb_func():
-        # Patch the forward and backward step functions that swaps the wlb metadata when called.
-        def forward_step_func_with_wlb_metadata(*args, **kwargs):
-            wlb_swap_next_forward_metadata()
-            return forward_step_func(*args, **kwargs)
-
-        def backward_step_func_with_wlb_metadata(*args, **kwargs):
-            wlb_swap_next_backward_metadata()
-            return backward_step(*args, **kwargs)
-        
-        forward_step__func = forward_step_func_with_wlb_metadata
-        backward_step__func = backward_step_func_with_wlb_metadata
-    else:
-        forward_step__func = forward_step
-        backward_step__func = backward_step
-
-
-    # Add the counter of forward and backward steps.
+    # -------------------------------------------------- 
+    # Redefine the forward and backward step.
+    # -------------------------------------------------- 
+    
+    # Prepare the `forward_step__` and `backward_step__` functions.
     forward_batch_id = 0
     backward_batch_id = 0
 
-    # Add nvtx around forward/backward step
-    def forward_step__with_nvtx(*args, **kwargs):
+    def forward_step__(*args, **kwargs):
         nonlocal forward_batch_id
         with torch.cuda.nvtx.range(f"forward_step[{forward_batch_id}]"):
-            ret = forward_step__func(*args, **kwargs)
-        forward_batch_id += 1
-        return ret
+            forward_batch_id += 1
+            if is_wlb_func():
+                wlb_swap_next_forward_metadata()
+            return forward_step(*args, **kwargs)
+        pass
     
-    def backward_step__with_nvtx(*args, **kwargs):
+    def backward_step__(*args, **kwargs):
         nonlocal backward_batch_id
         with torch.cuda.nvtx.range(f"backward_step[{backward_batch_id}]"):
-            ret = backward_step__func(*args, **kwargs)
-        backward_batch_id += 1
-        return ret
-    
-    forward_step__ = forward_step__with_nvtx
-    backward_step__ = backward_step__with_nvtx
+            backward_batch_id += 1
+            if is_wlb_func():
+                wlb_swap_next_backward_metadata()
+            return backward_step(*args, **kwargs)
+        pass
 
+    def dummy_bwd_func__(*args, **kwargs):
+        nonlocal backward_batch_id
+        with torch.cuda.nvtx.range(f"backward_step(dummy)[{backward_batch_id}]"):
+            backward_batch_id += 1
+            ret = dummy_bwd_func(*args, **kwargs)
+            return ret
+        pass
 
-    
-
-
+    # --------------------------------------------------
 
     if isinstance(model, list):
         assert (
@@ -435,7 +427,7 @@ def forward_backward_pipelining_without_interleaving(
             pass
         else:
             if backward_dummy:
-                dummy_bwd_func(model)
+                dummy_bwd_func__(model)
 
             else:
 
@@ -477,7 +469,7 @@ def forward_backward_pipelining_without_interleaving(
             dummy = i + rank >= num_warmup_microbatches_including_dummy
             next_dummy = i + 1 + rank >= num_warmup_microbatches_including_dummy
             if dummy:
-                dummy_bwd_func(model)
+                dummy_bwd_func__(model)
             else:
                 # Enable async grad reduction in the last backward pass
                 # Note: If grad sync function is provided, only enable
@@ -510,7 +502,8 @@ def forward_backward_pipelining_without_interleaving(
 
         # If defer_embedding_wgrad_compute is enabled we need to do the
         # weight gradient GEMM's here.
-        finish_embedding_wgrad_compute(config, embedding_module)
+        with torch.cuda.nvtx.range("finish_embedding_wgrad_compute"):
+            finish_embedding_wgrad_compute(config, embedding_module)
 
         # Finalize model grads (perform full grad all-reduce / reduce-scatter for
         # data parallelism, layernorm all-reduce for sequence parallelism, and

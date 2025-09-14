@@ -28,7 +28,7 @@ TP_SIZE=${TP_SIZE:-$GPUS_PER_NODE}   # Tensor Parallelism size, defaults to GPUs
 TP_SIZE=${TP_SIZE:-8}
 PP_SIZE=${PP_SIZE:-1}                # Pipeline Parallelism size
 CP_SIZE=${CP_SIZE:-1}                # Only useful in WLBLLM (D2 will have DPCP anyways)
-NUM_MICROBATCH=${PP_SIZE}            # Number of microbatches per pipeline stage, has to be >= PP_SIZE - 1
+NUM_MICROBATCH=${NUM_MICROBATCH:-${PP_SIZE}}            # Number of microbatches per pipeline stage, has to be >= PP_SIZE - 1
 
 # Experiment settings
 MODE=${MODE:-d2}               # Experiment mode (baseline, dynamic, etc.)
@@ -70,13 +70,15 @@ sleep 1
 # Setup loggings and artifact directories
 # ------------------------------------------------------
 TS=$(TZ=America/Los_Angeles date +%Y%m%d_%H%M%S)
+SHORT_TS=$(TZ=America/Los_Angeles date +%d_%H%M%S)
 
 # Get the current directory of the script
 cd $HOME/jd/d2/tests
 
 # TOOD: Fix this hardcode output dir.
 OUTPUT_DIR_PREFIX=${OUTPUT_DIR_PREFIX:-"$HOME/jd/d2/tests/logs"}
-OUTPUT_DIR_SUFFIX=${OUTPUT_DIR_SUFFIX:-"$TS.job$SLURM_JOB_NAME-${JOBID}.${MODE}-cp${CP_SIZE}tp${TP_SIZE}pp${PP_SIZE}-n${NNODES}-b${BATCH_SIZE}-t${NUM_TOKENS}-mb${NUM_MICROBATCH}"}
+# OUTPUT_DIR_SUFFIX=${OUTPUT_DIR_SUFFIX:-"$TS.job$SLURM_JOB_NAME-${JOBID}.${MODE}-cp${CP_SIZE}tp${TP_SIZE}pp${PP_SIZE}-n${NNODES}-b${BATCH_SIZE}-t${NUM_TOKENS}-mb${NUM_MICROBATCH}"}
+OUTPUT_DIR_SUFFIX=${OUTPUT_DIR_SUFFIX:-"$SHORT_TS.${MODE}-cp${CP_SIZE}tp${TP_SIZE}pp${PP_SIZE}-n${NNODES}-b${BATCH_SIZE}-t${NUM_TOKENS}-mb${NUM_MICROBATCH}"}
 OUTPUT_DIR_SUFFIX_ADDON=${OUTPUT_DIR_SUFFIX_ADDON:-""}
 OUTPUT_DIR="$OUTPUT_DIR_PREFIX/$OUTPUT_DIR_SUFFIX$OUTPUT_DIR_SUFFIX_ADDON"
 mkdir -p "$OUTPUT_DIR"
@@ -235,17 +237,16 @@ TORCHRUN_CMD=(
     --num-microbatch ${NUM_MICROBATCH}
     --use-planner
     
-    # --mode ${MODE}
-    # --model-path ${MODEL_PATH}
-    # --num-layers ${NUM_LAYERS}
+    --model-path ${MODEL_PATH}
+    --num-layers ${NUM_LAYERS}
 
     # TODO: 
     --max-sample-id ${MAX_SAMPLE_ID}
 
-    # --up-sample-factor ${UP_SAMPLE_FACTOR}
-    # --elongate-factor ${ELONGATE_FACTOR}
-    # --filter-threshold ${FILTER_THRESHOLD}
-    # --filter-ratio ${FILTER_RATIO}
+    --up-sample-factor ${UP_SAMPLE_FACTOR}
+    --elongate-factor ${ELONGATE_FACTOR}
+    --filter-threshold ${FILTER_THRESHOLD}
+    --filter-ratio ${FILTER_RATIO}
     --output-dir ${OUTPUT_DIR}
 )
 

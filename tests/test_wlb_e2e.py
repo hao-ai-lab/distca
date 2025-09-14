@@ -37,6 +37,7 @@ import wlbllm.megatron_patch.pp_schedules
 from dataclasses import dataclass
 
 from d2.utils.traceback import enable_clickable_excepthook, clickable_excepthook
+from d2.mem import set_memory_usage_log_file, log_memory_usage, log_memory_usage_context, enable_memory_usage_logging
 
 enable_clickable_excepthook()
 
@@ -95,8 +96,12 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # forward_backward_func = get_forward_backward_func()
         pp_size = self.tf_config.pipeline_model_parallel_size
         pp_rank = mpu.get_pipeline_model_parallel_rank()
-        n_micro_batch = len(microbatches) - pp_size + 1
+        # n_micro_batch = len(microbatches) - pp_size + 1
+        n_micro_batch = len(microbatches)
+        print(f"🟡 n_micro_batch: {n_micro_batch}")
         # thd layout
+        # TODO: (FIXME) This is a hack to get the total sequence length, 
+        # but wlbllm has variable sequence lengths.
         total_seqlen = microbatches[0]['input_ids'].shape[0]
 
         def loss_func(output):
@@ -108,7 +113,6 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
             print(f"🟡 forward_step")
             # import traceback
             # traceback.print_stack()
-
 
             batch = next(batch_iter)
             torch.cuda.nvtx.range_push("forward_step")
@@ -155,8 +159,12 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         assert len(self.train_module) == 1, "only support one module"
 
         dummy_bwd_packed_seq_params_iter = iter(dummy_bwd_packed_seq_params)
+        # batch_generator = make_batch_generator(
+        #     microbatches if with_dummy else microbatches[pp_rank:],
+        #     vpp_size=len(self.train_module)
+        # )
         batch_generator = make_batch_generator(
-            microbatches if with_dummy else microbatches[pp_rank:],
+            microbatches, 
             vpp_size=len(self.train_module)
         )
         # if mpu.get_pipeline_model_parallel_world_size() > 1:
@@ -170,9 +178,11 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # orig_fwd_backward_func = get_forward_backward_func()
         import wlbllm.megatron_patch.pp_schedules
         orig_fwd_backward_func = wlbllm.megatron_patch.pp_schedules.forward_backward_pipelining_without_interleaving
-        print(f"🟡 orig_fwd_backward_func: {orig_fwd_backward_func}")
-        print(f"🟡 orig_fwd_backward_func location: {orig_fwd_backward_func.__module__}.{orig_fwd_backward_func.__name__}")
+        # print(f"🟡 orig_fwd_backward_func: {orig_fwd_backward_func}")
+        # print(f"🟡 orig_fwd_backward_func location: {orig_fwd_backward_func.__module__}.{orig_fwd_backward_func.__name__}")
 
+        # from d2.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving
+        # losses_reduced = forward_backward_pipelining_without_interleaving(
         losses_reduced = orig_fwd_backward_func(
             forward_step_func=forward_step,
             data_iterator=batch_generator,
@@ -233,15 +243,17 @@ def pad_doc_lens(doc_lens: list[int], cp_size: int, dp_size: int):
     return doc_lens
 
 
-from d2.mem import set_memory_usage_log_file, log_memory_usage
 
 def test(args):
     rank = os.environ.get("RANK")
+    rank = int(rank)
 
     output_dir = args.output_dir
     benchmark_log_path = os.path.join(output_dir, "benchmark.raw.jsonl")
     benchmark_final_path = os.path.join(output_dir, "benchmark.json")
     
+    log_memory_usage("test start")
+
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, "w") as f:
         # Namespace to dict
@@ -249,11 +261,7 @@ def test(args):
         json.dump(args_dict, f, indent=2)
     
     memory_usage_dir = os.path.join(output_dir, "memory_usage")
-    memory_usage_log_path = os.path.join(memory_usage_dir, f"mem.{rank}.log")
     os.makedirs(memory_usage_dir, exist_ok=True)
-    set_memory_usage_log_file(memory_usage_log_path)
-
-    log_memory_usage("test start")
     os.environ["WLBLLM_MODE"] = "1"
     seed = args.seed
 
@@ -331,6 +339,9 @@ def test(args):
     # set again to potentially adapt to the ray launch case.
     set_random_seed(seed, set_megatron=False)
 
+    enable_memory_usage_logging(memory_usage_dir)
+
+
     log_memory_usage("init worker done")
 
     # Check rank correctness
@@ -355,38 +366,63 @@ def test(args):
         
     wlbllm.registry.set("swap_metadata_fn", swap_metadata_fn)
 
-    
-    num_microbatches_including_dummy = num_microbatch + (pp_size - 1) # num_warmup_microbatches_including_dummy
-
+    # Setup the microbatches
     final_durations_ms = []
     all_seq_lens = []
     for sample_idx in range(max_sample_id):
+
+        # Get the unbalanced microbatches from the data loader
+        unbalanced_micro_batches = get_next_batch(batch_size * 2 * num_microbatch)
+        print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
+
+        # Now WLBLLM will do its magic to balance the data chunks.
+        # Assumme DP-PP, then total is DP*PP batches, we should take
+        #     PP + dp_rank, PP * dp_size + dp_rank, ...
+        # which is also
+        #     range(dp_rank, dp_size * pp_size, pp_size)
+        #
+        #
+        # You have DP number of workers, each has PP stages, each stage has num_microbatches batches,  
+        # each microbatch has batch_size * 2 data chunk.
+        # Therefore you need to organize it as DP_size * num_microbatch
+        # Therefore, for one DP rank, you need to take num_microbatch
+        #
+        #
+        # Each dp_rank will take num_microbatch batches.
+        my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
+        print(f"🟡 my_batch_ranks: {my_batch_ranks}")
+        balanced_seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
+            dp_size * num_microbatch, my_batch_ranks, total_seq_len, batch_size, 
+            unbalanced_micro_batches, 
+            ENABLE_BALANCED_FLOS_NO_DEFER=True,
+            # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
+            model_config=hf_config, 
+        )
+        print(f"🟡 {dp_size =} * {pp_size =}, {dp_rank =}, {my_batch_ranks =}")
+        print(f"🟡 balanced_seq_lens: {balanced_seq_lens}, {len(balanced_seq_lens) = }")
+        assert len(balanced_seq_lens) == num_microbatch, f"len(balanced_seq_lens) == num_microbatch, {len(balanced_seq_lens)} != {num_microbatch}"
+        print(f"🟡 new_batch: {new_batch}")
         
         microbatches = []
         _all_seq_lens = []
-        for mb_idx in range(num_microbatch): # for mb_idx in range(num_microbatch):        
+        for mb_idx, seq_lens in enumerate(balanced_seq_lens):
+            # doc_lens = flatten(seq_lens)
+            # TODO: (Refactor) doc lens must satisfies the TP requirement
+            doc_lens = (seq_lens)
+            if len(doc_lens) < dp_size:
+                # Pad the doc_lens to dp_size
+                doc_lens += [512] * (dp_size - len(doc_lens))
+                pass
+            if sum(doc_lens) % (cp_size * 2 * 8) != 0:
+                # TODO(HACK): This is a hack to ensure the doc_lens is divisible by cp_size*2.
+                sum_of_doc_lens = sum(doc_lens)
+                doc_lens[-1] += (cp_size * 2 * 8) - sum_of_doc_lens % (cp_size * 2 * 8)
+                # assert doc_lens[-1] > 0
+                pass
+            assert sum(doc_lens) % (cp_size * 2 * 8) == 0, f"sum(doc_lens)={sum(doc_lens)} must be divisible by {cp_size * 2 * 8}"
+            assert sum(doc_lens) % (cp_size * 2) == 0, f"sum(doc_lens)={sum(doc_lens)} must be divisible by {cp_size * 2}"
             
-            # This is the global batch for this iteration (including DP)
-            _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
-            _all_seq_lens.append(_seq_lens)
-            print(f"🟡 get_next_batch[{mb_idx}]: _seq_lens: {_seq_lens}")
-            
-            # Take only the DP shard of the _seq_lens
-            _seq_lens = _seq_lens[
-                dp_rank * batch_size * 2: (dp_rank + 1) * batch_size * 2
-            ]
-
-            print(f"🟡 get_next_batch[{mb_idx}] after shard by dp_rank: _seq_lens: {_seq_lens}")
-            print(f"🟡 dp_size: {dp_size}, dp_rank: {dp_rank}, batch_size: {batch_size}, total_seq_len: {total_seq_len}")
-            seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
-                dp_size, dp_rank, total_seq_len, batch_size, _seq_lens, 
-                ENABLE_BALANCED_FLOS_NO_DEFER=True,
-                # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
-                model_config=hf_config, 
-            )
-            doc_lens = flatten(seq_lens)
             print(f"🟡 balance_data_for_wlbllm[{mb_idx}]: doc_lens: {doc_lens}, seq_lens: {seq_lens}")
-            print(f"🟡 new_batch: {new_batch}")
             context_length = sum(doc_lens) # maximum possible context length is just the num_tokens
             print(f"🟡 context_length: {context_length}")
             
@@ -398,7 +434,10 @@ def test(args):
             doc_shards = wlbllm.utils.compute_per_doc_cp_shard_doc_len(
                 doc_lens, context_length, cp_size
             )
-            print(f"🟡 doc_shards: {doc_shards}")
+
+            if rank % 8 == 1:
+                print(f"🟡 doc_shards: {doc_shards}")
+            
             (
                 cu_seqlens_q_list, cu_seqlens_k_list, 
                 max_seqlen_q_list, max_seqlen_k_list, 
@@ -412,9 +451,9 @@ def test(args):
                 device=torch.cuda.current_device()
             )
 
-            # Only take the number of tokens in this rank
-            # seq_lens is already the dp_rank's doc_lens. 
-            # so here we only take the cp-shard of it.
+            # Only take the number of tokens in this rank seq_lens 
+            # is already the dp_rank's doc_lens. 
+            # So here we only take the cp-shard of it.
             input_ids = torch.randint(10, 1000, (num_tokens_this_rank,))
             print(f"🟡 input_ids: {input_ids.shape}")
             position_ids = torch.arange(num_tokens_this_rank)
@@ -428,7 +467,10 @@ def test(args):
                 max_seqlen_q_list=max_seqlen_q_list,
                 max_seqlen_kv_list=max_seqlen_k_list,
                 # global_tensor_length: 
-                global_tensor_length=(num_tokens * cp_size * 2),
+                # global_tensor_length=(num_tokens * cp_size * 2),
+                # TODO: What this value should be?
+                global_tensor_length=(context_length),
+                # context_length
             )
             packed_seq_params = WLBPackedSeqParams(
                 qkv_format="thd",
@@ -445,7 +487,8 @@ def test(args):
             }
             microbatches.append(microbatch)
             wlbllm.registry.set(mb_idx, wlb_metadata)
-            print(f"🟡 wlbllm.registry.set mb_idx: {mb_idx}, wlb_metadata: {wlb_metadata}")
+            if rank % 8 == 1:
+                print(f"🟡 wlbllm.registry.set mb_idx: {mb_idx}, wlb_metadata: {wlb_metadata}")
 
         all_seq_lens.append(_all_seq_lens)
         
@@ -453,31 +496,40 @@ def test(args):
         
         rank = torch.distributed.get_rank()
         
-        max_warmup_cnt = 0
-        max_repeat_cnt = 2
+        max_warmup_cnt = 1
+        max_repeat_cnt = 1
         durations_ms = []
         for repeat_idx in range(max_repeat_cnt + max_warmup_cnt):
             wlbllm.registry.set("forward_cnt", 0)
             wlbllm.registry.set("backward_cnt", 0)
     
             print(f"[Rank {rank}] [repeat {repeat_idx}] Start running wlbllm")
+
+            is_warmup = repeat_idx < max_warmup_cnt
+
+            from contextlib import nullcontext
+            memory_logging_ctx = nullcontext()
+            if is_warmup:
+                memory_logging_ctx = log_memory_usage_context()
+                pass
             
             with torch.cuda.nvtx.range(f"wlbllm[sample={sample_idx}][repeat={repeat_idx}]"):
-                torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-                loss, grad = worker.forward_backward_batch(
-                    microbatches=microbatches,
-                    forward_only=False,
-                    mode="orig_reimpl", # actually wlbllm
-                    with_dummy=False,
-                )
-                torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
+                with memory_logging_ctx:
+                    torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
+                    loss, grad = worker.forward_backward_batch(
+                        microbatches=microbatches,
+                        forward_only=False,
+                        mode="orig_reimpl", # actually wlbllm
+                        with_dummy=False,
+                    )
+                    torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
 
-                duration = end_time - start_time
-                duration_ms = duration * 1000
-                print(f"⚪ [Rank {rank}] [repeat {repeat_idx}] Finish running wlbllm: {duration_ms:.2f} ms")
-                if repeat_idx >= max_warmup_cnt:
-                    durations_ms.append(duration_ms)
-                    pass
+                    duration = end_time - start_time
+                    duration_ms = duration * 1000
+                    print(f"⚪ [Rank {rank}] [repeat {repeat_idx}] Finish running wlbllm: {duration_ms:.2f} ms")
+                    if repeat_idx >= max_warmup_cnt:
+                        durations_ms.append(duration_ms)
+                        pass
             time.sleep(1)
             log_memory_usage(f"forward_backward_batch:done(sample_id={sample_idx},repeat={repeat_idx})")
 
@@ -553,6 +605,7 @@ if __name__ == "__main__":
     parser.add_argument("--filter-ratio", type=float, default=0.50)
 
     args = parser.parse_args()
+    print("args: ", args)
     
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)

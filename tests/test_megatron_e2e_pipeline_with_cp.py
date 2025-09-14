@@ -30,83 +30,15 @@ from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_ra
 from megatron_test_utils import (
     gptmodel_forward, make_batch_generator, unwrap_model,
 )
+import d2.mem
+from contextlib import nullcontext
 
 
 # --------------------------------
 # Better traceback formatting
 # --------------------------------
-# TODO: Put this into some debug file
-import sys, traceback, os
-
-RED = "\033[31m"
-BLUE = "\033[34m"
-RESET = "\033[0m"
-
-def clickable_excepthook(exc_type, exc_value, tb):
-    for filename, lineno, func, text in traceback.extract_tb(tb):
-        path = os.path.abspath(filename)
-        print(f"{path}:{lineno}: in {func}")
-        if text:
-            print(f"    {text}")
-    # error in red
-    print(f"{RED}{exc_type.__name__}: {exc_value}{RESET}")
-
-if os.environ.get("EXPERIMENT_PYTHON_BETTER_TRACEBACK", "1") == "1":
-    sys.excepthook = clickable_excepthook
-
-# --------------------------------
-# Know where I get stuck
-# --------------------------------
-# TODO: Put this into some debug file
-
-import sys
-
-should_trace_calls = os.environ.get("EXPERIMENT_PYTHON_DEBUG_TRACE_CALLS", "0") == "1"
-def trace_calls(frame, event, arg):
-    if event == "call":
-        code = frame.f_code
-        print(f"--> Enter {code.co_name} ({code.co_filename}:{frame.f_lineno})")
-    elif event == "return":
-        code = frame.f_code
-        print(f"<-- Exit {code.co_name} ({code.co_filename}:{frame.f_lineno})")
-    return trace_calls
-
-import sys
-
-class TraceFunctions:
-    def __init__(self, filter_path=None):
-        self.filter_path = filter_path
-        self._oldtrace = None
-        self.indent = 0
-
-    def _trace(self, frame, event, arg):
-        if event in ("call", "return"):
-            code = frame.f_code
-            filename = code.co_filename
-            if self.filter_path and self.filter_path not in filename:
-                return
-            if event == "call":
-                print(f"{BLUE}{' ' * self.indent}--> Enter {code.co_name} ({filename}:{frame.f_lineno}){RESET}")
-                self.indent += 1
-            elif event == "return":
-                print(f"{BLUE}{' ' * self.indent}<-- Exit  {code.co_name} ({filename}:{frame.f_lineno}){RESET}")
-                self.indent -= 1
-        return self._trace
-
-    def __enter__(self):
-        self._oldtrace = sys.gettrace()
-        if not should_trace_calls:
-            return self
-        sys.settrace(self._trace)
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        sys.settrace(self._oldtrace)
-
-# if should_trace_calls:
-#     print("🟡 Enabling python debug trace calls.")
-#     sys.settrace(trace_calls)
-
+from d2.utils.traceback import enable_clickable_excepthook, enable_trace_calls
+enable_clickable_excepthook()
 
 
 
@@ -399,6 +331,10 @@ def test(args):
     cp_size = args.cp_size
     num_seqs = args.num_seqs
     num_batches = args.num_batches
+    num_layers = args.num_layers
+    if num_layers is not None:
+        # See `megatron_test_utils.py` for more details.
+        os.environ["NUM_LAYERS"] = str(num_layers)
 
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
@@ -413,6 +349,9 @@ def test(args):
         # Namespace to dict
         args_dict = vars(args)
         json.dump(args_dict, f, indent=2)
+
+    memory_usage_dir = os.path.join(output_dir, "memory_usage")
+    d2.mem.set_memory_usage_log_file(memory_usage_dir)
 
     # parallelization
     tp_size = args.tp_size
@@ -450,9 +389,7 @@ def test(args):
 
     max_sample_id = args.max_sample_id
     model_path = args.model_path
-    num_layers = args.num_layers
-    if num_layers is not None:
-        os.environ["NUM_LAYERS"] = str(num_layers)
+    
 
     hf_config = AutoConfig.from_pretrained(model_path)
     hidden_size_q = hf_config.hidden_size
@@ -570,31 +507,41 @@ def test(args):
 
 
         should_run_baseline_with_dummy = False
-        should_run_baseline = True
+        should_run_baseline = False
         should_run_d2 = True
 
-        n_repeats = 2
+        n_warmup = 1
+        n_repeats = 1
 
         rank = torch.distributed.get_rank()
+        d2.mem.enable_memory_usage_logging(memory_usage_dir)
 
         if should_run_baseline_with_dummy:
 
             durations = []
-            for _ in range(n_repeats):
+            for _ in range(n_repeats + n_warmup):
+
+                mem_ctx = nullcontext()
+                if _ < n_warmup:
+                    mem_ctx = d2.mem.log_memory_usage_context()
+                    pass
+
+
                 print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start baseline dummy {_}")
                 with torch.cuda.nvtx.range(f"baseline_dummy[sample={sample_idx}][repeat={_}]"):
-                    torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-                    loss_orig_reimpl, grad_orig_reimpl = worker.forward_backward_batch(
-                        microbatches=orig_impl_microbatches,
-                        forward_only=False,
-                        mode="orig_reimpl",
-                        with_dummy=True,
-                    )
-                    torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
-                    duration_ms = (end_time - start_time) * 1000
-                    durations.append(duration_ms)
-                    print(f"⚪ [Rank {rank}] [sample {sample_idx}] baseline dummy {_}: {duration_ms} ms")
-                    time.sleep(1)
+                    with mem_ctx:
+                        torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
+                        loss_orig_reimpl, grad_orig_reimpl = worker.forward_backward_batch(
+                            microbatches=orig_impl_microbatches,
+                            forward_only=False,
+                            mode="orig_reimpl",
+                            with_dummy=True,
+                        )
+                        torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
+                        duration_ms = (end_time - start_time) * 1000
+                        durations.append(duration_ms)
+                        print(f"⚪ [Rank {rank}] [sample {sample_idx}] baseline dummy {_}: {duration_ms} ms")
+                time.sleep(1)
             
             if rank == 0:
                 with open(benchmark_log_path__baseline_with_dummy, "a") as f:
@@ -607,21 +554,27 @@ def test(args):
 
         if should_run_baseline:
             durations = []
-            for _ in range(n_repeats):
+            for _ in range(n_repeats + n_warmup):
+                mem_ctx = nullcontext()
+                if _ < n_warmup:
+                    mem_ctx = d2.mem.log_memory_usage_context()
+                    pass
+
                 print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start baseline {_}")
                 with torch.cuda.nvtx.range(f"baseline[sample={sample_idx}][repeat={_}]"):
-                    torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-                    loss_orig, grad_orig = worker.forward_backward_batch(
-                        microbatches=orig_impl_microbatches,
-                        forward_only=False,
-                        mode="orig_reimpl",
-                        with_dummy=False,
-                    )
-                    torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
-                    duration_ms = (end_time - start_time) * 1000
-                    durations.append(duration_ms)
-                    print(f"⚪ [Rank {rank}] [sample {sample_idx}] baseline {_}: {duration_ms} ms")
-                    time.sleep(1)
+                    with mem_ctx:
+                        torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
+                        loss_orig, grad_orig = worker.forward_backward_batch(
+                            microbatches=orig_impl_microbatches,
+                            forward_only=False,
+                            mode="orig_reimpl",
+                            with_dummy=False,
+                        )
+                        torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
+                        duration_ms = (end_time - start_time) * 1000
+                        durations.append(duration_ms)
+                        print(f"⚪ [Rank {rank}] [sample {sample_idx}] baseline {_}: {duration_ms} ms")
+                time.sleep(1)
             
             if rank == 0:
                 with open(benchmark_log_path__baseline, "a") as f:
@@ -633,24 +586,31 @@ def test(args):
                     }) + "\n")
 
         
+        
 
         if should_run_d2:
             durations = []
-            for _ in range(n_repeats):
+            for _ in range(n_repeats + n_warmup):
+                mem_ctx = nullcontext()
+                if _ < n_warmup:
+                    mem_ctx = d2.mem.log_memory_usage_context()
+                    pass
+
                 print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start pingpong dummy {_}")
                 with torch.cuda.nvtx.range(f"d2[sample={sample_idx}][repeat={_}]"):
-                    torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-                    loss_reduced, grad_sample = worker.forward_backward_batch(
-                        microbatches=microbatches,
-                        forward_only=False,
-                        mode="ping_pong",
-                        with_dummy=True,
-                    )
-                    torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
-                    duration_ms = (end_time - start_time) * 1000
-                    durations.append(duration_ms)
-                    print(f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms")
-                    time.sleep(1)
+                    with mem_ctx:
+                        torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
+                        loss_reduced, grad_sample = worker.forward_backward_batch(
+                            microbatches=microbatches,
+                            forward_only=False,
+                            mode="ping_pong",
+                            with_dummy=True,
+                        )
+                        torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
+                        duration_ms = (end_time - start_time) * 1000
+                        durations.append(duration_ms)
+                        print(f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms")
+                time.sleep(1)
                 
             if rank == 0:
                 with open(benchmark_log_path, "a") as f:
@@ -697,7 +657,6 @@ if __name__ == "__main__":
     parser.add_argument("--model-path", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
     parser.add_argument("--num-layers", type=int, default=8)
     parser.add_argument("--max-sample-id", type=int, default=3)
-
 
     parser.add_argument("--output-dir", type=str, default="./logs/")
 

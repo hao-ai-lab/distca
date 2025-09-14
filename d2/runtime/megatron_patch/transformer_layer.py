@@ -963,8 +963,11 @@ class PingPangGPTModel(GPTModel):
             packed_seq_params.seq_params[1].dispatcher_id = 1
             packed_seq_params.seq_params[0].stream = self.decoder.comm_stream
             packed_seq_params.seq_params[1].stream = self.decoder.comm_stream
-        for _ in self.decoder.layers:
-            dummy_backward(self.config, packed_seq_params, dtype, device)
+        
+        with torch.cuda.nvtx.range(f"backward(with_dummy)"):
+            for i,layer in enumerate(self.decoder.layers):
+                with torch.cuda.nvtx.range(f"backward_layer[{i}]"):
+                    dummy_backward(self.config, packed_seq_params, dtype, device)
 
     def init_ping_pong_communication_ctx(self, device: torch.device):
         self.decoder.init_ping_pang_communication_ctx(device)

@@ -19,11 +19,17 @@ def get_workload(micro_batch: list[int], model_config: dict | None = None) -> in
     a = [ i / (attn_linear_breakpoint) for i in micro_batch]
     return sum(i ** 2 + i for i in a)
 
-def flatten(seq_lens: list[list[int]]) -> list[int]:
-    return [item for sublist in seq_lens for item in sublist]
+def flatten(seq_lens: list) -> list:
+    flattened = []
+    for item in seq_lens:
+        if isinstance(item, list):
+            flattened.extend(flatten(item))
+        else:
+            flattened.append(item)
+    return flattened
 
 def balance_data_for_wlbllm(
-    dp_size, dp_rank, total_seq_len, batch_size, 
+    dp_size, dp_rank: int | list[int], total_seq_len, batch_size, 
     _seq_lens, 
     ENABLE_BALANCED_FLOS_NO_DEFER = True,
     model_config: dict | None = None,
@@ -32,7 +38,7 @@ def balance_data_for_wlbllm(
     
     Args:
         dp_size: Number of data parallel ranks
-        dp_rank: Current data parallel rank
+        dp_rank: Current data parallel rank(s)
         total_seq_len: Maximum sequence length
         batch_size: Global batch size
         rank: Global rank
@@ -101,10 +107,14 @@ def balance_data_for_wlbllm(
                 print(f"⚠️ wlbllm replanning: new_batch[{i}] is empty, padded with {pad}. This means some DP ranks are empty.")
 
 
-        seq_lens = [new_batch[dp_rank]]
+        if isinstance(dp_rank, int):
+            seq_lens = [new_batch[dp_rank]]
+        else:
+            seq_lens = [new_batch[rank] for rank in dp_rank]
 
     else:
-        seq_lens = _seq_lens
+        # Ensure this is just "one bucket" out.
+        seq_lens = [flatten(_seq_lens)]
         new_batch = seq_lens
         
     return seq_lens, new_batch

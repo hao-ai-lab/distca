@@ -3,8 +3,9 @@
 # --------------------------------
 # Better traceback formatting
 # --------------------------------
-# TODO: Put this into some debug file
-import sys, traceback, os
+import sys
+import traceback
+import os
 
 RED = "\033[31m"
 BLUE = "\033[34m"
@@ -19,8 +20,16 @@ def clickable_excepthook(exc_type, exc_value, tb, file=None):
         print(f"{path}:{lineno}: in {func}", file=file)
         if text:
             print(f"    {text}", file=file)
+    
+    prefix = ""
+    try:
+        import torch
+        rank = torch.distributed.get_rank()
+        prefix = f"🔴 Rank {rank} "
+    except:
+        pass
     # error in red
-    print(f"{RED}{exc_type.__name__}: {exc_value}{RESET}", file=file)
+    print(f"{RED}{prefix}{exc_type.__name__}: {exc_value}{RESET}", file=file)
 
 def enable_clickable_excepthook():
     print("🟡 Enabling clickable excepthook.")
@@ -36,7 +45,7 @@ def trace_calls(frame, event, arg):
         print(f"<-- Exit {code.co_name} ({code.co_filename}:{frame.f_lineno})")
     return trace_calls
 
-import sys
+
 
 class TraceFunctions:
     def __init__(self, filter_path=None):
