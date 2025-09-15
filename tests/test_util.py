@@ -497,7 +497,10 @@ def create_pipeline_doclens(
         if num_batches == None:
             num_batches = dp_size
         # Not the first microbatch
-        other_pp_doc_len = ref_doc_lens[:-num_batches]
+        if ref_doc_lens[-1] == [tp_size]:
+            other_pp_doc_len = ref_doc_lens[:-dp_size]
+        else:
+            other_pp_doc_len = ref_doc_lens[:-num_batches]
     else:
         dummy_fwd_num = world_size - dp_size
         other_pp_doc_len = [[tp_size] for _ in range(dummy_fwd_num)]
