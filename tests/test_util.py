@@ -494,8 +494,10 @@ def create_pipeline_doclens(
     # Next step is based on the previous batch, move the batch. 
     # Get existing microbatch seqlens
     if ref_doc_lens is not None:
+        if num_batches == None:
+            num_batches = dp_size
         # Not the first microbatch
-        other_pp_doc_len = ref_doc_lens[:-dp_size]
+        other_pp_doc_len = ref_doc_lens[:-num_batches]
     else:
         dummy_fwd_num = world_size - dp_size
         other_pp_doc_len = [[tp_size] for _ in range(dummy_fwd_num)]
@@ -556,24 +558,9 @@ def create_qkv_dispatch_pipeline_tick(
         tp_size=tp_size,
         dp_size=dp_size,
     )
-    # for perf test. Get doc_lens from GLOBAL_BATCH
-    # This should be a general function for DP and CP. 
-    # After call this function: len(cur_tick_per_rank_doc_lens) == as_world_size
-    # For CP: 
-    #   We need to tranfer CP list to MLP list for each rank, to match forward and backward.
-    #   If we use CP list directly, the PP flip can't have an effect.
-    # Example: 
-    # DEBUG: before: cur_tick_per_rank_doc_lens = [[2048], [1], [1]], as_world_size = 4, num_token_per_rank = 1024
-    # DEBUG: after: cur_tick_per_rank_doc_lens = [[512, 512], [512, 512], [1], [1]]
 
-    if ref_doc_lens is not None:
-        per_rank_ref_doc_lens = cp_list_to_mlp_list(ref_doc_lens, as_world_size=world_size, num_token_per_rank = num_token_per_rank)
-    else:
-        per_rank_ref_doc_lens = ref_doc_lens
-    print(f"per_rank_ref_doc_lens: {per_rank_ref_doc_lens}")
-    # Input before create_pipeline_doclens should be doc_len per rank.
     cur_tick_per_rank_doc_lens, original_cur_tick_per_rank_doc_lens = create_pipeline_doclens(
-        per_rank_ref_doc_lens, add_dummy, is_backward=False, num_batches = num_batches, use_planner=use_planner,
+        ref_doc_lens, add_dummy, is_backward=False, num_batches = num_batches, use_planner=use_planner,
         **create_pp_doclen_kwargs, return_original_doclen=True,
     )
     assert isinstance(cur_tick_per_rank_doc_lens, list), f"cur_tick_per_rank_doc_lens: {cur_tick_per_rank_doc_lens} is not a list"
