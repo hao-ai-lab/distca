@@ -568,6 +568,8 @@ def create_qkv_dispatch_pipeline_tick(
 
     if ref_doc_lens is not None:
         per_rank_ref_doc_lens = cp_list_to_mlp_list(ref_doc_lens, as_world_size=world_size, num_token_per_rank = num_token_per_rank)
+    else:
+        per_rank_ref_doc_lens = ref_doc_lens
     print(f"per_rank_ref_doc_lens: {per_rank_ref_doc_lens}")
     # Input before create_pipeline_doclens should be doc_len per rank.
     cur_tick_per_rank_doc_lens, original_cur_tick_per_rank_doc_lens = create_pipeline_doclens(
