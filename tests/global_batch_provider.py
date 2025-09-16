@@ -16,7 +16,7 @@ def setup_global_batch(
     filter_threshold=64 * 1024,
     filter_ratio=0.90,
     # should_add_debug_cases=True,
-    should_add_debug_cases=True,
+    should_add_debug_cases=False,
     change_long_doc_ratio=0.0,
     sample_name='wlbllm',
 ):
