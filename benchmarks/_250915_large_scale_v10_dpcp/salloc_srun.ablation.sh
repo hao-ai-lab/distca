@@ -121,7 +121,7 @@ for config in \
     unset MIN_TOLERANCE_FACTOR
         
 
-    # Run d2 with no pingpong
+    # Run d2 with same comm and compute stream
     export MODE=d2
     export MIN_TOLERANCE_FACTOR=0.05
     export D2_SHOULD_USE_SAME_STREAM_FOR_COMM_AND_COMPUTE=1
