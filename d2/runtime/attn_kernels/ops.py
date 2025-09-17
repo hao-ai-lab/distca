@@ -164,7 +164,7 @@ def a2a_memcpy_non_cp(
 ):
     if buffer is not None:
         # Debug mode, explicitly pass the "nvshmem" buffer.
-        return _ops.a2a_memcpy_non_cp_debug(
+        return _ops.fast_a2a_memcpy_non_cp_debug(
             tensor, nvshmem_offset, seq_tokens, to_nvshmem, buffer
         )
 
@@ -175,7 +175,7 @@ def a2a_memcpy_non_cp(
         else:
             assert DispatcherWrapper.is_acquired[instance_id]
 
-    return _ops.a2a_memcpy_non_cp(
+    return _ops.fast_a2a_memcpy_non_cp(
         DispatcherWrapper.get_instance(instance_id).handle,
         tensor, nvshmem_offset, seq_tokens, to_nvshmem
     )
@@ -189,7 +189,7 @@ def a2a_memcpy_cp(
 ):
     if buffer is not None:
         # Debug mode, explicitly pass the "nvshmem" buffer.
-        return _ops.a2a_memcpy_cp_debug(
+        return _ops.fast_a2a_memcpy_cp_debug(
             tensor, do_shard, nvshmem_offset, seq_tokens, to_nvshmem, buffer
         )
 
@@ -200,7 +200,7 @@ def a2a_memcpy_cp(
         else:
             assert DispatcherWrapper.is_acquired[instance_id]
 
-    return _ops.a2a_memcpy_cp(
+    return _ops.fast_a2a_memcpy_cp(
         DispatcherWrapper.get_instance(instance_id).handle,
         tensor, do_shard, nvshmem_offset, seq_tokens, to_nvshmem
     )

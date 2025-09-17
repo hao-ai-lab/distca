@@ -18,7 +18,7 @@ from d2.runtime.attn_kernels.ops import DispatcherWrapper
 from d2.runtime.megatron.ops.fused_comm_attn import dummy_backward
 from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams
 from d2.runtime.megatron.ping_pong.tick_ops import (
-    forward_core_attn, layout_mlp_to_attn, layout_attn_to_mlp, tick_nonca_compute,
+    forward_core_attn, layout_mlp_to_attn, layout_attn_to_mlp, log_memory_usage, tick_nonca_compute,
     tick_sync
 )
 from d2.runtime.megatron.ping_pong.transformer_layer import TransformerLayer
@@ -162,7 +162,8 @@ class PingPongTransformerBlockInterface(MegatronTransformerBlock):
         arg_group_1: Dict[str, Any],
         compute_stream: torch.cuda.Stream,
     ):
-        torch.cuda.nvtx.range_push(f"PingPong.forward_layer_ping_pong[{l_no}]")
+        log_memory_usage(f"(L{l_no}) forward_layers:(start)")
+        torch.cuda.nvtx.range_push(f"PingPong.forward_layer[{l_no}]")
 
         layer = self.layers[l_no]
         prev_layer = self.layers[l_no - 1] if l_no > 0 else None
@@ -258,6 +259,7 @@ class PingPongTransformerBlockInterface(MegatronTransformerBlock):
 
         torch.cuda.nvtx.range_pop()
 
+        log_memory_usage(f"(L{l_no}) forward_layers:(end)")
         return arg_group_0, arg_group_1, hidden_states, context
 
     def forward(self, *args, **kwargs):
