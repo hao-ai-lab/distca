@@ -933,7 +933,18 @@ def test(args):
             did_pass_overflow_check = False
             required_buffer_size: list[float] = []
             can_pass_tolerance_factor: list[bool] = []
+
+            MIN_TOLERANCE_FACTOR = 0.05
+            try:
+                MIN_TOLERANCE_FACTOR = os.environ.get("MIN_TOLERANCE_FACTOR", "0.05")
+                MIN_TOLERANCE_FACTOR = float(MIN_TOLERANCE_FACTOR)
+            except ValueError:
+                pass
+
             for tolerance_factor in [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+                if tolerance_factor < MIN_TOLERANCE_FACTOR:
+                    continue
+                
                 planner = Planner(world_size, parallel_config, model_config=model_config, tolerance_factor=tolerance_factor)
                 
                 fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, is_resend_qkv=resend_qkv, verbose=verbose)
@@ -1554,11 +1565,13 @@ if __name__ == "__main__":
         rank = torch.distributed.get_rank()
         mem_snapshot_output_path = os.path.join(mem_snapshots_dir, f"memory_profile.rank{rank}.pickle")
         memory_timeline_output_path = os.path.join(mem_snapshots_dir, f"memory_profile.rank{rank}.html")
+        memory_timeline_output_raw = os.path.join(mem_snapshots_dir, f"memory_profile.rank{rank}.json.gz")
         print(f"🟡 Will save mem snapshot to: {mem_snapshot_output_path}")
         print(f"🟡 Will save mem timeline to: {memory_timeline_output_path}")
         if rank % 8 == 0:
             print("Dumping memory snapshot")
             torch.cuda.memory._dump_snapshot(mem_snapshot_output_path)
             prof.export_memory_timeline(memory_timeline_output_path, device=torch.cuda.current_device())
+            prof.export_memory_timeline(memory_timeline_output_raw, device=torch.cuda.current_device())
             print("Memory snapshot dumped")
 

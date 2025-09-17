@@ -258,6 +258,16 @@ SRUN_BASE=(
   --mem=0 # inherit the memory from the salloc
 )
 
+# SRUN_INCLUDE_NODES
+# if not "", then add `-w` with this env var
+echo "SRUN_INCLUDE_NODES=${SRUN_INCLUDE_NODES}"
+if [ -n "${SRUN_INCLUDE_NODES}" ]; then
+  SRUN_BASE+=(-w "${SRUN_INCLUDE_NODES}")
+fi
+echo srun command: 
+echo "${SRUN_BASE[@]}"
+# exit 0
+
 
 if [ ${JOBID} -ne 0 ]; then
   IS_LOCAL_RUN=${IS_LOCAL_RUN:-0}
@@ -490,9 +500,9 @@ echo_and_tee "$EXP_README" "- Elapsed time: $elapsed_time seconds"
 
 # Check if the experiment finished successfully
 if [ ! -f ${OUTPUT_DIR}/benchmark.json ]; then
-    echo "Experiment failed. The benchmark.json file does not exist."
+    echo "🔴 Experiment failed. The benchmark.json file does not exist. See $OUTPUT_DIR/slurm.stdout and the logs for more details."
 else 
-    echo "Experiment success. See the $OUTPUT_DIR/benchmark.json file."
+    echo "🟢 Experiment success. See the $OUTPUT_DIR/benchmark.json file."
 fi
 
 
