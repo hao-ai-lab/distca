@@ -10,6 +10,7 @@
 
 namespace attn {
 namespace {
+template<bool DO_SEND, bool DO_RECV>
 __global__ void spreadout_alltoallv_internode_kernel(
   // rank information
   const uint32_t this_rank,
@@ -34,8 +35,12 @@ __global__ void spreadout_alltoallv_internode_kernel(
   const uint32_t local_rank_id = this_rank % local_rank_n;
   const uint32_t server_n = rank_n / local_rank_n;
   const uint32_t inter_node_rank_n = rank_n - local_rank_n;
+  const bool do_send = DO_SEND && (warp_id == 0);
+  const bool do_recv = DO_RECV && (
+    (warp_id == 1) || (!DO_SEND && warp_id == 0)
+  );
 
-  if (warp_id == 0) {
+  if (do_send) {
     //use warp 0 in block 0 to do inter-node transfer
     for (uint step = 1; step < server_n; step ++){
       const uint32_t dst_server_id = (server_id + step) % server_n;
@@ -78,7 +83,8 @@ __global__ void spreadout_alltoallv_internode_kernel(
       nvshmemx_signal_op(&sync_signal[this_rank], 1, NVSHMEM_SIGNAL_ADD, send_rank_id);
     }
     nvshmem_quiet();
-  } else if (warp_id == 1) {
+  }
+  if (do_recv) {
     for (uint i = lane_id; i < inter_node_rank_n; i += THREAD_N_PER_WARP){
       const uint32_t src_rank = ((server_id + 1) * local_rank_n + i) % rank_n;
       // + 1 is because we've added a signal to all ranks to avoid no
@@ -150,7 +156,8 @@ int launch_alltoallv(
   int64_t my_rank_recv_offset,
   int64_t my_rank_send_sz,
   cudaStream_t stream,
-  int64_t buffer_size
+  int64_t buffer_size,
+  bool separate_send_recv
 ) {
   int device_id = -1;
   CUDACHECK(cudaGetDevice(&device_id));
@@ -170,15 +177,36 @@ int launch_alltoallv(
     &do_print,
     &buffer_size
   };
-  dim3 inter_grid(1, 1, 1), inter_block(THREAD_N_PER_2WARP, 1, 1);
-  CUDACHECK(cudaLaunchKernel(
-    (void *)&spreadout_alltoallv_internode_kernel,
+  dim3 inter_grid(1, 1, 1);
+  if (separate_send_recv) {
+    dim3 inter_block(THREAD_N_PER_WARP, 1, 1);
+    CUDACHECK(cudaLaunchKernel(
+      (void *)&spreadout_alltoallv_internode_kernel<true, false>,
       inter_grid,
       inter_block, 
       inter_args,
       0,
       stream
     ));
+    CUDACHECK(cudaLaunchKernel(
+      (void *)&spreadout_alltoallv_internode_kernel<false, true>,
+      inter_grid,
+      inter_block, 
+      inter_args,
+      0,
+      stream
+    ));
+  } else {
+    dim3 inter_block(THREAD_N_PER_2WARP, 1, 1);
+    CUDACHECK(cudaLaunchKernel(
+      (void *)&spreadout_alltoallv_internode_kernel<true, true>,
+      inter_grid,
+      inter_block, 
+      inter_args,
+      0,
+      stream
+      ));
+  }
   // The local communication
   CUDACHECK(cudaMemcpyAsync(
     buf->recv_buffer + my_rank_recv_offset,
@@ -187,7 +215,6 @@ int launch_alltoallv(
     cudaMemcpyDeviceToDevice,
     stream
   ));
-  // CUDACHECK(cudaStreamSynchronize(stream1));
   return NVSHMEMX_SUCCESS;
 }
 
