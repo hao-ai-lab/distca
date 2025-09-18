@@ -87,7 +87,7 @@ class PerDocumentCPAttention(torch.autograd.Function):
         should_sync_time_flash_attn = os.getenv("WLBLLM_SYNC_TIME_FLASH_ATTN", "0") == "1"
         should_sync_time_perdocattn = os.getenv("WLBLLM_SYNC_TIME_PERDOC_ATTN", "0") == "1"
         should_sync_time_ag = os.getenv("WLBLLM_SYNC_TIME_AG", "0") == "1"
-        ENABLE_SHUFFLE = os.getenv("WLBLLM_ENABLE_SHUFFLE", "1") == "1"
+        ENABLE_SHUFFLE = os.getenv("WLBLLM_ENABLE_SHUFFLE", "0") == "1"
 
         if should_sync_time_perdocattn:
             torch.cuda.synchronize()
