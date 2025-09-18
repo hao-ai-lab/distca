@@ -239,23 +239,13 @@ def fast_a2a(
 
 
 
-    # FIXME: The csrc should be updated with the `split` flag to split send and recv.
-    # Right now if you compile on main, with this flag specified, it will fail - and tell you there's an argument missing.
-    if should_fa2a_split_sendrecv:
-        ret = _ops.fast_a2a(
-            FastDispatcherWrapper.get_instance(instance_id).handle,
-            sender_send_disp, sender_transfer_sz,
-            sender_recv_disp, recver_transfer_sz,
-            my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
-            True
-        )
-    else:
-        ret = _ops.fast_a2a(
-            FastDispatcherWrapper.get_instance(instance_id).handle,
-            sender_send_disp, sender_transfer_sz,
-            sender_recv_disp, recver_transfer_sz,
-            my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
-        )
+    ret = _ops.fast_a2a(
+        FastDispatcherWrapper.get_instance(instance_id).handle,
+        sender_send_disp, sender_transfer_sz,
+        sender_recv_disp, recver_transfer_sz,
+        my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
+        True
+    )
 
     return ret
 
