@@ -102,7 +102,7 @@ for config in "${configs[@]}"; do
     export CHANGE_LONG_DOC_RATIO=$change_long_doc_ratio
     export ATTN_LINEAR_BREAKPOINT=$attn_linear_breakpoint
     export NUM_LAYERS=$num_layers
-    export CP_SIZE=$CP_SIZE
+    export CP_SIZE=$cp_size
 
     
     if [ "$mode" == "d2" ]; then
