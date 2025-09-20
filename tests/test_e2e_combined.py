@@ -10,6 +10,11 @@ Usage:
 ```bash
 bash test_e2e_combined.multi.sh <rzv_endpoint> <n_nodes>
 ```
+
+EXPERIMENT_D2_BALANCE_PING_PONG=1 NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 NUM_LAYERS=4 \
+/mnt/moonfs/pangbo-m2/tools/bin/nsys profile -o /home/pangbo/nsys_reports/dpcp_mb_reorder.nsys-rep \
+--trace=cuda,nvtx,osrt,cudnn,cublas --force-overwrite true \
+torchrun --nnodes=1 --nproc_per_node=4 /home/pangbo/d2/tests/test_e2e_combined.py --mode d2 --num-gpus-per-node 4 --batch-size 2 --num-tokens 2048 >> dpcp_mb_reorder.log
 """
 import time
 start_time__ = time.time()
@@ -496,6 +501,10 @@ def setup_global_batch(
             [total_seq_len // 4 * 3 - 512, 512, total_seq_len // 4],
             [total_seq_len // 4 * 3 - 512, 512, total_seq_len // 4],
         ]
+        manual_case = [
+            [total_seq_len],
+            [total_seq_len // 16] * 16,
+        ]
         GLOBAL_BATCH = manual_case + GLOBAL_BATCH
         GLOBAL_BATCH = iter(GLOBAL_BATCH)
     return
@@ -557,6 +566,7 @@ def test(args):
     should_add_debug_cases = args.should_add_debug_cases
     resend_qkv = args.should_resend_qkv
     sample_start_idx = args.sample_start_idx
+    dp_size = None  
     if num_layers is not None:
         os.environ["NUM_LAYERS"] = str(num_layers)
 
@@ -892,24 +902,14 @@ def test(args):
             except StopIteration:
                 break
             
-            # Rebalance Ping pong
-            def balance_ping_pong(seq_lens: list[list[int]]) -> list[list[int]]:
-                # taking a list of batch, and interleave them by sorted workload.
-                sorted_attn_workload = sorted(seq_lens, key=lambda x: sum(y ** 2 for y in x))
-                ping = []
-                pong = []
-                for batch in sorted_attn_workload:
-                    if len(ping) < len(pong):
-                        ping.append(batch)
-                    else:
-                        pong.append(batch)
-                assert len(ping) == len(pong)
-                return ping, pong
+
                 
             rich.print(f"🟡 [Rank {rank}] _seq_lens = {_seq_lens}")
 
             should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
             if should_d2_balance_ping_pong:
+                # Rebalance Ping pong
+                from global_batch_provider import balance_ping_pong
                 print(f"🟢 [Rank {rank}] Balancing ping pong")
                 seq_lens_0, seq_lens_1 = balance_ping_pong(_seq_lens)
             else:

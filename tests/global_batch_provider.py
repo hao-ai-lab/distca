@@ -82,3 +82,25 @@ def get_next_batch(dp_size):
     ITERATION_ID += 1
     iterated_samples.append(batches)
     return batches
+
+
+def balance_ping_pong(seq_lens: list[list[int]]) -> tuple[list[list[int]], list[list[int]]]:
+    def batch_flops(batch):
+        return sum(y ** 2 // 2 for y in batch)
+
+    assert len(seq_lens) % 2 == 0, f"ping pong should have even number of batches, but got {len(seq_lens)} batches, seq_lens={seq_lens}"
+    sorted_batches = sorted(seq_lens, key=batch_flops, reverse=True)
+    ping, pong = [], []
+    ping_flops, pong_flops = 0, 0
+    avg_num_batches = len(seq_lens) // 2
+
+    for batch in sorted_batches:
+        if (ping_flops <= pong_flops and len(ping) < avg_num_batches) or len(pong) >= avg_num_batches:
+            ping.append(batch)
+            ping_flops += batch_flops(batch)
+        else:
+            pong.append(batch)
+            pong_flops += batch_flops(batch)
+
+    assert len(ping) == len(pong) == avg_num_batches, f"ping batches={ping}, pong batches={pong}"
+    return ping, pong
