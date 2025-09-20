@@ -29,7 +29,7 @@ print(f"[Rank {rank}] init_torch_distributed done")
 
 # worker.init_nvshmem(buffer_size, local_rank=local_rank)
 from d2.runtime.attn_kernels.ops import (
-    nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, FastDispatcherWrapper
+    nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, DispatcherWrapper
 )
 print(f"[Rank {rank}] ====== init_nvshmem ======")
 if rank == 0:
@@ -43,8 +43,8 @@ torch.distributed.broadcast(uid, src=0)
 torch.distributed.barrier()
 # print(f"[Rank {rank}] uid = {uid}")
 
-print("FastDispatcherWrapper.init")
-FastDispatcherWrapper.init(
+print("DispatcherWrapper.init")
+DispatcherWrapper.init(
     rank, local_rank, world_size, buffer_size, uid
 )
 print(f"[Rank {rank}] ====== init_nvshmem done ======")

@@ -35,6 +35,7 @@ def nvshmem_init(uid: torch.Tensor, rank: int, world_size: int, local_rank: int=
     import traceback
     # traceback.print_stack()
     print("nvshmem_init passed barrier.")
+    global _is_nvshmem_initialized
     _is_nvshmem_initialized = True
     return status
 
@@ -70,9 +71,9 @@ def nvshmem_barrier_all_on_current_stream() -> None:
 
 
 #### Fast dispatch
-class FastDispatcherWrapper:
+class DispatcherWrapper:
     instance: Tuple[
-        "FastDispatcherWrapper", "FastDispatcherWrapper"
+        "DispatcherWrapper", "DispatcherWrapper"
     ] = None
     is_acquired: list[bool] = [False, False]
     cur_instance: int = 0
@@ -110,26 +111,26 @@ class FastDispatcherWrapper:
         # NOTE: local_rank here is currently disabled, because we don't
         # consider intra-rank communication here.
         nvshmem_init(uid, rank, world_size, local_rank)
-        FastDispatcherWrapper.instance = [FastDispatcherWrapper(
+        DispatcherWrapper.instance = [DispatcherWrapper(
             rank, local_rank, world_size, buffer_size
         ) for _ in range(2)]
 
     @staticmethod
-    def get_instance(instance_id: int=None) -> "FastDispatcherWrapper":
-        assert FastDispatcherWrapper.instance is not None, "DispatcherWrapper not initialized"
-        instance_id = instance_id if instance_id is not None else FastDispatcherWrapper.cur_instance
-        return FastDispatcherWrapper.instance[instance_id]
+    def get_instance(instance_id: int=None) -> "DispatcherWrapper":
+        assert DispatcherWrapper.instance is not None, "DispatcherWrapper not initialized"
+        instance_id = instance_id if instance_id is not None else DispatcherWrapper.cur_instance
+        return DispatcherWrapper.instance[instance_id]
 
     @staticmethod
     def switch_buffer():
-        FastDispatcherWrapper.cur_instance = (FastDispatcherWrapper.cur_instance + 1) % 2
+        DispatcherWrapper.cur_instance = (DispatcherWrapper.cur_instance + 1) % 2
 
     @staticmethod
     def update_buffer_size(buffer_size: int):
         # sync to ensure that all operations on the buffer are done.
         torch.cuda.synchronize()
-        for iid, instance in enumerate(FastDispatcherWrapper.instance):
-            assert not FastDispatcherWrapper.is_acquired[iid]
+        for iid, instance in enumerate(DispatcherWrapper.instance):
+            assert not DispatcherWrapper.is_acquired[iid]
             instance._update_buffer_size(buffer_size)
 
     # Acquire and release a dispatcher's receive buffer. Note that we do not
@@ -138,26 +139,25 @@ class FastDispatcherWrapper:
     # the remote receive buffer is ready as well.
     def acquire(instance_id: int):
         # TODO: acquire should be on the same stream as the all2all. Try to check it.
-        assert not FastDispatcherWrapper.is_acquired[instance_id]
-        FastDispatcherWrapper.is_acquired[instance_id] = True
+        assert not DispatcherWrapper.is_acquired[instance_id]
+        DispatcherWrapper.is_acquired[instance_id] = True
         torch.cuda.current_stream().wait_event(
-            FastDispatcherWrapper.get_instance(instance_id).release_event
+            DispatcherWrapper.get_instance(instance_id).release_event
         )
-        # TODO:(Hack) for perf test don't do anything
-        _ops.wait_and_consume_buffer(FastDispatcherWrapper.get_instance(instance_id).handle)
+        _ops.wait_and_consume_buffer(DispatcherWrapper.get_instance(instance_id).handle)
 
     def release(instance_id: int):
-        assert FastDispatcherWrapper.is_acquired[instance_id]
-        FastDispatcherWrapper.is_acquired[instance_id] = False
-        stream = FastDispatcherWrapper.comm_stream
+        assert DispatcherWrapper.is_acquired[instance_id]
+        DispatcherWrapper.is_acquired[instance_id] = False
+        stream = DispatcherWrapper.comm_stream
         compute_stream = torch.cuda.current_stream()
         with torch.cuda.stream(stream):
             stream.wait_stream(compute_stream)
-            _ops.release_buffer(FastDispatcherWrapper.get_instance(instance_id).handle)
-        FastDispatcherWrapper.get_instance(instance_id).release_event.record(stream)
+            _ops.release_buffer(DispatcherWrapper.get_instance(instance_id).handle)
+        DispatcherWrapper.get_instance(instance_id).release_event.record(stream)
 
 
-def fast_a2a_memcpy_non_cp(
+def a2a_memcpy_non_cp(
     tensor: torch.Tensor, nvshmem_offset: torch.Tensor,
     seq_tokens: torch.Tensor, to_nvshmem: bool,
     buffer: Optional[torch.Tensor]=None, instance_id: int=None
@@ -171,17 +171,17 @@ def fast_a2a_memcpy_non_cp(
     if instance_id is not None:
         if to_nvshmem:
             # Ensure a strong order that "post_a2a_memcpy - release - pre_a2a_memcpy"
-            assert not FastDispatcherWrapper.is_acquired[instance_id]
+            assert not DispatcherWrapper.is_acquired[instance_id]
         else:
-            assert FastDispatcherWrapper.is_acquired[instance_id]
+            assert DispatcherWrapper.is_acquired[instance_id]
 
     return _ops.fast_a2a_memcpy_non_cp(
-        FastDispatcherWrapper.get_instance(instance_id).handle,
+        DispatcherWrapper.get_instance(instance_id).handle,
         tensor, nvshmem_offset, seq_tokens, to_nvshmem
     )
 
 
-def fast_a2a_memcpy_cp(
+def a2a_memcpy_cp(
     tensor: torch.Tensor, do_shard: torch.Tensor,
     nvshmem_offset: torch.Tensor, seq_tokens: torch.Tensor,
     to_nvshmem: bool, buffer: Optional[torch.Tensor]=None,
@@ -196,12 +196,12 @@ def fast_a2a_memcpy_cp(
     if instance_id is not None:
         if to_nvshmem:
             # Ensure a strong order that "post_a2a_memcpy - release - pre_a2a_memcpy"
-            assert not FastDispatcherWrapper.is_acquired[instance_id]
+            assert not DispatcherWrapper.is_acquired[instance_id]
         else:
-            assert FastDispatcherWrapper.is_acquired[instance_id]
+            assert DispatcherWrapper.is_acquired[instance_id]
 
     return _ops.fast_a2a_memcpy_cp(
-        FastDispatcherWrapper.get_instance(instance_id).handle,
+        DispatcherWrapper.get_instance(instance_id).handle,
         tensor, do_shard, nvshmem_offset, seq_tokens, to_nvshmem
     )
 
@@ -217,9 +217,9 @@ def fast_a2a(
     should_fa2a_split_sendrecv = os.environ.get("EXPERIMENT_FA2A_SPLIT_SENDRECV", "0") == "1"
     
     if instance_id is not None:
-        assert not FastDispatcherWrapper.is_acquired[instance_id]
+        assert not DispatcherWrapper.is_acquired[instance_id]
         # acquiring here ensures the sync in acquire is always on the same stream as all2all
-        FastDispatcherWrapper.acquire(instance_id)
+        DispatcherWrapper.acquire(instance_id)
 
     if should_fa2a_barrier:
         rank = torch.distributed.get_rank()
@@ -229,7 +229,7 @@ def fast_a2a(
         torch.distributed.barrier()
         if rank == 0:
             print("🛑 enabled fast_a2a barrier - passed")
-    
+
     if should_skip_fa2a_op:
         # Use a module-level variable to track if we've printed the message
         if not hasattr(fast_a2a, '_printed_skip_message'):
@@ -237,10 +237,8 @@ def fast_a2a(
             fast_a2a._printed_skip_message = True
         return
 
-
-
     ret = _ops.fast_a2a(
-        FastDispatcherWrapper.get_instance(instance_id).handle,
+        DispatcherWrapper.get_instance(instance_id).handle,
         sender_send_disp, sender_transfer_sz,
         sender_recv_disp, recver_transfer_sz,
         my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
@@ -260,7 +258,7 @@ def _debug_dump_buffer(
     get_send = dump_target == "send"
     get_recv = dump_target == "recv"
     get_signal = dump_target == "signal"
-    instance = FastDispatcherWrapper.get_instance(instance_id)
+    instance = DispatcherWrapper.get_instance(instance_id)
     out_tensor = torch.zeros(
         (instance.buffer_size // buffer_dtype.itemsize,),
         dtype=buffer_dtype, device=device

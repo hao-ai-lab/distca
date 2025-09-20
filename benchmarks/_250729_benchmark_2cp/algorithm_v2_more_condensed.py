@@ -562,7 +562,7 @@ def item_to_metadata(
     q_to_num_kv_tokens = kv_context_size + cp_seq_lens
     
     # Step 4: Convert tensors to metadata using the fast alltoall method
-    from d2.runtime.fast_alltoall_metadata import compute_e2e_fa2a_metadata
+    from d2.runtime.metadata import compute_e2e_fa2a_metadata
     
     ret = compute_e2e_fa2a_metadata(
         mlp_seq_len=seq_lens, 

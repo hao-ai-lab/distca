@@ -1,7 +1,7 @@
 import torch
 
 from d2.runtime.attn_kernels.ops import (
-    fast_a2a_memcpy_non_cp, fast_a2a_memcpy_cp
+    a2a_memcpy_non_cp, a2a_memcpy_cp
 )
 from d2.runtime.compute_metadata import from_planner_output
 
@@ -68,7 +68,7 @@ def test(args):
             hidden_size_q, element_size, is_send=True
         )
         src_shard_out = src_shard.clone()
-        fast_a2a_memcpy_non_cp(
+        a2a_memcpy_non_cp(
             q_shard.cuda(), q_src_offsets.long().cuda(), q_src_seqlen.long().cuda(),
             to_nvshmem=True, buffer=src_shard_out.cuda()
         )
@@ -82,7 +82,7 @@ def test(args):
             send_mask, is_send=True,
         )
         do_shard = send_mask.to(torch.int8).cuda()
-        fast_a2a_memcpy_cp(
+        a2a_memcpy_cp(
             k_shard.cuda(), do_shard, k_src_offsets.long().cuda(),
             kv_src_seqlen.long().cuda(), to_nvshmem=True,
             buffer=src_shard_out
@@ -96,7 +96,7 @@ def test(args):
             send_mask, is_send=True,
         )
         src_buffer[rank] = src_shard_cor
-        fast_a2a_memcpy_cp(
+        a2a_memcpy_cp(
             v_shard.cuda(), do_shard, v_src_offsets.long().cuda(),
             kv_src_seqlen.long().cuda(), to_nvshmem=True,
             buffer=src_shard_out
@@ -139,7 +139,7 @@ def test(args):
             recv_seqlen_q, hidden_size_q, element_size, is_send=False,
         )
         dst_q_shard_out = dst_q_shard.clone()
-        fast_a2a_memcpy_non_cp(
+        a2a_memcpy_non_cp(
             dst_q_shard_out, q_recv_offsets.long().cuda(), 
             recv_seqlen_q.long().cuda(), to_nvshmem=False, buffer=dst_shard.cuda()
         )
@@ -153,7 +153,7 @@ def test(args):
             recv_seqlen_kv, hidden_size_k, element_size, is_send=False,
         )
         dst_k_shard_out = dst_k_shard.clone()
-        fast_a2a_memcpy_non_cp(
+        a2a_memcpy_non_cp(
             dst_k_shard_out, k_recv_offsets.long().cuda(),
             recv_seqlen_kv.long().cuda(), to_nvshmem=False, buffer=dst_shard.cuda()
         )
@@ -191,7 +191,7 @@ def test(args):
             tensor_k[rank]
         )
         grad_k_shard_out = grad_k_shard.clone()
-        fast_a2a_memcpy_cp(
+        a2a_memcpy_cp(
             grad_k_shard_out.cuda(), grad_do_shard,
             grad_k_recv_offsets.long().cuda(),
             grad_seqlen_kv.long().cuda(),

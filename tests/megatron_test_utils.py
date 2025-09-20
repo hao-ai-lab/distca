@@ -20,7 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import PretrainedConfig
 
-from d2.runtime.megatron_patch.model_patch import get_gpt_decoder_block_spec, PingPangGPTModel
+from d2.runtime.megatron.model_patch import get_gpt_decoder_block_spec
+from d2.runtime.megatron.ping_pong.transformer_block import PingPongGPTModel
 
 from test_util import get_torch_device, get_device_name
 
@@ -426,7 +427,7 @@ class BaseModelInitializer(ABC):
         share_embeddings_and_output_weights: bool = False,
         value: bool = False,
         **extra_kwargs,
-    ) -> PingPangGPTModel:
+    ) -> PingPongGPTModel:
         """Initialize a GPT model with the given configuration.
         https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/models/gpt/gpt_model.py
 
@@ -442,7 +443,7 @@ class BaseModelInitializer(ABC):
         transformer_layer_spec = self.get_transformer_layer_spec()
         rope_scaling_args = self.get_rope_scaling_args()
         mtp_block_spec = extra_kwargs.get("mtp_block_spec", None)
-        model = PingPangGPTModel(
+        model = PingPongGPTModel(
             config=self.tfconfig,
             transformer_layer_spec=transformer_layer_spec,
             vocab_size=self.hf_config.vocab_size,

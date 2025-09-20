@@ -6,8 +6,8 @@ from typing import Tuple
 from flash_attn.flash_attn_interface import (
     _wrapped_flash_attn_varlen_forward, _wrapped_flash_attn_varlen_backward
 )
-from d2.runtime.attn_kernels.ops import FastDispatcherWrapper, fast_a2a
-from d2.runtime.megatron_patch.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
+from d2.runtime.attn_kernels.ops import DispatcherWrapper, fast_a2a
+from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.transformer.transformer_config import TransformerConfig
 import torch
@@ -15,12 +15,11 @@ from torch import Tensor
 
 from d2.runtime.attn_kernels.dispatch import (
     # fwd send attn_out, bwd send qkv grad
-    post_fast_a2a_attn_out, pre_fast_a2a_attn_out_grad_resend_qkv, pre_fast_a2a_attn_out_with_lse, pre_fast_a2a_qkv,
+    post_a2a_attn_out, pre_a2a_attn_out_grad_resend_qkv, pre_a2a_attn_out_with_lse, pre_a2a_qkv,
     # bwd recv attn_out_grad and qkv, fwd recv qkv
-    post_fast_a2a_attn_out_grad_resend_qkv, post_fast_a2a_qkv,
+    post_a2a_attn_out_grad_resend_qkv, post_a2a_qkv,
 )
-from d2.runtime.fast_alltoall_metadata import FastAlltoAllMetadata
-import os
+from d2.runtime.metadata import AlltoAllMetadata
 
 # is_deterministic = (os.environ.get("NVTE_ALLOW_NONDETERMINISTIC_ALGO", "0") == "0")
 # if is_deterministic:
@@ -192,10 +191,10 @@ class FusedCommAttn(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx, signal: Tensor,
-        fwd_qkv_metadata: FastAlltoAllMetadata,
-        bwd_qkv_metadata: FastAlltoAllMetadata,
-        fwd_attn_out_metadata: FastAlltoAllMetadata,
-        bwd_attn_out_qkv_metadata: FastAlltoAllMetadata,
+        fwd_qkv_metadata: AlltoAllMetadata,
+        bwd_qkv_metadata: AlltoAllMetadata,
+        fwd_attn_out_metadata: AlltoAllMetadata,
+        bwd_attn_out_qkv_metadata: AlltoAllMetadata,
         fwd_fa_params: PackedSeqParams,
         bwd_fa_params: PackedSeqParams,
         dispatcher_id: int,
@@ -210,7 +209,7 @@ class FusedCommAttn(torch.autograd.Function):
         recv_q = torch.empty(recv_q_shape, dtype=signal.dtype, device=signal.device)
         recv_k = torch.empty(recv_k_shape, dtype=signal.dtype, device=signal.device)
         recv_v = torch.empty_like(recv_k)
-        post_fast_a2a_qkv(
+        post_a2a_qkv(
             recv_q, recv_k, recv_v, None,
             fwd_qkv_metadata.seq_lens[0].recv_seqlens, fwd_qkv_metadata.seq_lens[1].recv_seqlens,
             *fwd_qkv_metadata.recv_memcpy_metadata,
@@ -244,7 +243,7 @@ class FusedCommAttn(torch.autograd.Function):
         assert attn_out.shape == recv_q.shape
         softmax_lse_dtype = softmax_lse.dtype
         softmax_lse = softmax_lse.T.contiguous()
-        attn_out = pre_fast_a2a_attn_out_with_lse(
+        attn_out = pre_a2a_attn_out_with_lse(
             attn_out, softmax_lse, fwd_attn_out_metadata.seq_lens[0].send_seqlens,
             fwd_attn_out_metadata.send_memcpy_metadata[0],
             dispatcher_id,
@@ -282,9 +281,9 @@ class FusedCommAttn(torch.autograd.Function):
             recv_k_shape, dtype=signal_grad.dtype, device=signal_grad.device
         )
         recv_v = torch.empty_like(recv_k)
-        torch.cuda.nvtx.range_push("post_fast_a2a_attn_out_grad_resend_qkv")
+        torch.cuda.nvtx.range_push("post_a2a_attn_out_grad_resend_qkv")
         (recv_attn_out_grad, recv_attn_out, recv_lse, recv_q, recv_k, recv_v
-         ) = post_fast_a2a_attn_out_grad_resend_qkv(
+         ) = post_a2a_attn_out_grad_resend_qkv(
             ctx.attn_out_shape, ctx.softmax_lse_shape, ctx.bwd_q_shape,
             ctx.softmax_lse_dtype,
             recv_k, recv_v,
@@ -308,7 +307,7 @@ class FusedCommAttn(torch.autograd.Function):
         torch.cuda.nvtx.range_pop()
         # Step 3: pre-dispatch q_grad, k_grad, v_grad
         torch.cuda.nvtx.range_push("pre_a2a_qkv_grad_memcpy")
-        dq, dk, dv = pre_fast_a2a_qkv(
+        dq, dk, dv = pre_a2a_qkv(
             dq, dk, dv, None, bwd_qkv_grad_send_seqlens_q, bwd_qkv_grad_send_seqlens_k,
             bwd_q_grad_send_offset, bwd_k_grad_send_offset, bwd_v_grad_send_offset,
             is_fwd=False, instance_id=dispatcher_id
@@ -326,8 +325,8 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
     def forward(ctx, signal: Tensor,
                 q: Tensor, k: Tensor, v: Tensor,
                 num_heads_q: int,
-                metadata: FastAlltoAllMetadata,
-                bwd_attn_out_qkv_metadata: FastAlltoAllMetadata,
+                metadata: AlltoAllMetadata,
+                bwd_attn_out_qkv_metadata: AlltoAllMetadata,
                 dispatcher_id: int,
     ):
         switch_buffer = dispatcher_id is None
@@ -336,7 +335,7 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
             recv_shape, dtype=signal.dtype, device=signal.device
         ).view(torch.uint8)
 
-        recv_attn_out = post_fast_a2a_attn_out(
+        recv_attn_out = post_a2a_attn_out(
             recv_attn_out,
             metadata.seq_lens[0].recv_seqlens,
             *metadata.recv_memcpy_metadata,
@@ -373,7 +372,7 @@ class post_a2a_attn_out_with_lse(torch.autograd.Function):
         k = k.reshape(k.shape[0], -1)
         v = v.reshape(v.shape[0], -1)
 
-        pre_fast_a2a_attn_out_grad_resend_qkv(
+        pre_a2a_attn_out_grad_resend_qkv(
             grad_attn_out, attn_out, softmax_lse_bytes, q, k, v,
             *send_metadata,
             instance_id=ctx.dispatcher_id
@@ -394,7 +393,6 @@ def dummy_backward_single_sided(
 ):
     """
     Dummy backward for a single layer. This is exactly the backward of FusedCommAttn + All2All.
-    TODO(yonghao): make it ping-pong.
     """
     assert packed_seq_params.bwd_packed_seq_params is not None
 
@@ -433,7 +431,7 @@ def dummy_backward_single_sided(
     softmax_lse_shape = recv_q_len, num_heads
     torch.cuda.nvtx.range_push("dummy_backward_post_a2a_attn_grad")
     (recv_attn_out_grad, recv_attn_out, recv_lse, recv_q, recv_k, recv_v
-    ) = post_fast_a2a_attn_out_grad_resend_qkv(
+    ) = post_a2a_attn_out_grad_resend_qkv(
         recv_q_shape, softmax_lse_shape, recv_q_shape, torch.float32,
         recv_k, recv_v,
         None,
@@ -463,7 +461,7 @@ def dummy_backward_single_sided(
     torch.cuda.nvtx.range_pop()
 
     torch.cuda.nvtx.range_push("dummy_backward_pre_qkv_grad_all2all")
-    pre_fast_a2a_qkv(
+    pre_a2a_qkv(
         dq, dk, dv, None,
         bwd_qkv_metadata.seq_lens[0].send_seqlens,
         bwd_qkv_metadata.seq_lens[1].send_seqlens,
@@ -485,7 +483,7 @@ def dummy_backward_single_sided(
                 instance_id=dispatcher_id,
             )
         if dispatcher_id is None:
-            FastDispatcherWrapper.switch_buffer()
+            DispatcherWrapper.switch_buffer()
         return None
     else:
         assert dispatcher_id is not None
@@ -549,11 +547,11 @@ def dummy_backward(
 
         # Dummy backward does not have a qkv grad to receive, so we should manually release the buffer
         torch.cuda.current_stream().wait_event(all2all_event)
-        FastDispatcherWrapper.release(packed_seq_params.seq_params[1].dispatcher_id)
+        DispatcherWrapper.release(packed_seq_params.seq_params[1].dispatcher_id)
 
     with torch.cuda.nvtx.range("dummy_bwd_ping_pong_qkv_all2all_0"):
         all2all_event = dummy_backward_send_qkv(packed_seq_params.seq_params[0], compute_done_0)
 
         # Same as above.
         torch.cuda.current_stream().wait_event(all2all_event)
-        FastDispatcherWrapper.release(packed_seq_params.seq_params[0].dispatcher_id)
+        DispatcherWrapper.release(packed_seq_params.seq_params[0].dispatcher_id)

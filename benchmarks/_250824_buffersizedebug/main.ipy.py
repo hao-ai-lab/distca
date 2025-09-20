@@ -187,7 +187,7 @@ element_size = 2
 # %%
 items = _items_0
 # def items_to_metadata(items: list[Item]) -> tuple['PingPangSingleStepPackedSeqParams', 'PackedSeqParams']:
-from d2.runtime.fast_alltoall_metadata import (
+from d2.runtime.metadata import (
     compute_backward_resend_e2e_metadata,
     compute_e2e_fa2a_metadata,
     compute_fa2a_metadata_from_logical_metadata,

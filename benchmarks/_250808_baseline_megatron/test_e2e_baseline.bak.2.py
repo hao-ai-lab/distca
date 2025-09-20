@@ -198,7 +198,7 @@ from omegaconf import OmegaConf
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
-from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda
+from d2.runtime.megatron.packed_seq_params import arg_to_cuda
 
 from test_util import MegatronBaseWorker, ParallelConfig, init_worker_torch_distributed
 from megatron_test_utils import (

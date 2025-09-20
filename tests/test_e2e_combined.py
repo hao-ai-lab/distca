@@ -56,8 +56,8 @@ from omegaconf import OmegaConf
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
-from d2.runtime.attn_kernels.ops import FastDispatcherWrapper
-from d2.runtime.megatron_patch.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
+from d2.runtime.attn_kernels.ops import DispatcherWrapper
+from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
 from d2.runtime.compute_metadata import get_attn_metadata
 
 from test_util import MegatronBaseWorker, ParallelConfig, init_worker_torch_distributed, set_random_seed
@@ -1091,7 +1091,7 @@ def test(args):
                     
 
                 # Check size:
-                buffer_size = FastDispatcherWrapper.instance[0].buffer_size
+                buffer_size = DispatcherWrapper.instance[0].buffer_size
                 
                 def _check_self_overflow(fa2a_metadata, as_rank_):
                     """Return the self-overflow status and the maximum size provisioned."""
@@ -1154,13 +1154,14 @@ def test(args):
                 print(f"🔴 [Rank {rank}] Force update buffer_size to = {recommended_buffer_size} GB")
                 buffer_size = int(recommended_buffer_size * 1024**3) # bytes
 
-                FastDispatcherWrapper.update_buffer_size(buffer_size)
 
-                print(f"🟡 [Rank {rank}] Successfully force updated buffer_size to = {buffer_size / 1024**3} GB")
-                buffer_size = FastDispatcherWrapper.instance[0].buffer_size
-                            
-            print(f"🟡 [Rank {rank}] Overflow check passed for fa2a_metadata_0 and fa2a_metadata_1 with tolerance_factor {tolerance_factor} and buffer_size {buffer_size / 1024**3} GB")
+                DispatcherWrapper.update_buffer_size(buffer_size)
 
+
+                rich.print(f"🟡 [Rank {rank}] Successfully force updated buffer_size to = {buffer_size / 1024**3} GB")
+                buffer_size = DispatcherWrapper.instance[0].buffer_size
+
+            rich.print(f"🟡 [Rank {rank}] Overflow check passed for fa2a_metadata_0 and fa2a_metadata_1 with tolerance_factor {tolerance_factor} and buffer_size {buffer_size / 1024**3} GB")
 
             # params for ping-pong batch0
             ping_pang_params_0 = get_single_step_packed_seq_params(

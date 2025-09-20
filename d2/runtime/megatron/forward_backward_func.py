@@ -3,6 +3,7 @@ from typing import Union, Iterator, List
 
 import os
 import torch
+from torch.cuda.nvtx import range_push, range_pop
 from megatron.core import parallel_state
 from megatron.core.enums import ModelType
 from megatron.core.pipeline_parallel import p2p_communication
@@ -30,8 +31,6 @@ from megatron.core.pipeline_parallel.schedules import (
     finish_embedding_wgrad_compute,
 )
 
-
-from torch.cuda.nvtx import range_push, range_pop
 
 def send_forward_recv_forward(output_tensors, recv_prev, tensor_shapes, config):
     """Wrapper for p2p_communication.send_backward_recv_forward used
@@ -214,7 +213,6 @@ def forward_backward_pipelining_without_interleaving(
 
     disable_grad_sync()
 
-    
     # Compute number of warmup microbatches.
     num_warmup_microbatches = (
         parallel_state.get_pipeline_model_parallel_world_size()

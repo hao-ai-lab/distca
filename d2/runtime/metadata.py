@@ -44,11 +44,7 @@ class LogicalShape:
 
 
 @dataclass
-class FastAlltoAllMetadata:
-    """
-    NOTE: FastAlltoAllMetadata has some duplicated fields with Metadata.
-    With FastAlltoAll enabled, the original Metadata is not used.
-    """
+class AlltoAllMetadata:
     # sender_send_offset, sender_transfer_sz, sender_recv_offset, recver_transfer_sz
     fa2a_metadata: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
     # List of (world_size,) tensors, each of shape (num_sequences,). If a slice, no world_size dimension.
@@ -72,13 +68,18 @@ class FastAlltoAllMetadata:
     kv_replica_mask: Optional[_Tensor_Or_Tensor_List] = None
     # Debug setting
     single_stream: bool = False
+    # For cuda graph, the number of sequences and max cp degree are padded.
+    # Below records the original values and should be passed to memcpy kernels.
+    send_num_seqs: Optional[Sequence[int]] = None
+    recv_num_seqs: Optional[Sequence[int]] = None
+    max_cp_degree: Optional[int] = None
 
     def __better_print__(self):
         """Convert the tensor size to MB. This is just for debugging.
         
         Usage:
         ```
-        fa2a_metadata: FastAlltoAllMetadata = ...
+        fa2a_metadata: AlltoAllMetadata = ...
         d = fa2a_metadata.__better_print__()
         print(d)
         # or even fancier
@@ -145,7 +146,6 @@ class FastAlltoAllMetadata:
             # kv_replica_mask=kv_replica_mask,
             # single_stream=single_stream,
         )
-        
 
     def get_slice(self, rank):
         """
@@ -160,7 +160,7 @@ class FastAlltoAllMetadata:
         tensor_shape = tuple(
             ts.get_slice(rank) for ts in self.tensor_shape
         )
-        return FastAlltoAllMetadata(
+        return AlltoAllMetadata(
             fa2a_metadata, send_memcpy_metadata, recv_memcpy_metadata,
             self.my_rank_send_offset[rank],
             self.my_rank_recv_offset[rank],
@@ -175,7 +175,7 @@ class FastAlltoAllMetadata:
 
     def normalize(self):
         """To device and transfer dtype."""
-        return FastAlltoAllMetadata(
+        return AlltoAllMetadata(
             tuple(t.cuda().to(torch.uint64).contiguous() for t in self.fa2a_metadata),
             tuple(t.cuda().to(torch.int64).contiguous() for t in self.send_memcpy_metadata),
             tuple(t.cuda().to(torch.int64).contiguous() for t in self.recv_memcpy_metadata),
@@ -209,7 +209,7 @@ def _get_my_rank_from_metadata(fa2a_metadata: Sequence[torch.Tensor]):
 
 
 def compute_reverse_a2a_layout_metadata(
-    fwd_metadata: FastAlltoAllMetadata
+    fwd_metadata: AlltoAllMetadata
 ):
     # TODO: as bwd values are mainly the same as fwd values
     # we should only store those that are different.
@@ -244,7 +244,7 @@ def compute_reverse_a2a_layout_metadata(
     )
 
     my_rank_vals = _get_my_rank_from_metadata(bwd_fa2a_metadata)
-    return FastAlltoAllMetadata(
+    return AlltoAllMetadata(
         bwd_fa2a_metadata, send_memcpy_metadata, recv_memcpy_metadata,
         **my_rank_vals, seq_lens=bwd_seqlens, tensor_shape=bwd_tensor_shape,
         kv_replica_mask=fwd_metadata.kv_replica_mask,

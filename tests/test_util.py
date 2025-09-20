@@ -12,13 +12,13 @@ import ray
 import torch
 
 from d2.runtime.attn_kernels.ops import (
-    nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, FastDispatcherWrapper
+    nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, DispatcherWrapper
 )
 from d2.runtime.compute_metadata import (
     from_planner_output, backward_from_planner_output,
 )
 from d2.runtime.shard_info import ShardInfo
-from d2.runtime.megatron_patch.create_group import (
+from d2.runtime.megatron.create_group import (
     initialize_attention_server_comm, get_attn_server_group_gloo,
     get_attn_server_rank, get_attn_server_group_src_rank
 )
@@ -116,8 +116,8 @@ class BaseWorker:
         torch.distributed.broadcast(uid, src=0)
         print(f"Rank {self.rank} uid = {uid}")
         
-        print("FastDispatcherWrapper.init")
-        FastDispatcherWrapper.init(
+        print("DispatcherWrapper.init")
+        DispatcherWrapper.init(
             self.rank, local_rank, self.world_size, buffer_size, uid
         )
         print("====== init_nvshmem done ======")
@@ -186,7 +186,7 @@ class MegatronBaseWorker(BaseWorker):
         # print(f"[Rank {as_rank}] init nvshmem with uid = {uid}")
         torch.distributed.broadcast(uid, src=as_src_rank, group=group)
         # print(f"[Rank {as_rank}] after broadcast uid = {uid}")
-        FastDispatcherWrapper.init(
+        DispatcherWrapper.init(
             as_rank, local_rank, as_world_size, buffer_size, uid
         )
 

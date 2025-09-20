@@ -3,16 +3,13 @@ from torch import Tensor
 import torch.nn.functional as F
 
 from d2.runtime.attn_kernels.ops import (
-    FastDispatcherWrapper, fast_a2a_memcpy_non_cp,
-    fast_a2a_memcpy_cp, fast_a2a,
+    DispatcherWrapper, a2a_memcpy_non_cp,
+    a2a_memcpy_cp, fast_a2a,
 )
 from d2.runtime.utils import size_pad_by_int4
 
 
-# NOTE: currently, we use the original q,k,v as the output of pre_fast_a2a memcpy.
-# Instead, we should use a signal tensor for this.
-
-def pre_fast_a2a_qkv(
+def pre_a2a_qkv(
     q: Tensor, k: Tensor, v: Tensor, kv_dispatch_mask: Tensor,
     q_seq_tokens: Tensor, k_seq_tokens: Tensor,
     q_send_buffer_offset: Tensor, k_send_buffer_offset: Tensor, v_send_buffer_offset: Tensor,
@@ -20,32 +17,32 @@ def pre_fast_a2a_qkv(
 ):
     # copy in advance
     to_nvshmem = True
-    fast_a2a_memcpy_non_cp(
+    a2a_memcpy_non_cp(
         q.contiguous(), q_send_buffer_offset, q_seq_tokens, to_nvshmem,
         instance_id=instance_id,
     )
     if is_fwd:
-        fast_a2a_memcpy_cp(
+        a2a_memcpy_cp(
             k.contiguous(), kv_dispatch_mask, k_send_buffer_offset, k_seq_tokens, to_nvshmem,
             instance_id=instance_id,
         )
-        fast_a2a_memcpy_cp(
+        a2a_memcpy_cp(
             v.contiguous(), kv_dispatch_mask, v_send_buffer_offset, k_seq_tokens, to_nvshmem,
             instance_id=instance_id,
         )
     else:
-        fast_a2a_memcpy_non_cp(
+        a2a_memcpy_non_cp(
             k.contiguous(), k_send_buffer_offset, k_seq_tokens, to_nvshmem,
             instance_id=instance_id,
         )
-        fast_a2a_memcpy_non_cp(
+        a2a_memcpy_non_cp(
             v.contiguous(), v_send_buffer_offset, k_seq_tokens, to_nvshmem,
             instance_id=instance_id,
         )
     return q, k, v
 
 
-def post_fast_a2a_qkv(
+def post_a2a_qkv(
     recv_q: Tensor, recv_k: Tensor, recv_v: Tensor, kv_dispatch_mask: Tensor,
     q_recv_seq_tokens: Tensor, k_recv_seq_tokens: Tensor,
     q_recv_buffer_offset: Tensor, k_recv_buffer_offset: Tensor, v_recv_buffer_offset: Tensor,
@@ -53,32 +50,32 @@ def post_fast_a2a_qkv(
 ):
     """NOTE: dispatcher is released here"""
     to_nvshmem = False
-    fast_a2a_memcpy_non_cp(
+    a2a_memcpy_non_cp(
         recv_q, q_recv_buffer_offset, q_recv_seq_tokens, to_nvshmem,
         instance_id=instance_id,
     )
     if is_fwd:
-        fast_a2a_memcpy_non_cp(
+        a2a_memcpy_non_cp(
             recv_k, k_recv_buffer_offset, k_recv_seq_tokens, to_nvshmem,
             instance_id=instance_id,
         )
-        fast_a2a_memcpy_non_cp(
+        a2a_memcpy_non_cp(
             recv_v, v_recv_buffer_offset, k_recv_seq_tokens, to_nvshmem,
             instance_id=instance_id,
         )
     else:
-        fast_a2a_memcpy_cp(
+        a2a_memcpy_cp(
             recv_k, kv_dispatch_mask, k_recv_buffer_offset, k_recv_seq_tokens, to_nvshmem,
             instance_id=instance_id,
         )
-        fast_a2a_memcpy_cp(
+        a2a_memcpy_cp(
             recv_v, kv_dispatch_mask, v_recv_buffer_offset, k_recv_seq_tokens, to_nvshmem,
             instance_id=instance_id,
         )
     if switch_buffer:
-        FastDispatcherWrapper.switch_buffer()
+        DispatcherWrapper.switch_buffer()
     if instance_id is not None:
-        FastDispatcherWrapper.release(instance_id)
+        DispatcherWrapper.release(instance_id)
     return recv_q, recv_k, recv_v
 
 
@@ -97,7 +94,7 @@ def fast_a2a_qkv(
     instance_id: int=None
 ):
     # copy in advance
-    q, k, v = pre_fast_a2a_qkv(
+    q, k, v = pre_a2a_qkv(
         q, k, v, kv_dispatch_mask, q_seq_tokens, k_seq_tokens,
         q_send_buffer_offset, k_send_buffer_offset, v_send_buffer_offset,
         is_fwd=is_fwd, instance_id=instance_id,
@@ -110,7 +107,7 @@ def fast_a2a_qkv(
         instance_id=instance_id,
     )
     # copy back
-    recv_q, recv_k, recv_v = post_fast_a2a_qkv(
+    recv_q, recv_k, recv_v = post_a2a_qkv(
         recv_q, recv_k, recv_v, kv_dispatch_mask,
         q_recv_seq_tokens, k_recv_seq_tokens,
         q_recv_buffer_offset, k_recv_buffer_offset, v_recv_buffer_offset,
@@ -119,61 +116,32 @@ def fast_a2a_qkv(
     return recv_q, recv_k, recv_v
 
 
-def pre_fast_a2a_attn_out(
+def pre_a2a_attn_out(
     q: Tensor, q_seq_tokens: Tensor, q_send_buffer_offset: Tensor,
     instance_id: int=None,
 ):
     to_nvshmem = True
-    fast_a2a_memcpy_non_cp(
+    a2a_memcpy_non_cp(
         q.contiguous(), q_send_buffer_offset, q_seq_tokens, to_nvshmem,
         instance_id=instance_id,
     )
     return q
 
 
-def post_fast_a2a_attn_out(
+def post_a2a_attn_out(
     recv_q: Tensor, q_recv_seq_tokens: Tensor, q_recv_buffer_offset: Tensor,
     switch_buffer: bool = True, instance_id: int=None,
 ):
     """NOTE: dispatcher is released here"""
     to_nvshmem = False
-    fast_a2a_memcpy_non_cp(
+    a2a_memcpy_non_cp(
         recv_q, q_recv_buffer_offset, q_recv_seq_tokens, to_nvshmem,
         instance_id=instance_id,
     )
     if switch_buffer:
-        FastDispatcherWrapper.switch_buffer()
+        DispatcherWrapper.switch_buffer()
     if instance_id is not None:
-        FastDispatcherWrapper.release(instance_id)
-    return recv_q
-
-
-def fast_a2a_attn_out(
-    q: Tensor, recv_q: Tensor,
-    q_seq_tokens: Tensor, q_recv_seq_tokens: Tensor,
-    q_send_buffer_offset: Tensor, q_recv_buffer_offset: Tensor,
-    sender_send_disp: torch.Tensor, sender_transfer_sz: torch.Tensor,
-    sender_recv_disp: torch.Tensor, recver_transfer_sz: torch.Tensor,
-    my_rank_send_offset: int, my_rank_recv_offset: int, my_rank_send_sz: int,
-    switch_buffer: bool = True, instance_id: int=None,
-):
-    # copy in advance
-    q = pre_fast_a2a_attn_out(
-        q, q_seq_tokens, q_send_buffer_offset,
-        instance_id=instance_id,
-    )
-    # all2all
-    fast_a2a(
-        sender_send_disp, sender_transfer_sz,
-        sender_recv_disp, recver_transfer_sz,
-        my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
-        instance_id=instance_id,
-    )
-    # copy back
-    recv_q = post_fast_a2a_attn_out(
-        recv_q, q_recv_seq_tokens, q_recv_buffer_offset,
-        switch_buffer=switch_buffer, instance_id=instance_id
-    )
+        DispatcherWrapper.release(instance_id)
     return recv_q
 
 
@@ -189,7 +157,7 @@ def _concat_with_uint8_and_pad(tensors: list[Tensor], dim: int):
     return tensor.contiguous()
 
 
-def pre_fast_a2a_attn_out_grad_resend_qkv(
+def pre_a2a_attn_out_grad_resend_qkv(
     attn_out_grad: Tensor, attn_out: Tensor, lse_norm: Tensor,
     q: Tensor, k: Tensor, v: Tensor, kv_dispatch_mask: Tensor,
     q_seq_tokens: Tensor, k_seq_tokens: Tensor,
@@ -207,12 +175,12 @@ def pre_fast_a2a_attn_out_grad_resend_qkv(
 
     # create merged_q
     merged_q = _concat_with_uint8_and_pad([attn_out_grad, attn_out, lse_norm, q], dim=1)
-    return pre_fast_a2a_qkv(merged_q, k, v, kv_dispatch_mask, q_seq_tokens, k_seq_tokens,
+    return pre_a2a_qkv(merged_q, k, v, kv_dispatch_mask, q_seq_tokens, k_seq_tokens,
                             q_send_buffer_offset, k_send_buffer_offset, v_send_buffer_offset,
                             is_fwd=is_fwd, instance_id=instance_id)
 
 
-def post_fast_a2a_attn_out_grad_resend_qkv(
+def post_a2a_attn_out_grad_resend_qkv(
     recv_attn_out_shape: list[int], recv_lse_shape: list[int], recv_q_shape: list[int],
     recv_lse_dtype: torch.dtype,
     recv_k: Tensor, recv_v: Tensor,
@@ -220,7 +188,7 @@ def post_fast_a2a_attn_out_grad_resend_qkv(
     q_recv_buffer_offset: Tensor, k_recv_buffer_offset: Tensor, v_recv_buffer_offset: Tensor,
     is_fwd: bool, switch_buffer: bool = True, instance_id: int=None
 ):
-    """NOTE: dispatcher is returned internally in post_fast_a2a_qkv"""
+    """NOTE: dispatcher is returned internally in post_a2a_qkv"""
     is_fwd = True
     assert len(recv_attn_out_shape) == 2
     assert len(recv_lse_shape) == 2 and recv_lse_shape[0] == recv_attn_out_shape[0]
@@ -241,7 +209,7 @@ def post_fast_a2a_attn_out_grad_resend_qkv(
         (recv_attn_out_shape[0], merged_q_bytes), dtype=torch.uint8
     )
 
-    recv_merged_q, recv_k, recv_v = post_fast_a2a_qkv(
+    recv_merged_q, recv_k, recv_v = post_a2a_qkv(
         recv_merged_q, recv_k, recv_v, kv_dispatch_mask,
         q_recv_seq_tokens, k_recv_seq_tokens,
         q_recv_buffer_offset, k_recv_buffer_offset, v_recv_buffer_offset,
@@ -260,13 +228,13 @@ def post_fast_a2a_attn_out_grad_resend_qkv(
     )
 
 
-def pre_fast_a2a_attn_out_with_lse(
+def pre_a2a_attn_out_with_lse(
     attn_out: Tensor, softmax_lse: Tensor,
     send_seqlens: Tensor, send_memcpy_metadata: Tensor, dispatcher_id: int
 ):
     assert softmax_lse.shape[0] == attn_out.shape[0]
     merged_attn_out = _concat_with_uint8_and_pad([attn_out, softmax_lse], dim=1)
-    return pre_fast_a2a_attn_out(
+    return pre_a2a_attn_out(
         merged_attn_out, send_seqlens, send_memcpy_metadata[0],
         instance_id=dispatcher_id,
     )
