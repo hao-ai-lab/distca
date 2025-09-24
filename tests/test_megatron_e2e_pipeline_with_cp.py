@@ -361,6 +361,7 @@ def test(args):
     dpcp_size = args.cp_size
     num_seqs = args.num_seqs
     num_batches = args.num_batches
+    num_microbatch = args.num_microbatch
     num_layers = args.num_layers
     if num_layers is not None:
         # See `megatron_test_utils.py` for more details.
@@ -373,7 +374,10 @@ def test(args):
     benchmark_log_path__baseline = os.path.join(output_dir, "benchmark.raw.baseline.jsonl")
     benchmark_log_path__baseline_with_dummy = os.path.join(output_dir, "benchmark.raw.baseline_with_dummy.jsonl")
     benchmark_final_path = os.path.join(output_dir, "benchmark.json")
-    
+    network_inspect_path = os.path.join(output_dir, "network_inspect.jsonl")
+    network_inspect_summary_path = os.path.join(output_dir, "network_inspect.summary.jsonl")
+    os.environ["EXPERIMENT_OUTPUT_DIR"] = output_dir
+
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, "w") as f:
         # Namespace to dict
@@ -391,7 +395,7 @@ def test(args):
     _dp_size = world_size // (tp_size * pp_size)
     assert dpcp_size == _dp_size, f"dpcp_size: {dpcp_size} != _dp_size: {_dp_size}"
 
-    assert args.num_microbatch >= pp_size, f"num_microbatch need bigger than pp_size. Current num_microbatch: {args.num_microbatch}, pp size: {pp_size}"
+    assert num_microbatch >= pp_size, f"num_microbatch need bigger than pp_size. Current num_microbatch: {num_microbatch}, pp size: {pp_size}"
 
     # Set num_batches. 
     # If None, we use MLP-DP. will get DP number of new batches per tick.
@@ -418,6 +422,12 @@ def test(args):
         filter_threshold=args.filter_threshold,
         filter_ratio=args.filter_ratio,
         should_add_debug_cases=args.should_add_debug_cases,
+        change_long_doc_ratio=args.change_long_doc_ratio,
+        sample_name=args.sample_name,
+        balance_ping_pong_batch_size=dict(
+            mb=num_microbatch,
+            batch_size=num_batches,
+        ),
     )
     
 
@@ -434,7 +444,22 @@ def test(args):
         world_size, dpcp_size, tp_size, pp_size,
         dtype, MegatronE2eWorker
     )
-    worker.set_config(dtype=dtype)
+    enable_gradient_checkpointing = False
+    gradient_checkpointing_kwargs = {}
+    if os.environ.get("EXPERIMENT_ADD_SELECTIVE_CKPT", "0") == "1":
+        enable_gradient_checkpointing = True
+        gradient_checkpointing_kwargs = dict(
+            # activations_checkpoint_method="mlp",
+            activations_checkpoint_granularity="selective",
+            activations_checkpoint_num_layers=None, # num-layers
+            activations_checkpoint_recompute_modules = ["mlp"],
+        )
+    print(f"🟡 [Rank {worker.rank}] Adding selective checkpoint ?: {gradient_checkpointing_kwargs}")
+    worker.set_config(
+        dtype=dtype,
+        enable_gradient_checkpointing=enable_gradient_checkpointing,
+        gradient_checkpointing_kwargs=gradient_checkpointing_kwargs
+    )
     worker.init(model_path, seed=seed)
     # set again to potentially adapt to the ray launch case.
     set_random_seed(seed, set_megatron=False)
@@ -458,6 +483,7 @@ def test(args):
     #     print(f"🟡 get_next_batch: {get_next_batch(num_batches * 2)}")    
 
     for sample_idx in range(max_sample_id):
+        os.environ["__PRG__INTERNAL__EXPERIMENT_SAMPLE_ID"] = str(sample_idx)
         # this total_seq_len is token per rank.
         # Some explanations of the parameters inside `create_pp_microbatches`:
         # - num_microbatch: 
@@ -468,7 +494,7 @@ def test(args):
         # 
         
         microbatches_0, tick_per_rank_doc_lens_0 = create_pp_microbatches(
-            args.num_microbatch, pp_size, as_rank,
+            num_microbatch, pp_size, as_rank,
             as_world_size, total_seq_len, num_seqs, dpcp_size,
             hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
             tp_size, dpcp_size, 
@@ -476,7 +502,7 @@ def test(args):
             return_seq_lens=True,
         )
         microbatches_1, tick_per_rank_doc_lens_1 = create_pp_microbatches(
-            args.num_microbatch, pp_size, as_rank,
+            num_microbatch, pp_size, as_rank,
             as_world_size, total_seq_len, num_seqs, dpcp_size,
             hidden_size_q_tp, hidden_size_k_tp, element_size, num_head_in_dtype,
             tp_size, dpcp_size, 
@@ -484,7 +510,7 @@ def test(args):
             return_seq_lens=True,
         )
         seq_lens = [tick_per_rank_doc_lens_0, tick_per_rank_doc_lens_1]
-        print(f"🟡 seq_lens is: {seq_lens}")
+        # print(f"🟡 [sample_idx = {sample_idx}] seq_lens is: {seq_lens}")
         set_random_seed(seed, set_megatron=True)
         microbatches = []
         orig_impl_microbatches = []
@@ -697,6 +723,8 @@ if __name__ == "__main__":
     parser.add_argument("--elongate-factor", type=int, default=1)
     parser.add_argument("--filter-threshold", type=int, default=65536)
     parser.add_argument("--filter-ratio", type=float, default=0.50)
+    parser.add_argument("--sample-name", type=str, default="wlbllm")
+    parser.add_argument("--change-long-doc-ratio", type=float, default=0.0)
 
     parser.add_argument("--model-path", type=str, default="deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
     parser.add_argument("--num-layers", type=int, default=8)

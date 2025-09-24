@@ -37,6 +37,8 @@ BATCH_SIZE=${BATCH_SIZE:-1}          # Batch size for training
 NUM_TOKENS=${NUM_TOKENS:-16384}     # Number of tokens to process
 MAX_SAMPLE_ID=${MAX_SAMPLE_ID:-3}   # Maximum sample ID
 # SAMPLE_EXPR=${SAMPLE_EXPR:-""}   # Sample expression
+SAMPLE_NAME=${SAMPLE_NAME:-"wlbllm"}
+CHANGE_LONG_DOC_RATIO=${CHANGE_LONG_DOC_RATIO:-0.0}
 
 # Dataset sampling settings
 UP_SAMPLE_FACTOR=${UP_SAMPLE_FACTOR:-4}
@@ -238,6 +240,8 @@ TORCHRUN_CMD=(
 
     # TODO: 
     --max-sample-id ${MAX_SAMPLE_ID}
+    --sample-name ${SAMPLE_NAME}
+    --change-long-doc-ratio ${CHANGE_LONG_DOC_RATIO}
 
     --up-sample-factor ${UP_SAMPLE_FACTOR}
     --elongate-factor ${ELONGATE_FACTOR}
@@ -296,6 +300,7 @@ echo_and_tee "$EXP_README" "- FILTER_THRESHOLD: $FILTER_THRESHOLD"
 echo_and_tee "$EXP_README" "- FILTER_RATIO: $FILTER_RATIO"
 echo_and_tee "$EXP_README" "- SHOULD_ADD_DEBUG_CASES: $SHOULD_ADD_DEBUG_CASES"
 echo_and_tee "$EXP_README" "- SAMPLE_START_IDX: $SAMPLE_START_IDX"
+echo_and_tee "$EXP_README" "- SAMPLE_NAME: $SAMPLE_NAME"
 
 echo_and_tee "$EXP_README" "## Experiment Flags"
 echo_and_tee "$EXP_README" "- ENABLE_NSYS: $ENABLE_NSYS"
@@ -375,8 +380,14 @@ if [ ! -f ${OUTPUT_DIR}/benchmark.json ]; then
     echo "Experiment failed. The benchmark.json file does not exist."
 else 
     echo "Experiment success. See the $OUTPUT_DIR/benchmark.json file."
+    echo_and_tee "$EXP_README" "Experiment success. See the $OUTPUT_DIR/benchmark.json file."
 fi
 
+
+# Check if OOM happened by checking all log files.
+if grep -H -C 20 'OutOfMemoryError' "$LOG_DIR"/logs/*.log > /dev/null 2>&1; then
+    grep -H -C 20 'OutOfMemoryError' "$LOG_DIR"/logs/*.log > "$OUTPUT_DIR/exit_status.oom.txt"
+fi
 
 echo '\a'
 echo '\a'

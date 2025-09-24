@@ -9,6 +9,10 @@ import os
 import time
 import json
 import traceback
+from typing import Any
+
+from transformers import AutoTokenizer, AutoProcessor
+
 
 import megatron.core.parallel_state as mpu
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -24,6 +28,7 @@ from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_
 from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
 from megatron_test_utils import (
     gptmodel_forward, make_batch_generator, unwrap_model,
+    hf_to_mcore_config, make_batch_generator, update_model_config,
 )
 from typing import Optional
 
@@ -201,6 +206,56 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
                 param.main_grad.zero_()
         return losses_reduced, grad_sample
 
+    def _init_hf_config_and_tf_config(
+        self,
+        model_path,
+        dtype,
+        override_model_config,
+        override_transformer_config,
+        trust_remote_code=True,
+    ):
+
+        # Step 1: initialize the tokenizer
+        self.local_path = model_path
+        self.tokenizer = AutoTokenizer.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
+        self.processor = AutoProcessor.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
+
+        # Step 2: get the hf
+        hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
+
+        # Step 3: override the hf config
+        override_config_kwargs = {
+            "bos_token_id": self.tokenizer.bos_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "pad_token_id": self.tokenizer.pad_token_id,
+        }
+        override_config_kwargs.update(override_model_config.get("model_config", {}))
+        self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
+        update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
+        self.architectures = getattr(hf_config, "architectures", None)
+        if self.rank == 0:
+            print(f"Model config after override: {hf_config}")
+        tf_config = hf_to_mcore_config(hf_config, dtype, **override_transformer_config)
+
+        def add_optimization_config_to_tf_config(tf_config):
+            # add optimization config to tf_config, e.g. checkpointing
+            if self.enable_gradient_checkpointing:
+                gradient_checkpointing_cfg = dict(self.gradient_checkpointing_kwargs)
+                tf_config.recompute_method = gradient_checkpointing_cfg.get("activations_checkpoint_method", "mlp")
+                tf_config.recompute_granularity = gradient_checkpointing_cfg.get(
+                    "activations_checkpoint_granularity", "selective"
+                )
+                tf_config.recompute_num_layers = gradient_checkpointing_cfg.get("activations_checkpoint_num_layers", -1)
+                tf_config.recompute_modules = gradient_checkpointing_cfg.get("activations_checkpoint_recompute_modules", ['mlp'])
+
+        add_optimization_config_to_tf_config(tf_config)
+
+        if self.rank == 0:
+            print(f"TF config: {tf_config}")
+
+        self.hf_config = hf_config
+        self.tf_config = tf_config
+
 
 def init_megatron_e2e_test(
     world_size: int, cp_size: int, tp_size: int, pp_size: int, dp_size: int, worker_cls=MegatronE2eWorker
@@ -300,6 +355,8 @@ def test(args):
         num_tokens=num_tokens, model_path=model_path, num_layers=num_layers, 
         max_sample_id=max_sample_id, up_sample_factor=args.up_sample_factor, filter_threshold=args.filter_threshold, filter_ratio=args.filter_ratio, 
         elongate_factor=args.elongate_factor,
+        sample_name=args.sample_name,
+        change_long_doc_ratio=args.change_long_doc_ratio,
     )
 
 
@@ -315,6 +372,8 @@ def test(args):
         filter_threshold=args.filter_threshold,
         filter_ratio=args.filter_ratio,
         should_add_debug_cases=args.should_add_debug_cases,
+        change_long_doc_ratio=args.change_long_doc_ratio,
+        sample_name=args.sample_name,
     )
 
     # for _ in range(20):
@@ -394,7 +453,9 @@ def test(args):
         ENABLE_BALANCED_FLOS_NO_DEFER = True
 
         if ENABLE_BALANCED_FLOS_NO_DEFER:
-            unbalanced_micro_batches = get_next_batch(batch_size * 2 * num_microbatch)
+            batch_size_x2 = int(batch_size * 2)
+            assert isinstance(batch_size_x2, int) and batch_size_x2 > 0
+            unbalanced_micro_batches = get_next_batch(batch_size_x2 * num_microbatch)
             print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
             my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
             print(f"🟡 my_batch_ranks: {my_batch_ranks}")
@@ -408,11 +469,11 @@ def test(args):
         else:
             unbalanced_micro_batches = []
             for i in range(num_microbatch):
-                a = get_next_batch(batch_size * 2 * num_microbatch)
+                a = get_next_batch(batch_size_x2 * num_microbatch)
                 all_seq_lens.append(a)
                 b = a[
-                    dp_rank * (batch_size * 2):
-                    (dp_rank + 1) * (batch_size * 2)
+                    dp_rank * (batch_size_x2):
+                    (dp_rank + 1) * (batch_size_x2)
                 ]
                 unbalanced_micro_batches.append(b)
                 pass
@@ -420,6 +481,9 @@ def test(args):
             new_batch = unbalanced_micro_batches
 
             pass
+        # print(f"🟡[sample_idx={sample_idx}] balanced_seq_lens: {balanced_seq_lens}, {len(balanced_seq_lens) = }")
+        # print(f"🟡[sample_idx={sample_idx}] new_batch: {new_batch}")
+
         print(f"🟡 {dp_size =} * {pp_size =}, {dp_rank =}, {my_batch_ranks =}")
         print(f"🟡 balanced_seq_lens: {balanced_seq_lens}, {len(balanced_seq_lens) = }")
         assert len(balanced_seq_lens) == num_microbatch, f"len(balanced_seq_lens) == num_microbatch, {len(balanced_seq_lens)} != {num_microbatch}"
@@ -584,7 +648,7 @@ def test(args):
                     "sample_id": sample_idx,
                     "duration_ms": average_duration_ms,
                     "duration_list": durations_ms,
-                    "samples": all_seq_lens,
+                    "samples": balanced_seq_lens,
                 }) + "\n")
 
             print(f"🟡 Write benchmark log to {benchmark_log_path}")
@@ -609,7 +673,7 @@ def test(args):
             }
             
             for idx in range(len(final_durations_ms)):
-                samples = all_seq_lens[idx]
+                samples = new_batch
                 duration = final_durations_ms[idx]
                 benchmark_data["samples"].append({
                     "sample_id": idx,
@@ -626,7 +690,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     
     parser.add_argument("--num-tokens", type=int, default=1024)
-    parser.add_argument("--num-batches", type=int, default=1)
+    parser.add_argument("--num-batches", type=float, default=1)
     parser.add_argument("--num-microbatch", type=int, default=1)
     parser.add_argument("--num-nodes", type=int, default=1)
     parser.add_argument("--num-gpus-per-node", type=int, default=4)
@@ -640,6 +704,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--max-sample-id", type=int, default=3)
     parser.add_argument("--should-add-debug-cases", action="store_true")
+    parser.add_argument("--sample-name", type=str, default="wlbllm")
+    parser.add_argument("--change-long-doc-ratio", type=float, default=0.0)
 
     parser.add_argument("--up-sample-factor", type=int, default=4)
     parser.add_argument("--elongate-factor", type=int, default=1)

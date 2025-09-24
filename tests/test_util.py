@@ -435,6 +435,7 @@ def _block_reverse_list(l: list, d: int):
     """
     return [item for i in range(len(l), 0, -d) for item in l[max(0, i - d):i]]
 
+
 from global_batch_provider import get_next_batch, GLOBAL_BATCH
 def create_pipeline_doclens(
     ref_doc_lens: Optional[list[list[int]]],
@@ -571,6 +572,7 @@ def create_qkv_dispatch_pipeline_tick(
     print(f"🟡 original_cur_tick_per_rank_doc_lens: {original_cur_tick_per_rank_doc_lens}, len(original_cur_tick_per_rank_doc_lens): {len(original_cur_tick_per_rank_doc_lens)}")
 
 
+    tolerance_factor = 0.1
     if use_planner:
         # TODO: This pp_size should really come from mpu or some module that handles the world size...
         pp_size = world_size // dp_size        # in this function, world size is actual as_world_size. pp = world_size // dp_size
@@ -582,6 +584,7 @@ def create_qkv_dispatch_pipeline_tick(
             hidden_size_q=hidden_size_q,
             hidden_size_k=hidden_size_k
         )
+        planner.tolerance_factor = tolerance_factor
         
         # Create a temp_model_config for item initialization.
         temp_model_config = SimpleNamespace(
@@ -602,12 +605,13 @@ def create_qkv_dispatch_pipeline_tick(
         )
 
 
-    (qkv_linear_to_attn_fa2a, _, out_attn_to_linear_fa2a, _, fwd_attn_metadata,
-     ) = from_planner_output(
-         world_size, fwd_planner_out, hidden_size_q, hidden_size_k,
-         softmax_lse_size, element_size, is_pipeline_tick=True
-        )
+    fa2a_metadata = from_planner_output(
+        world_size, fwd_planner_out, hidden_size_q, hidden_size_k,
+        softmax_lse_size, element_size, is_pipeline_tick=True
+    )
+    (qkv_linear_to_attn_fa2a, _, out_attn_to_linear_fa2a, _, fwd_attn_metadata) = fa2a_metadata
 
+    
     # CP flip logic.
     print(f"🟡 fwd_tick_per_rank_doc_lens: {cur_tick_per_rank_doc_lens}")
     if len(cur_tick_per_rank_doc_lens) < world_size:
@@ -645,6 +649,70 @@ def create_qkv_dispatch_pipeline_tick(
             cur_tick_per_rank_doc_lens,)
     if return_original_doclen:
         ret += (original_cur_tick_per_rank_doc_lens,)
+
+
+    # FIXME: Properly pass the output dir down here.
+    from d2.utils.network_inspect import inspect_network_metadata
+    output_dir = os.environ.get("EXPERIMENT_OUTPUT_DIR")
+    if torch.distributed.is_initialized():
+        rank = torch.distributed.get_rank()
+    else:
+        # NOTE: This can potentially cause race condition. Mindful!
+        # rank = 0 
+        rank = 1 # so we don't write anything into the log file, but still print the result to console.
+    
+    # FIXME: Check the network metadata logic here.
+    network_metadata = (
+        qkv_linear_to_attn_fa2a, qkv_resend_and_out_grad_linear_to_attn_fa2a,
+        out_attn_to_linear_fa2a, qkv_grad_attn_to_linear_fa2a,
+    )
+
+
+    sample_id = os.environ.get("__PRG__INTERNAL__EXPERIMENT_SAMPLE_ID", "0")
+    network_buffer_requirements = inspect_network_metadata(
+        network_metadata, is_ping=None, sample_id=sample_id, 
+        tolerance_factor=tolerance_factor, 
+        output_dir=output_dir, rank=rank,
+        seq_len=cur_tick_per_rank_doc_lens,
+    )
+
+
+    def debug_set_metadata_transfer_size_to_0(
+        qkv_fwd_metadata,
+        qkv_bwd_metadata,
+        attn_out_fwd_metadata,
+        attn_out_bwd_metadata,
+    ):
+        for param in [
+            qkv_fwd_metadata,
+            qkv_bwd_metadata,
+            attn_out_fwd_metadata,
+            attn_out_bwd_metadata,
+        ]:
+            param.fa2a_metadata[1][:] = 1
+            param.fa2a_metadata[3][:] = 1
+            param.my_rank_send_sz = 1
+        return
+    
+    
+    if os.environ.get("EXPERIMENT_DEBUG_SET_METADATA_TRANSFER_SIZE_TO_0", "0") == "1":
+        print(f"🟡 [Rank {rank}] Debug set metadata transfer size to 0")
+        debug_set_metadata_transfer_size_to_0(
+            qkv_linear_to_attn_fa2a, qkv_resend_and_out_grad_linear_to_attn_fa2a,
+            out_attn_to_linear_fa2a, qkv_grad_attn_to_linear_fa2a,
+        )
+
+
+    def is_buffer_size_enough(buffer_size, network_buffer_requirements):
+        max_buffer_budget_all_rank = network_buffer_requirements["max_buffer_budget_all_rank"]
+        return buffer_size >= max_buffer_budget_all_rank
+
+    from d2.runtime.attn_kernels.ops import DispatcherWrapper
+    buffer_size = DispatcherWrapper.instance[0].buffer_size
+    if not is_buffer_size_enough(buffer_size, network_buffer_requirements):
+        raise ValueError(f"Buffer size {buffer_size} is not enough for network buffer requirements {network_buffer_requirements}. You may need to tune the tolerance factor or the buffer size.")
+
+
     return ret
 
 

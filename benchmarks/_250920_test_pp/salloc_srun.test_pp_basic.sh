@@ -2,7 +2,7 @@ set -e
 
 # export JOBID=${JOBID:-710588}
 TS=$(TZ=America/Los_Angeles date +%m%d_%H%M%S)_PST
-export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250920_test_pp/logs.v4-sweep-pp-memory
+export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250920_test_pp/logs.v10-large-scale-pp
 
 # -----------------------------
 # TorchRun Final Logging Flag (for cleaner console)
@@ -17,7 +17,7 @@ unset TORCH_SHOW_CPP_STACKTRACES        # disable those C++ frames in tracebacks
 # -----------------------------
 # Debugging Flags
 # -----------------------------
-export ENABLE_NSYS=1
+# export ENABLE_NSYS=1
 # export EXPERIMENT_PYTHON_DEBUG_TRACE_CALLS=1
 export EXPERIMENT_LOG_MEMORY_USAGE=0
 export EXPERIMENT_SKIP_FA2A_OP=0 # (DebugOnly: Ensure not stuck at fast a2a op)
@@ -25,7 +25,7 @@ export EXPERIMENT_SKIP_OPTIMIZER_STEP=1
 export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2
 export SHOULD_ADD_DEBUG_CASES=0
 
-export MAX_SAMPLE_ID=3
+export MAX_SAMPLE_ID=5
 export EXPERIMENT_0TH_SAMPLE_WARMUP_TIMES=1
 export EXPERIMENT_WARMUP_TIMES=0
 export EXPERIMENT_REPEAT_TIMES=1
@@ -47,103 +47,165 @@ export EXPERIMENT_ADD_SELECTIVE_CKPT=1
 # export PYTORCH_CUDA_ALLOC_CONF="pinned_use_background_threads:True"
 # export EXPERIMENT_SHOULD_LOG_MEMORY_DURING_WARMUP=1
 
-# The formal config
-# param_configs_cases=(
-#     #n bs mb t       mode cp  pp  tp )
-#     "8  1 8 131072     d2  4  2   8" # 
-#     "8  1 8 131072 wlbllm  4  2   8" # 
-#     "8  1 8 131072 wlbllm  2  4   8" # 
-#     "8  1 8 131072 wlbllm  8  1   8" # 
 
-#     "16  1 8 262144     d2  8  2   8" # 
-#     "16  2 4 262144 wlbllm  8  2   8" # 
-#     "16  1 8 262144 wlbllm  4  4   8" # 
-
-    
-#     "32  1 8 524288     d2  16  2   8" # 
-#     "32  2 8 524288 wlbllm  16  2   8" # 
-#     "32  2 8 524288 wlbllm  8  4   8" # 
-# )
-
-
-# cases=()
 model_config="deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 32"
 param_configs_cases=(
-    #n bs mb t       mode cp  pp  tp comment )
-    # "8  1 2 131072     d2  4  2   8  'subopt-mem'  " # 
-    # "8  1 4 131072     d2  4  2   8  'opt-mem'  " # 
-    # "8  1 8 131072 wlbllm  4  2   8" # 
-    # "8  1 8 131072 wlbllm  2  4   8" # 
-    # "8  1 8 131072 wlbllm  8  1   8" # 
 
-    # "16  1 8 262144     d2  8  2   8" # 
-    # "16  2 4 262144 wlbllm  8  2   8" # 
-    # "16  1 8 262144 wlbllm  4  4   8" # 
+# 8B 128k
+#    n bs mb t       mode  cp pp tp comment )
+    "8  1 8 131072     d2  4  2   8  'd2-pretrain'  "
+    "8  2 4 131072     d2  4  2   8  'd2-pretrain'  "
+    "8  1 8 131072     d2  2  4   8  'd2-pretrain'  "
+    "8  1 8 131072 wlbllm  4  2   8  'wlbllm-pretrain'  " # 
+    "8  2 4 131072 wlbllm  2  2   8  'wlbllm-pretrain'  " # 
+    "8  1 8 131072 wlbllm  2  4   8  'wlbllm-pretrain'  " # 
 
-    
-    "32  2 8 524288     d2  16  2   8" # 
-    "32  2 8 524288 wlbllm  16  2   8" # 
-    "32  1 16 524288 wlbllm   8  4   8" # 
+#     n bs mb t       mode  cp pp tp comment )
+    "16  2 8 131072     d2  8  2   8  'd2-pretrain'  "
+    "16  4 4 131072     d2  8  2   8  'd2-pretrain'  "
+    "16  2 8 131072     d2  2  8   8  'd2-pretrain'  "
+    "16  2 8 131072 wlbllm  8  2   8  'wlbllm-pretrain'  " # 
+    "16  4 4 131072 wlbllm  4  4   8  'wlbllm-pretrain'  " # 
+    "16  2 8 131072 wlbllm  2  4   8  'wlbllm-pretrain'  " # 
+
+#    n bs mb t       mode  cp pp tp comment )
+    "32  2 8 131072     d2 16  2   8  'd2-pretrain'  "
+    "32  4 4 131072     d2 16  2   8  'd2-pretrain'  "
+    "32  2 8 131072     d2  8  4   8  'd2-pretrain'  "
+    "32  2 8 131072 wlbllm 16  2   8  'wlbllm-pretrain'  " # 
+    "32  4 4 131072 wlbllm 16  2   8  'wlbllm-pretrain'  " # 
+    "32  2 8 131072 wlbllm  8  4   8  'wlbllm-pretrain'  " # 
+
+# 8B 256k
+#    n bs mb t       mode  cp pp tp comment )
+    "8  1 4 262144     d2  4  2   8  'd2-pretrain'  "
+    "8  2 2 262144     d2  4  2   8  'd2-pretrain'  "
+    "8  1 4 262144     d2  2  4   8  'd2-pretrain'  "
+    "8  1 4 262144 wlbllm  4  2   8  'wlbllm-pretrain'  " # 
+    "8  2 2 262144 wlbllm  2  2   8  'wlbllm-pretrain'  " # 
+    "8  1 4 262144 wlbllm  2  4   8  'wlbllm-pretrain'  " # 
+
+#     n bs mb t       mode  cp pp tp comment )
+    "16  1 8 262144     d2  8  2   8  'd2-pretrain'  "
+    "16  2 4 262144     d2  8  2   8  'd2-pretrain'  "
+    "16  1 8 262144     d2  2  8   8  'd2-pretrain'  "
+    "16  1 8 262144 wlbllm  8  2   8  'wlbllm-pretrain'  " # 
+    "16  2 4 262144 wlbllm  4  4   8  'wlbllm-pretrain'  " # 
+    "16  1 8 262144 wlbllm  2  4   8  'wlbllm-pretrain'  " # 
+
+#    n bs mb t       mode  cp pp tp comment )
+    "32  1 8 262144     d2 16  2   8  'd2-pretrain'  "
+    "32  2 4 262144     d2 16  2   8  'd2-pretrain'  "
+    "32  1 8 262144     d2  8  4   8  'd2-pretrain'  "
+    "32  1 8 262144 wlbllm 16  2   8  'wlbllm-pretrain'  " # 
+    "32  2 4 262144 wlbllm 16  2   8  'wlbllm-pretrain'  " # 
+    "32  1 8 262144 wlbllm  8  4   8  'wlbllm-pretrain'  " # 
+
+
+# 8B 512k
+#    n bs mb t       mode  cp pp tp comment )
+    "8  1 4 524288     d2  4  2   8  'd2-pretrain'  "
+    "8  2 2 524288     d2  4  2   8  'd2-pretrain'  "
+    "8  1 4 524288     d2  2  4   8  'd2-pretrain'  "
+    "8  1 4 524288 wlbllm  4  2   8  'wlbllm-pretrain'  " # 
+    "8  2 2 524288 wlbllm  2  2   8  'wlbllm-pretrain'  " # 
+    "8  1 4 524288 wlbllm  2  4   8  'wlbllm-pretrain'  " # 
+
+#     n bs mb t       mode  cp pp tp comment )
+    "16  1 8 524288     d2  8  2   8  'd2-pretrain'  "
+    "16  2 4 524288     d2  8  2   8  'd2-pretrain'  "
+    "16  1 8 524288     d2  2  8   8  'd2-pretrain'  "
+    "16  1 8 524288 wlbllm  8  2   8  'wlbllm-pretrain'  " # 
+    "16  2 4 524288 wlbllm  4  4   8  'wlbllm-pretrain'  " # 
+    "16  1 8 524288 wlbllm  2  4   8  'wlbllm-pretrain'  " # 
+
+#    n bs mb t       mode  cp pp tp comment )
+    "32  1 8 524288     d2 16  2   8  'd2-pretrain'  "
+    "32  2 4 524288     d2 16  2   8  'd2-pretrain'  "
+    "32  1 8 524288     d2  8  4   8  'd2-pretrain'  "
+    "32  1 8 524288 wlbllm 16  2   8  'wlbllm-pretrain'  " # 
+    "32  2 4 524288 wlbllm 16  2   8  'wlbllm-pretrain'  " # 
+    "32  1 8 524288 wlbllm  8  4   8  'wlbllm-pretrain'  " # 
+
 )
+
 for config in "${param_configs_cases[@]}"; do
     cases+=("$model_config $config")
 done
 
 model_config="codellama/CodeLlama-34b-hf 131072 48"
 param_configs_cases=(
-    #n bs mb t       mode cp  pp  tp    comment) 
-    
-    # Compare group
-    # "32  1 4 131072     d2  16  2   8  'subopt-mem'  " # 
+# 34B 128k
+#    n bs mb t       mode  cp pp tp  comment
+    "16 1 4 131072    d2   8  2  8  'd2 subopt-mem'  " # 
+    "16 1 4 131072    d2   4  4  8  'd2 subopt-mem'  " # 
+    "16 1 4 131072 wlbllm  4  4  8  'wlbllm subopt-mem'  " # 
+    "16 1 4 131072 wlbllm  8  2  8  'wlbllm subopt-mem'  " # 
+    "16 2 2 131072 wlbllm  4  2  8  'wlbllm subopt-mem'  " # 
+
+#    n bs mb t       mode  cp pp tp  comment
+    "32 1 8 131072    d2   8  4  8  'd2 subopt-mem'  " # 
+    "32 2 4 131072    d2   8  4  8  'd2 subopt-mem'  " # 
+    "32 1 8 131072    d2  16  2  8  'd2 subopt-mem'  " # 
+    "32 1 8 131072 wlbllm  8  2  8  'wlbllm subopt-mem'  " # 
+    "32 1 8 131072 wlbllm  4  4  8  'wlbllm subopt-mem'  " # 
+    "32 1 8 131072 wlbllm  2  4  8  'wlbllm subopt-mem'  " # 
+    "32 1 8 131072 wlbllm  2  2  8  'wlbllm subopt-mem'  " # 
+
+# 34B 256k
+#    n bs mb t       mode  cp pp tp comment )
+    "32 1 4 262144    d2   8  4  8  'd2 subopt-mem'  " # 
+    "32 1 4 262144    d2  16  2  8  'd2 subopt-mem'  " # 
+    "32 1 4 262144 wlbllm  8  2  8  'wlbllm subopt-mem'  " # 
+    "32 1 4 262144 wlbllm  4  4  8  'wlbllm subopt-mem'  " # 
+    "32 1 4 262144 wlbllm  2  4  8  'wlbllm subopt-mem'  " # 
+    "32 1 4 262144 wlbllm  2  2  8  'wlbllm subopt-mem'  " # 
 
 
-    # "32  1 4 131072     d2  16  2   8  'd2 subopt-mem'  " # 
-    # "32  1 4 131072 wlbllm  16  2   8  'wlbllm'  " # 
-    # "32  1 4 131072 wlbllm   8  4   8  'wlbllm'  " # 
+# 34B 512k
+#    n bs mb t       mode  cp pp tp comment )
+    "32 1 2 524288    d2   8  2  8  'd2 subopt-mem'  " # 
+    "32 1 2 524288 wlbllm  8  2  8  'wlbllm subopt-mem'  " # 
+    "32 1 2 524288 wlbllm  4  2  8  'wlbllm subopt-mem'  " # 
 
-    # "32  1 2 262144     d2  16  2   8  'd2 subopt-mem'  " # 
-    # "32  1 2 262144 wlbllm  16  2   8  'wlbllm'  " # 
-    # "32  1 2 262144 wlbllm   8  4   8  'wlbllm'  " # 
-
-    "32  1 4 524288     d2  16  2   8  'd2 subopt-mem'  " # 
-    "32  1 4 524288 wlbllm  16  2   8  'wlbllm'  " # 
-    "32  1 4 524288 wlbllm   8  4   8  'wlbllm'  " # 
-
-
-    "32  1 4 262144     d2  16  2   8  'd2 subopt-mem'  " # 
-    "32  1 4 262144 wlbllm  16  2   8  'wlbllm'  " # 
-    "32  1 4 262144 wlbllm   8  4   8  'wlbllm'  " # 
-
-    # Compare group
-    # "32  1 4 131072     d2  16  2   8  'subopt-mem'  " # 
-
-
-    # "32  1 8 131072     d2  16  2   8  'subopt-mem'  " # 
-    # "32  2 8 131072 wlbllm  16  2   8  'subopt-mem'  " # 
-    # "32  2 8 131072 wlbllm   8  4   8  'subopt-mem'  " # 
 )
-# for config in "${param_configs_cases[@]}"; do
-#     cases+=("$model_config $config")
-# done
+for config in "${param_configs_cases[@]}"; do
+    cases+=("$model_config $config")
+done
 
 
-
+dists=(
+    "prolong 0.3"
+    "wlbllm 0.0"
+)
 
 
 
 # -------------------------------
 # -------------------------------
 
+wlbllm_cases=()
+d2_cases=()
 echo "🟡 All cases:"
 printf "%-50s  %10s  %6s  %10s  %14s  %10s  %6s  %7s  %7s  %7s\n" \
     "model_path" "attn_linear_breakpoint" "num_layers" "nnodes" "batch_size" "microbatch_size" "num_tokens" "mode" "cp_size" "pp_size" "tp_size" "comment"
 for case in "${cases[@]}"; do
     read -r model_path attn_linear_breakpoint num_layers nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment <<< "$case"
-    printf "%-50s  %10s  %6s  %10s  %14s  %10s  %6s  %7s  %7s  %7s\n" \
-        "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size" "$comment"
+    if [ "$mode" == "wlbllm" ]; then
+        wlbllm_cases+=("$case")
+        printf "%-50s  %10s  %6s  %10s  %14s  %10s  %6s  %7s  %7s  %7s\n" \
+            "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size" "$comment"
+    fi
+    if [ "$mode" == "d2" ]; then
+        d2_cases+=("$case")
+        printf "%-50s  %10s  %6s  %10s  %14s  %10s  %6s  %7s  %7s  %7s\n" \
+            "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size" "$comment"
+    fi
 done
-echo "🟡 Total cases: ${#cases[@]}"
+echo "🟡 Total wlbllm cases: ${#wlbllm_cases[@]}"
+# echo "🟡 Total d2 cases: ${#d2_cases[@]}"
 echo ""
+
 
 sleep 3
 
@@ -152,8 +214,11 @@ max_cases=10000
 echo "🏁 Start regression sweep. Only running $max_cases cases."
 cases_index=0
     
-for config in "${cases[@]}"; do
+
+for sample_config in "${dists[@]}"; do
+for config in "${wlbllm_cases[@]}"; do
     read -r model_path attn_linear_breakpoint num_layers nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment <<< "$config"
+    read -r sample_name change_long_doc_ratio <<< "$sample_config"
     
     export MODE=$mode
     export BATCH_SIZE=$batch_size
@@ -167,6 +232,9 @@ for config in "${cases[@]}"; do
     export NUM_LAYERS=$num_layers
     export MODEL_PATH=$model_path
     export MODEL_PATH_normalized=$(echo $model_path | sed 's/\//_/g')
+    export SAMPLE_NAME=$sample_name
+    export CHANGE_LONG_DOC_RATIO=$change_long_doc_ratio
+    
 
     export ELONGATE_FACTOR=$(($NUM_TOKENS / 65536))
     if [ $ELONGATE_FACTOR -lt 1 ]; then
@@ -200,4 +268,11 @@ for config in "${cases[@]}"; do
         break
     fi
 
+done
+done
+
+
+for i in {1..10}; do
+    echo '\a'
+    sleep 1
 done
