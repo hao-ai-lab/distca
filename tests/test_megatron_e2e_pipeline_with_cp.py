@@ -151,6 +151,10 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         torch.cuda.synchronize()
         from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
         nvshmem_barrier_all()
+
+        # from d2.utils.traceback import TraceFunctions
+        # tracer = TraceFunctions("d2/d2/runtime/")
+        # with tracer:
         if with_dummy:
             losses_reduced = forward_backward_func(
                 forward_step_func=forward_step,

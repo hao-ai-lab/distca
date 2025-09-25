@@ -3,7 +3,9 @@ import os
 import json
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250920_test_pp/logs.v14-large-scale-pp"
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250920_test_pp/logs.v14-large-scale-pp--512k"
-root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v1-sweep-pp-34b"
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v1-sweep-pp-34b"
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v2-sweep-pp-34b"
+root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v3-sweep-pp-34b"
 a = os.listdir(root_path)
 a = sorted(a)
 
@@ -66,14 +68,7 @@ for folder in a:
 
     with open(file, "r") as f:
         data = [json.loads(line) for line in f]
-    # print(data)
-    durations = [x['duration_ms'] for x in data]
-    # print(durations)
-    average_duration = sum(durations) / len(durations)
-    # groups = name.split("-")
-    # mode, cp_size, nodes, batch_size, num_tokens = groups
-    print(f"{name}: {average_duration:.2f}ms")
-
+    
     total_batch_size = batch_size * num_microbatch
     ratio = 8 / (nodes / total_batch_size)
     config = dict(
@@ -89,20 +84,38 @@ for folder in a:
         model_path=model_path,
         model_size=model_size,
     )
+
     row = dict(
         name=name,
         dataset=dataset,
         group_id=f"{nodes:02d}_{num_tokens}_{batch_size}",
         **config,
-        average_duration=average_duration,
+        # average_duration=average_duration,
     )
+    
+    # # print(data)
+    durations = [x['duration_ms'] for x in data]
+    # # print(durations)
+    # average_duration = sum(durations) / len(durations)
+    # # groups = name.split("-")
+    # # mode, cp_size, nodes, batch_size, num_tokens = groups
+    # print(f"{name}: {average_duration:.2f}ms")
+
+
+    only_focus_on_sample_id = {}
+    sample_durations = {}
     for i, d in enumerate(durations):
-        row[f"sample_{i}"] = d
+        if (only_focus_on_sample_id and i in only_focus_on_sample_id) or not only_focus_on_sample_id:
+            sample_durations[f"sample_{i}"] = d
+    average_duration = sum(sample_durations.values()) / len(sample_durations) if len(sample_durations) > 0 else 0
+    row['average_duration'] = average_duration
+    row.update(sample_durations)
+
     success_configs[name] = config
     rows.append(row)
 
 # %%
-dataset
+row
 
 # %%
 import pandas as pd
@@ -139,24 +152,31 @@ wlb_groups_best = df[
     'cp_size': lambda x: list(x)
 }).reset_index()
 wlb_groups_best.columns = ['model_size', 'num_tokens', 'ratio', 'nodes', 'total_batch_size', 'dataset', 'average_duration', 'average_duration_list', 'pp_size_list', 'cp_size_list']
-config_list = list(
-    tuple(
-        (pp, cp, round(duration, 2))
-        for duration, pp, cp in zip(
-            durations,
-            pps,
-            cps,
+
+# wlb_groups_best['config_list'] = wlb_groups_best.apply(
+#     lambda x: [
+#         (cp, pp, round(duration, 2))
+#         for cp, pp, duration in zip(
+#             x['cp_size_list'],
+#             x['pp_size_list'],
+#             x['average_duration_list']
+#         )
+#     ]
+# )
+wlb_groups_best['config_list'] = wlb_groups_best.apply(
+    lambda x: [
+        (cp, pp, round(duration, 2))
+        for cp, pp, duration in zip(
+            x['cp_size_list'],
+            x['pp_size_list'],
+            x['average_duration_list']
         )
-    )
-    for durations, pps, cps in zip(
-        wlb_groups_best['average_duration_list'],
-        wlb_groups_best['pp_size_list'],
-        wlb_groups_best['cp_size_list'],
-    )
+    ], axis=1
 )
-config_list = sorted(config_list, key=lambda x: x[-1])
-wlb_groups_best['config_list'] = config_list
-wlb_groups_best = wlb_groups_best.drop(['pp_size_list', 'cp_size_list', 'average_duration_list'], axis=1)
+wlb_groups_best['best_config'] = wlb_groups_best['config_list'].apply(
+    lambda x: sorted(x, key=lambda x: x[-1])[0]
+)
+wlb_groups_best = wlb_groups_best.drop(columns=['average_duration_list', 'pp_size_list', 'cp_size_list'])
 wlb_groups_best
 # %%
 d2_groups_best = df[
@@ -167,24 +187,22 @@ d2_groups_best = df[
     'cp_size': lambda x: list(x)
 }).reset_index()
 d2_groups_best.columns = ['model_size', 'num_tokens', 'ratio', 'nodes', 'total_batch_size', 'dataset', 'average_duration', 'average_duration_list', 'pp_size_list', 'cp_size_list']
-config_list = list(
-    tuple(
-        (pp, cp, round(duration, 2))
-        for duration, pp, cp in zip(
-            durations,
-            pps,
-            cps,
+
+d2_groups_best['config_list'] = d2_groups_best.apply(
+    lambda x: [
+        (cp, pp, round(duration, 2))
+        for cp, pp, duration in zip(
+            x['cp_size_list'],
+            x['pp_size_list'],
+            x['average_duration_list']
         )
-    )
-    for durations, pps, cps in zip(
-        d2_groups_best['average_duration_list'],
-        d2_groups_best['pp_size_list'],
-        d2_groups_best['cp_size_list'],
-    )
+    ], axis=1
 )
-config_list = sorted(config_list, key=lambda x: x[-1])
-d2_groups_best['config_list'] = config_list
-d2_groups_best = d2_groups_best.drop(['pp_size_list', 'cp_size_list', 'average_duration_list'], axis=1)
+d2_groups_best['best_config'] = d2_groups_best['config_list'].apply(
+    lambda x: sorted(x, key=lambda x: x[-1])[0]
+)
+
+d2_groups_best = d2_groups_best.drop(columns=['average_duration_list', 'pp_size_list', 'cp_size_list'])
 d2_groups_best
 # %%
 # merge wlb_groups_best and d2_groups_best - 

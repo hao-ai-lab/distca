@@ -9,7 +9,21 @@ LIST_RUNS_FULL=0
 DRY_RUN=0
 SKIP_PARTIAL=0
 SKIP_STARTED=0
+SKIP_COMPLETED=0
 MONITOR_STUCK=0
+
+# Filter variables
+FILTER_MODEL_PATH=""
+FILTER_ATB=""
+FILTER_NLAYERS=""
+FILTER_N=""
+FILTER_BS=""
+FILTER_MB=""
+FILTER_TOKS=""
+FILTER_MODE=""
+FILTER_CP=""
+FILTER_PP=""
+FILTER_TP=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -37,20 +51,84 @@ while [[ $# -gt 0 ]]; do
             SKIP_STARTED=1
             shift
             ;;
+        --skip-completed)
+            SKIP_COMPLETED=1
+            shift
+            ;;
         --monitor-stuck)
             MONITOR_STUCK=1
             shift
             ;;
+        --filter-model_path)
+            FILTER_MODEL_PATH="$2"
+            shift 2
+            ;;
+        --filter-atb)
+            FILTER_ATB="$2"
+            shift 2
+            ;;
+        --filter-nlayers)
+            FILTER_NLAYERS="$2"
+            shift 2
+            ;;
+        --filter-N)
+            FILTER_N="$2"
+            shift 2
+            ;;
+        --filter-bs)
+            FILTER_BS="$2"
+            shift 2
+            ;;
+        --filter-mb)
+            FILTER_MB="$2"
+            shift 2
+            ;;
+        --filter-toks)
+            FILTER_TOKS="$2"
+            shift 2
+            ;;
+        --filter-mode)
+            FILTER_MODE="$2"
+            shift 2
+            ;;
+        --filter-cp)
+            FILTER_CP="$2"
+            shift 2
+            ;;
+        --filter-pp)
+            FILTER_PP="$2"
+            shift 2
+            ;;
+        --filter-tp)
+            FILTER_TP="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--ls] [--ls-runs] [--ls-runs-full] [--dry-run] [--skip-partial] [--skip-started] [--monitor-stuck]"
+            echo "Usage: $0 [--ls] [--ls-runs] [--ls-runs-full] [--dry-run] [--skip-partial] [--skip-started] [--skip-completed] [--monitor-stuck] [FILTER_OPTIONS]"
             echo "  --ls            List configs that would be run and exit"
             echo "  --ls-runs       List configs and show existing run folders, then exit"
             echo "  --ls-runs-full  List ALL configs (including completed) and show existing run folders, then exit"
             echo "  --dry-run       Show what would be run but don't execute"
             echo "  --skip-partial  Skip configs that already have partial results (benchmark.raw.jsonl)"
             echo "  --skip-started  Skip configs that have already been started (have README.md)"
+            echo "  --skip-completed Skip configs that have been completed with sufficient samples (>= MAX_SAMPLE_ID)"
             echo "  --monitor-stuck Enable job monitoring to detect stuck processes (disabled by default)"
+            echo ""
+            echo "Filter Options (comma-separated values for OR condition):"
+            echo "  --filter-model_path VALUE   Filter by model path"
+            echo "  --filter-atb VALUE          Filter by attention breakpoint"
+            echo "  --filter-nlayers VALUE      Filter by number of layers"
+            echo "  --filter-N VALUE            Filter by number of nodes"
+            echo "  --filter-bs VALUE           Filter by batch size"
+            echo "  --filter-mb VALUE           Filter by microbatch size"
+            echo "  --filter-toks VALUE         Filter by number of tokens"
+            echo "  --filter-mode VALUE         Filter by mode"
+            echo "  --filter-cp VALUE           Filter by CP size"
+            echo "  --filter-pp VALUE           Filter by PP size"
+            echo "  --filter-tp VALUE           Filter by TP size"
+            echo ""
+            echo "Example: $0 --filter-N 16,32 --filter-mode wlbllm,d2"
             exit 1
             ;;
     esac
@@ -58,7 +136,97 @@ done
 
 # export JOBID=${JOBID:-710588}
 TS=$(TZ=America/Los_Angeles date +%m%d_%H%M%S)_PST
-export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v1-sweep-pp-34b
+
+# Function to check if a value matches any of the comma-separated filter values
+# Usage: matches_filter "actual_value" "filter_string"
+# Returns 0 (true) if match found or filter is empty, 1 (false) otherwise
+matches_filter() {
+    local actual_value="$1"
+    local filter_string="$2"
+    
+    # If filter is empty, accept all values
+    if [ -z "$filter_string" ]; then
+        return 0
+    fi
+    
+    # Split filter string by comma and check each value
+    IFS=',' read -ra filter_values <<< "$filter_string"
+    for filter_value in "${filter_values[@]}"; do
+        # Trim whitespace
+        filter_value=$(echo "$filter_value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [ "$actual_value" = "$filter_value" ]; then
+            return 0
+        fi
+    done
+    
+    return 1
+}
+
+# Function to check if a case matches all active filters
+# Usage: case_matches_filters model_path attn_linear_breakpoint num_layers nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size
+case_matches_filters() {
+    local model_path="$1"
+    local attn_linear_breakpoint="$2"
+    local num_layers="$3"
+    local nnodes="$4"
+    local batch_size="$5"
+    local microbatch_size="$6"
+    local num_tokens="$7"
+    local mode="$8"
+    local cp_size="$9"
+    local pp_size="${10}"
+    local tp_size="${11}"
+    
+    # Check each filter - if any filter fails, return false
+    if ! matches_filter "$model_path" "$FILTER_MODEL_PATH"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$attn_linear_breakpoint" "$FILTER_ATB"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$num_layers" "$FILTER_NLAYERS"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$nnodes" "$FILTER_N"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$batch_size" "$FILTER_BS"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$microbatch_size" "$FILTER_MB"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$num_tokens" "$FILTER_TOKS"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$mode" "$FILTER_MODE"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$cp_size" "$FILTER_CP"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$pp_size" "$FILTER_PP"; then
+        return 1
+    fi
+    
+    if ! matches_filter "$tp_size" "$FILTER_TP"; then
+        return 1
+    fi
+    
+    # All filters passed
+    return 0
+}
+
+export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v3-sweep-pp-34b
 
 export STATUS_FILE_PATH=${OUTPUT_DIR_PREFIX}/job-status.txt
 mkdir -p ${OUTPUT_DIR_PREFIX}
@@ -275,6 +443,44 @@ config_has_started() {
     return 1  # No started runs found
 }
 
+# Function to check if a config has been completed with sufficient samples
+# Returns 0 (true) if there's a successful run with >= MAX_SAMPLE_ID samples
+config_is_completed_with_sufficient_samples() {
+    local mode=$1
+    local nnodes=$2
+    local num_tokens=$3
+    local batch_size=$4
+    local microbatch_size=$5
+    local cp_size=$6
+    local tp_size=$7
+    local pp_size=$8
+    local model_path_normalized=$9
+    
+    local existing_runs=$(find_existing_runs "$mode" "$nnodes" "$num_tokens" "$batch_size" "$microbatch_size" "$cp_size" "$tp_size" "$pp_size" "$model_path_normalized")
+    
+    if [ -z "$existing_runs" ]; then
+        return 1  # No existing runs, so not completed
+    fi
+    
+    # Check if any run has benchmark.json (success) AND sufficient samples in benchmark.raw.jsonl
+    while IFS= read -r run_dir; do
+        if [ -z "$run_dir" ]; then continue; fi
+        
+        # Check if this run was successful (has benchmark.json)
+        if [ -f "$run_dir/benchmark.json" ]; then
+            # Check if benchmark.raw.jsonl exists and has sufficient samples
+            if [ -f "$run_dir/benchmark.raw.jsonl" ]; then
+                local line_count=$(wc -l < "$run_dir/benchmark.raw.jsonl" 2>/dev/null || echo "0")
+                if [ "$line_count" -ge "$MAX_SAMPLE_ID" ]; then
+                    return 0  # Found completed run with sufficient samples
+                fi
+            fi
+        fi
+    done <<< "$existing_runs"
+    
+    return 1  # No completed runs with sufficient samples found
+}
+
 # -----------------------------
 # TorchRun Final Logging Flag (for cleaner console)
 # -----------------------------
@@ -314,7 +520,7 @@ export EXPERIMENT_REPEAT_TIMES=1
 # export EXPERIMENT_ADD_SELECTIVE_CKPT=1
 # export PYTORCH_CUDA_ALLOC_CONF="pinned_use_background_threads:True"
 # export EXPERIMENT_SHOULD_LOG_MEMORY_DURING_WARMUP=1
-export MAX_SAMPLE_ID=1
+export MAX_SAMPLE_ID=${MAX_SAMPLE_ID:-5}
 export ENABLE_NSYS=0
 export EXPERIMENT_ADD_SELECTIVE_CKPT=1
 # export EXPERIMENT_ADD_SELECTIVE_CKPT=0
@@ -328,8 +534,6 @@ param_configs_cases=()
 # -------------------------------
 # memory sweep
 config_sweep_memory=()
-export MAX_SAMPLE_ID=1
-export ENABLE_NSYS=1
 # Get current directory of this script
 CURDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -393,9 +597,23 @@ while IFS= read -r line; do
         fi
     fi
     
+    # Skip lines that have been completed with sufficient samples if --skip-completed flag is set
+    if [[ "$SKIP_COMPLETED" == "1" ]] && [[ "$LIST_RUNS_FULL" != "1" ]]; then
+        # Parse the config line to check for completed jobs
+        if read -r nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment env_var <<< "$line"; then
+            # Create model_path_normalized (assuming codellama/CodeLlama-34b-hf)
+            model_path_normalized="codellama_CodeLlama-34b-hf"
+            
+            if config_is_completed_with_sufficient_samples "$mode" "$nnodes" "$num_tokens" "$batch_size" "$microbatch_size" "$cp_size" "$tp_size" "$pp_size" "$model_path_normalized"; then
+                echo "✅ Skipping config line $line_number due to --skip-completed flag (completed with >= $MAX_SAMPLE_ID samples): $original_line"
+                continue
+            fi
+        fi
+    fi
+    
     # Store line number with the config line
     config_sweep_memory+=("$line_number:$line")
-done < "$CURDIR/config_sweep_memory.config.sh"
+done < "$CURDIR/config_sweep_memory.config.v2.sh"
 
 for config_with_line in "${config_sweep_memory[@]}"; do
     # Extract line number and config
@@ -404,6 +622,58 @@ for config_with_line in "${config_sweep_memory[@]}"; do
     cases+=("$line_num $model_config $config")
 done
 
+# Function to extract EXPERIMENT_SCHEDULE_PRIORITY from env_var string
+extract_schedule_priority() {
+    local env_var="$1"
+    local priority=0
+    
+    if [ ! -z "$env_var" ]; then
+        # Remove surrounding quotes if present
+        env_var_clean="${env_var//\'/}"  # Remove single quotes
+        env_var_clean="${env_var_clean//\"/}"  # Remove double quotes
+        
+        # Look for EXPERIMENT_SCHEDULE_PRIORITY=X in the env_var string
+        if [[ "$env_var_clean" =~ EXPERIMENT_SCHEDULE_PRIORITY=([0-9]+) ]]; then
+            priority="${BASH_REMATCH[1]}"
+        fi
+    fi
+    
+    echo "$priority"
+}
+
+# Function to sort cases by EXPERIMENT_SCHEDULE_PRIORITY
+sort_cases_by_priority() {
+    local temp_file=$(mktemp)
+    local -a new_cases=()
+    
+    # Write priority:case pairs to temporary file
+    for case in "${cases[@]}"; do
+        # Extract env_var using regex - it's the part between the last two single quotes
+        local env_var=""
+        if [[ "$case" =~ \'([^\']+)\'[[:space:]]*$ ]]; then
+            env_var="${BASH_REMATCH[1]}"
+        fi
+        
+        priority=$(extract_schedule_priority "$env_var")
+        printf "%02d:%s\n" "$priority" "$case" >> "$temp_file"
+    done
+    
+    # Sort by priority (descending order - higher priority first) and rebuild array
+    while IFS=':' read -r priority case_line; do
+        # Skip the priority part and get the rest of the line
+        full_case="${case_line}"
+        new_cases+=("$full_case")
+    done < <(sort -t: -k1,1nr "$temp_file")
+    
+    # Replace the original cases array
+    cases=("${new_cases[@]}")
+    
+    # Clean up
+    rm -f "$temp_file"
+}
+
+# Sort cases by EXPERIMENT_SCHEDULE_PRIORITY (higher priority first)
+sort_cases_by_priority
 
 # for config in "${param_configs_cases[@]}"; do
 #     cases+=("$model_config $config")
@@ -484,11 +754,52 @@ d2_cases=()
 # Define format string once
 format_str="%-4s  %-15s  %5s  %6s  %4s  %4s  %4s  %6s  %7s  %4s  %4s  %4s  %4s %10s\n"
 
-echo "🟡 All cases:"
+# Display active filters
+filters_active=false
+if [ ! -z "$FILTER_MODEL_PATH" ] || [ ! -z "$FILTER_ATB" ] || [ ! -z "$FILTER_NLAYERS" ] || [ ! -z "$FILTER_N" ] || [ ! -z "$FILTER_BS" ] || [ ! -z "$FILTER_MB" ] || [ ! -z "$FILTER_TOKS" ] || [ ! -z "$FILTER_MODE" ] || [ ! -z "$FILTER_CP" ] || [ ! -z "$FILTER_PP" ] || [ ! -z "$FILTER_TP" ]; then
+    filters_active=true
+    echo ""
+    echo "🔍 Active Filters:"
+    [ ! -z "$FILTER_MODEL_PATH" ] && echo "  model_path: $FILTER_MODEL_PATH"
+    [ ! -z "$FILTER_ATB" ] && echo "  atb: $FILTER_ATB"
+    [ ! -z "$FILTER_NLAYERS" ] && echo "  nlayers: $FILTER_NLAYERS"
+    [ ! -z "$FILTER_N" ] && echo "  N (nodes): $FILTER_N"
+    [ ! -z "$FILTER_BS" ] && echo "  bs (batch_size): $FILTER_BS"
+    [ ! -z "$FILTER_MB" ] && echo "  mb (microbatch): $FILTER_MB"
+    [ ! -z "$FILTER_TOKS" ] && echo "  toks (tokens): $FILTER_TOKS"
+    [ ! -z "$FILTER_MODE" ] && echo "  mode: $FILTER_MODE"
+    [ ! -z "$FILTER_CP" ] && echo "  cp: $FILTER_CP"
+    [ ! -z "$FILTER_PP" ] && echo "  pp: $FILTER_PP"
+    [ ! -z "$FILTER_TP" ] && echo "  tp: $FILTER_TP"
+    echo ""
+fi
+
+FAILED_SANITY_CHECK=0
+
+if [ "$filters_active" = true ]; then
+    echo "🟡 Filtered cases:"
+else
+    echo "🟡 All cases:"
+fi
 printf "$format_str" \
     "L#" "model_path" "atb" "nlayers" "N" "bs" "mb" "toks" "mode" "cp" "pp" "tp" "comment" "env_var"
 for case in "${cases[@]}"; do
     read -r line_num model_path attn_linear_breakpoint num_layers nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment env_var <<< "$case"
+    
+    # Apply filters - skip this case if it doesn't match
+    if ! case_matches_filters "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size"; then
+        continue
+    fi
+    
+    # Sanity check: For d2 mode, cp * pp must equal N (nodes)
+    if [ "$mode" = "d2" ]; then
+        expected_nodes=$((cp_size * pp_size))
+        if [ "$expected_nodes" -ne "$nnodes" ]; then
+            echo "❌ SANITY CHECK FAILED for line $line_num: mode=d2 requires cp * pp == N, but cp($cp_size) * pp($pp_size) = $expected_nodes != N($nnodes)"
+            FAILED_SANITY_CHECK=1
+            continue
+        fi
+    fi
     # Trim model path to 15 chars
     model_path_short="${model_path:0:15}"
     
@@ -498,12 +809,14 @@ for case in "${cases[@]}"; do
     if [ "$mode" == "wlbllm" ]; then
         wlbllm_cases+=("$case")
         
-        # Check if this config would be skipped due to partial results or started status
+        # Check if this config would be skipped due to partial results, started status, or completion
         skip_indicator=""
         if [[ "$SKIP_PARTIAL" == "1" ]] && config_has_partial_results "$mode" "$nnodes" "$num_tokens" "$batch_size" "$microbatch_size" "$cp_size" "$tp_size" "$pp_size" "$model_path_normalized"; then
             skip_indicator=" [SKIP-PARTIAL]"
         elif [[ "$SKIP_STARTED" == "1" ]] && config_has_started "$mode" "$nnodes" "$num_tokens" "$batch_size" "$microbatch_size" "$cp_size" "$tp_size" "$pp_size" "$model_path_normalized"; then
             skip_indicator=" [SKIP-STARTED]"
+        elif [[ "$SKIP_COMPLETED" == "1" ]] && config_is_completed_with_sufficient_samples "$mode" "$nnodes" "$num_tokens" "$batch_size" "$microbatch_size" "$cp_size" "$tp_size" "$pp_size" "$model_path_normalized"; then
+            skip_indicator=" [SKIP-COMPLETED]"
         fi
         
         printf "$format_str" \
@@ -529,12 +842,14 @@ for case in "${cases[@]}"; do
     if [ "$mode" == "d2" ]; then
         d2_cases+=("$case")
         
-        # Check if this config would be skipped due to partial results or started status
+        # Check if this config would be skipped due to partial results, started status, or completion
         skip_indicator=""
         if [[ "$SKIP_PARTIAL" == "1" ]] && config_has_partial_results "$mode" "$nnodes" "$num_tokens" "$batch_size" "$microbatch_size" "$cp_size" "$tp_size" "$pp_size" "$model_path_normalized"; then
             skip_indicator=" [SKIP-PARTIAL]"
         elif [[ "$SKIP_STARTED" == "1" ]] && config_has_started "$mode" "$nnodes" "$num_tokens" "$batch_size" "$microbatch_size" "$cp_size" "$tp_size" "$pp_size" "$model_path_normalized"; then
             skip_indicator=" [SKIP-STARTED]"
+        elif [[ "$SKIP_COMPLETED" == "1" ]] && config_is_completed_with_sufficient_samples "$mode" "$nnodes" "$num_tokens" "$batch_size" "$microbatch_size" "$cp_size" "$tp_size" "$pp_size" "$model_path_normalized"; then
+            skip_indicator=" [SKIP-COMPLETED]"
         fi
         
         printf "$format_str" \
@@ -568,6 +883,9 @@ fi
 if [[ "$SKIP_STARTED" == "1" ]]; then
     echo "🟠 --skip-started flag is enabled"
 fi
+if [[ "$SKIP_COMPLETED" == "1" ]]; then
+    echo "✅ --skip-completed flag is enabled (MAX_SAMPLE_ID: $MAX_SAMPLE_ID)"
+fi
 if [[ "$MONITOR_STUCK" == "1" ]]; then
     echo "🔍 --monitor-stuck flag is enabled (job monitoring active)"
 else
@@ -594,6 +912,11 @@ if [ "$LIST_RUNS_FULL" == "1" ]; then
     exit 0
 fi
 
+if [ "$FAILED_SANITY_CHECK" == "1" ]; then
+    echo "❌ SANITY CHECK FAILED. Exiting."
+    exit 1
+fi
+
 sleep 3
 
 
@@ -610,6 +933,21 @@ for config in "${cases[@]}"; do
     if ! read -r line_num model_path attn_linear_breakpoint num_layers nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment env_var <<< "$config"; then
         echo "⚠️ Failed to parse config: $config"
         continue
+    fi
+    
+    # Apply filters - skip this case if it doesn't match
+    if ! case_matches_filters "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size"; then
+        echo "🔍 Skipping config due to filters: $config"
+        continue
+    fi
+    
+    # Sanity check: For d2 mode, cp * pp must equal N (nodes)
+    if [ "$mode" = "d2" ]; then
+        expected_nodes=$((cp_size * pp_size))
+        if [ "$expected_nodes" -ne "$nnodes" ]; then
+            echo "❌ SANITY CHECK FAILED for line $line_num: mode=d2 requires cp * pp == N, but cp($cp_size) * pp($pp_size) = $expected_nodes != N($nnodes)"
+            continue
+        fi
     fi
     if ! read -r sample_name change_long_doc_ratio <<< "$sample_config"; then
         echo "⚠️ Failed to parse sample config: $sample_config" 
