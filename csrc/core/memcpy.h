@@ -26,4 +26,19 @@ void launch_memcpy_cp(
   const bool to_nvshmem,
   cudaStream_t stream
 );
+
+template <typename T>
+void launch_inplace_grad_sum(
+  T* data,
+  const int32_t* num_copies,
+  const int64_t* copy_start_id,
+  const int64_t* seq_lens,
+  const int64_t num_tokens,
+  // NOTE: unlike other kernels, hidden is not in terms of bytes,
+  // but instead in terms of elements
+  const int64_t hidden,
+  const int64_t num_seq,
+  const int64_t num_max_copies,
+  cudaStream_t stream
+);
 };  // namespace attn

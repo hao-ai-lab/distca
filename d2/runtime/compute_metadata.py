@@ -180,10 +180,10 @@ def _collect_per_rank_shard_lens(
     return seqlens
 
 
-def _compute_seqlens(doc_info: _AllDocInfo,
-                     linear_shards_on_rank: _PerRankShards,
-                     attn_q_shards_on_rank: _PerRankShards,
-                     attn_k_shards_on_rank: _PerRankShards):
+def _get_seqlens(doc_info: _AllDocInfo,
+                 linear_shards_on_rank: _PerRankShards,
+                 attn_q_shards_on_rank: _PerRankShards,
+                 attn_k_shards_on_rank: _PerRankShards):
     """
     Compute the seqlens for a2a metadata.
     NOTE: this should only be used for k shards not deduped.
@@ -474,7 +474,7 @@ def _from_planner_output(
 
     # seqlens
     (linear_to_attn_seqlens_q,
-     linear_to_attn_seqlens_k) = _compute_seqlens(
+     linear_to_attn_seqlens_k) = _get_seqlens(
         scheduler_output,
         linear_shards_on_rank,
         attn_q_shards_on_rank,
