@@ -429,11 +429,14 @@ def test(args):
         should_add_debug_cases=args.should_add_debug_cases,
         change_long_doc_ratio=args.change_long_doc_ratio,
         sample_name=args.sample_name,
-        balance_ping_pong_batch_size=dict(
-            mb=num_microbatch,
-            batch_size=num_batches,
-        ),
+        # balance_ping_pong_batch_size=dict(
+        #     mb=num_microbatch,
+        #     batch_size=num_batches,
+        # ),
     )
+    # for _ in range(20):
+    #     print(f"🟡 get_next_batch: {get_next_batch(int(num_microbatch * num_batches * 2))}")
+    # exit(0)
     
 
     # Use local cache to avoid HuggingFace rate limiting
@@ -493,7 +496,7 @@ def test(args):
 
     # for _ in range(20):
     #     print(f"🟡 get_next_batch: {get_next_batch(num_batches * 2)}")    
-
+    final_durations_ms = [] # only for d2
     for sample_idx in range(max_sample_id):
         os.environ["__PRG__INTERNAL__EXPERIMENT_SAMPLE_ID"] = str(sample_idx)
         # this total_seq_len is token per rank.
@@ -695,6 +698,7 @@ def test(args):
                         print(f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms")
                 time.sleep(1)
                 
+            final_durations_ms.append(duration_ms)
             if rank == 0:
                 with open(benchmark_log_path, "a") as f:
                     f.write(json.dumps({
@@ -715,6 +719,45 @@ def test(args):
     print(f"🟡 [Rank {rank}] [sample {sample_idx}] Write benchmark log to {benchmark_log_path}")
 
     print("=" * 20 + "forward_backward_batch attention server, done")
+
+    benchmark_final_path = os.path.join(output_dir, "benchmark.json")
+    config = dict(
+        mode="d2", 
+        nodes=args.num_nodes,
+        num_gpus_per_node=args.num_gpus_per_node,
+        tp_size=tp_size, dp_size=1, cp_size=dpcp_size, 
+        num_tokens=num_tokens, model_path=model_path, num_layers=num_layers, 
+        max_sample_id=max_sample_id, up_sample_factor=args.up_sample_factor, filter_threshold=args.filter_threshold, filter_ratio=args.filter_ratio, 
+        elongate_factor=args.elongate_factor,
+        sample_name=args.sample_name,
+        change_long_doc_ratio=args.change_long_doc_ratio,
+    )
+    if rank == 0:
+        from datetime import datetime
+        import pytz
+        pst = pytz.timezone('US/Pacific')
+        timestamp = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S PST")
+        with open(benchmark_final_path, "w") as f:
+            benchmark_data = {
+                "test_file": __file__,
+                "args": str(args),
+                "timestamp": timestamp,
+                "config": config,
+                "samples": [],
+            }
+            
+            for idx in range(len(final_durations_ms)):
+                # samples = new_batch
+                samples = []
+                duration = final_durations_ms[idx]
+                benchmark_data["samples"].append({
+                    "sample_id": idx,
+                    "duration_ms": duration,
+                    "samples": samples,
+                })
+            
+            with open(benchmark_final_path, "w") as f:
+                json.dump(benchmark_data, f, indent=2)
 
 
 if __name__ == "__main__":

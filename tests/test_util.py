@@ -509,6 +509,7 @@ def create_pipeline_doclens(
     print(f"In util.py, finally tick_per_rank_doc_len is: {tick_per_rank_doc_len}")
 
     if return_original_doclen:
+        print("In util.py, return_original_doclen is True, returning (tick_per_rank_doc_len, pp_head_new_doc_len)")
         return (tick_per_rank_doc_len, pp_head_new_doc_len)
     # exit(0)
     return tick_per_rank_doc_len
@@ -582,6 +583,11 @@ def create_qkv_dispatch_pipeline_tick(
     except ValueError:
         pass
     print(f"🟡 MIN_TOLERANCE_FACTOR = {MIN_TOLERANCE_FACTOR}")
+
+    tolerance_factors_to_try.append(MIN_TOLERANCE_FACTOR)
+    tolerance_factors_to_try = set(tolerance_factors_to_try)
+    tolerance_factors_to_try = list(tolerance_factors_to_try)
+    tolerance_factors_to_try.sort()
     
     for tolerance_factor in tolerance_factors_to_try:
         if tolerance_factor < MIN_TOLERANCE_FACTOR:

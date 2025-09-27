@@ -14,6 +14,9 @@ SKIP_OOM=1  # Skip OOM cases by default
 MONITOR_STUCK=0
 DEBUG_ONLY=0
 
+# Configuration file path
+CONFIG_FILE=""
+
 # Filter variables
 FILTER_MODEL_PATH=""
 FILTER_ATB=""
@@ -113,9 +116,17 @@ while [[ $# -gt 0 ]]; do
             FILTER_TP="$2"
             shift 2
             ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 [--ls] [--ls-runs] [--ls-runs-full] [--dry-run] [--skip-partial] [--skip-started] [--skip-completed] [--no-skip-oom] [--monitor-stuck] [--debug-only] [FILTER_OPTIONS]"
+        --config)
+            CONFIG_FILE="$2"
+            shift 2
+            ;;
+        --help)
+            echo "Usage: $0 --config CONFIG_FILE [OPTIONS]"
+            echo ""
+            echo "Required:"
+            echo "  --config FILE   Specify config file to use"
+            echo ""
+            echo "Options:"
             echo "  --ls            List configs that would be run and exit"
             echo "  --ls-runs       List configs and show existing run folders, then exit"
             echo "  --ls-runs-full  List ALL configs (including completed) and show existing run folders, then exit"
@@ -140,11 +151,37 @@ while [[ $# -gt 0 ]]; do
             echo "  --filter-pp VALUE           Filter by PP size"
             echo "  --filter-tp VALUE           Filter by TP size"
             echo ""
-            echo "Example: $0 --filter-N 16,32 --filter-mode wlbllm,d2"
+            echo "Per-Config Environment Variables (set in env_var field of each config line):"
+            echo "  CHECK_TOTAL_BS=N        Skip config if batch_size * microbatch_size != N"
+            echo ""
+            echo "Examples:"
+            echo "  $0 --config config_sweep_memory.config.v3.sh --filter-N 16,32 --filter-mode wlbllm,d2"
+            echo "  $0 --config config_sweep_memory.config.v3.sh --ls"
+            echo "  $0 --config my_custom_config.sh --dry-run"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 --config CONFIG_FILE [OPTIONS]"
+            echo "Use --help for more information"
             exit 1
             ;;
     esac
 done
+
+# Validate that config file is specified
+if [ -z "$CONFIG_FILE" ]; then
+    echo "Error: --config argument is required"
+    echo "Usage: $0 --config CONFIG_FILE [OPTIONS]"
+    echo "Use --help for more information"
+    exit 1
+fi
+
+# Validate that config file exists
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: Config file '$CONFIG_FILE' does not exist"
+    exit 1
+fi
 
 # export JOBID=${JOBID:-710588}
 TS=$(TZ=America/Los_Angeles date +%m%d_%H%M%S)_PST
@@ -238,7 +275,42 @@ case_matches_filters() {
     return 0
 }
 
-export OUTPUT_DIR_PREFIX=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v4-sweep-pp-34b
+# Function to parse global variable overrides from config file
+# Usage: parse_global_variable_overrides CONFIG_FILE
+parse_global_variable_overrides() {
+    local config_file="$1"
+    
+    if [ ! -f "$config_file" ]; then
+        return 0  # No config file, nothing to parse
+    fi
+    
+    echo "🔧 Parsing global variable overrides from config file..."
+    
+    # Read config file line by line looking for # $$VARIABLE=value patterns
+    while IFS= read -r line; do
+        # Skip empty lines and regular comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*$ ]] && continue
+        
+        # Check for global variable override pattern: # $$VARIABLE=value
+        if [[ "$line" =~ ^[[:space:]]*#[[:space:]]*\$\$([A-Z_][A-Z0-9_]*)=(.*)$ ]]; then
+            var_name="${BASH_REMATCH[1]}"
+            var_value="${BASH_REMATCH[2]}"
+            
+            # Remove any trailing whitespace from value
+            var_value=$(echo "$var_value" | sed 's/[[:space:]]*$//')
+            
+            # Export the variable
+            export "$var_name"="$var_value"
+            echo "🔧 Global override: $var_name=$var_value"
+        fi
+    done < "$config_file"
+}
+
+# Parse global variable overrides from config file before setting defaults
+parse_global_variable_overrides "$CONFIG_FILE"
+
+# Set OUTPUT_DIR_PREFIX with default value if not already set by config file
+export OUTPUT_DIR_PREFIX=${OUTPUT_DIR_PREFIX:-/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v4-sweep-pp-34b}
 
 export STATUS_FILE_PATH=${OUTPUT_DIR_PREFIX}/job-status.txt
 mkdir -p ${OUTPUT_DIR_PREFIX}
@@ -387,7 +459,8 @@ find_existing_runs() {
     
     # Construct the search pattern (ignoring datetime part)
     # Pattern: <datetime>.<mode>-n<node>-t<tokens>-b<batchsize>-mb<microbatchsize>-cp<cp_size>tp<tpsize>pp<pp_size>-<modelname>
-    local search_pattern="*.${mode}-n${nnodes}-t${num_tokens}-b${batch_size}-mb${microbatch_size}-cp${cp_size}tp${tp_size}pp${pp_size}-${model_path_normalized}"
+    local search_pattern="*.${mode}-n${nnodes}-t${num_tokens}-b${batch_size}-mb${microbatch_size}-cp${cp_size}tp${tp_size}pp${pp_size}-${model_path_normalized}*"
+    # echo "search_pattern: $search_pattern"
     
     # Search for matching directories
     if [ -d "$OUTPUT_DIR_PREFIX" ]; then
@@ -546,7 +619,6 @@ export EXPERIMENT_SKIP_OPTIMIZER_STEP=1
 export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=4
 export SHOULD_ADD_DEBUG_CASES=0
 
-
 # ------------------------
 # 
 # ------------------------
@@ -578,8 +650,6 @@ param_configs_cases=()
 # -------------------------------
 # memory sweep
 config_sweep_memory=()
-# Get current directory of this script
-CURDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 
 
@@ -603,16 +673,105 @@ has_debug_flag() {
     return 1  # No debug flag found
 }
 
+# Function to check if env_var contains EXPERIMENT__SKIP=1
+has_skip_flag() {
+    local env_var="$1"
+    
+    if [ -z "$env_var" ]; then
+        return 1  # No env_var, so no skip flag
+    fi
+    
+    # Remove surrounding quotes if present
+    env_var_clean="${env_var//\'/}"  # Remove single quotes
+    env_var_clean="${env_var_clean//\"/}"  # Remove double quotes
+    
+    # Look for EXPERIMENT__SKIP=1 in the env_var string
+    if [[ "$env_var_clean" =~ EXPERIMENT__SKIP=1 ]]; then
+        return 0  # Found skip flag
+    fi
+    
+    return 1  # No skip flag found
+}
+
+# Function to extract CHECK_TOTAL_BS from env_var string
+# Returns the value if found, empty string if not found
+extract_check_total_bs() {
+    local env_var="$1"
+    
+    if [ -z "$env_var" ]; then
+        echo ""
+        return
+    fi
+    
+    # Remove surrounding quotes if present
+    env_var_clean="${env_var//\'/}"  # Remove single quotes
+    env_var_clean="${env_var_clean//\"/}"  # Remove double quotes
+    
+    # Look for CHECK_TOTAL_BS=X in the env_var string
+    if [[ "$env_var_clean" =~ CHECK_TOTAL_BS=([0-9]+) ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo ""
+    fi
+}
+
 
 
 # Read config file line by line and append to array
 line_number=0
+section_env_vars=""  # Store environment variables for current section
+in_section=false     # Track if we're inside a section
+
 while IFS= read -r line; do
     line_number=$((line_number + 1))
     echo "$line"
     if [[ "$line" == *"Stop here"* ]]; then
         break
     fi
+    
+    # Check for section start marker: # <<< [env_vars]
+    if [[ "$line" =~ ^[[:space:]]*#[[:space:]]*\<\<\<(.*)$ ]]; then
+        in_section=true
+        section_vars_raw="${BASH_REMATCH[1]}"
+        
+        # Parse section environment variables and convert to EXPERIMENT__ format
+        section_env_vars=""
+        if [ ! -z "$section_vars_raw" ]; then
+            # Remove leading/trailing whitespace
+            section_vars_raw=$(echo "$section_vars_raw" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            
+            # Split by comma and convert each var to EXPERIMENT__ format
+            IFS=',' read -ra SECTION_VARS <<< "$section_vars_raw"
+            for var in "${SECTION_VARS[@]}"; do
+                # Remove whitespace around each variable
+                var=$(echo "$var" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                if [ ! -z "$var" ]; then
+                    # Convert to EXPERIMENT__ format (e.g., skip=1 -> EXPERIMENT__SKIP=1)
+                    if [[ "$var" =~ ^([^=]+)=(.*)$ ]]; then
+                        var_name="${BASH_REMATCH[1]}"
+                        var_value="${BASH_REMATCH[2]}"
+                        experiment_var="${var_name^^}=${var_value}"
+                        if [ -z "$section_env_vars" ]; then
+                            section_env_vars="$experiment_var"
+                        else
+                            section_env_vars="$section_env_vars,$experiment_var"
+                        fi
+                    fi
+                fi
+            done
+        fi
+        echo "🔵 Section started with env vars: $section_env_vars"
+        continue
+    fi
+    
+    # Check for section end marker: # >>>
+    if [[ "$line" =~ ^[[:space:]]*#[[:space:]]*\>\>\>[[:space:]]*$ ]]; then
+        in_section=false
+        section_env_vars=""
+        echo "🔵 Section ended"
+        continue
+    fi
+    
     # Skip empty lines (including whitespace-only) and comments
     [[ -z "$line" || "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*#.*$ ]] && continue
     # Skip the line that contains "Stop here"
@@ -693,26 +852,80 @@ while IFS= read -r line; do
         fi
     fi
     
-    # Handle debug-only filtering
+    # Handle debug-only filtering (check both original env_var and section env vars)
     if read -r nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment env_var <<< "$line"; then
+        # Combine section env vars with existing env_var for debug checking
+        combined_env_var_for_debug="$env_var"
+        if [ "$in_section" = true ] && [ ! -z "$section_env_vars" ]; then
+            if [ -z "$env_var" ] || [ "$env_var" = "''" ]; then
+                combined_env_var_for_debug="'$section_env_vars'"
+            else
+                env_var_clean="${env_var//\'/}"
+                env_var_clean="${env_var_clean//\"/}"
+                combined_env_var_for_debug="'$env_var_clean,$section_env_vars'"
+            fi
+        fi
+        
         if [[ "$DEBUG_ONLY" == "1" ]]; then
             # If --debug-only is set, only include configs with EXPERIMENT__DEBUG=1
-            if ! has_debug_flag "$env_var"; then
+            if ! has_debug_flag "$combined_env_var_for_debug"; then
                 echo "🔍 Skipping config line $line_number (--debug-only set, but no EXPERIMENT__DEBUG=1): $original_line"
                 continue
             fi
         else
             # If --debug-only is NOT set, filter OUT configs with EXPERIMENT__DEBUG=1
-            if has_debug_flag "$env_var"; then
+            if has_debug_flag "$combined_env_var_for_debug"; then
                 echo "🔍 Skipping config line $line_number (debug config filtered out, use --debug-only to include): $original_line"
                 continue
             fi
         fi
     fi
     
-    # Store line number with the config line
-    config_sweep_memory+=("$line_number:$line")
-done < "$CURDIR/config_sweep_memory.config.v2.sh"
+    # Store line number with the config line, appending section env vars if applicable
+    modified_line="$line"
+    if [ "$in_section" = true ] && [ ! -z "$section_env_vars" ]; then
+        # Parse the config line to extract existing env_var
+        if read -r nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment env_var <<< "$line"; then
+            # Combine section env vars with existing env_var
+            if [ -z "$env_var" ] || [ "$env_var" = "''" ]; then
+                # No existing env_var, just use section env vars
+                combined_env_var="'$section_env_vars'"
+            else
+                # Remove surrounding quotes from existing env_var
+                env_var_clean="${env_var//\'/}"
+                env_var_clean="${env_var_clean//\"/}"
+                # Combine with section env vars
+                combined_env_var="'$env_var_clean,$section_env_vars'"
+            fi
+            
+            # Reconstruct the line with the combined env_var
+            modified_line="$nnodes $batch_size $microbatch_size $num_tokens $mode $cp_size $pp_size $tp_size $comment $combined_env_var"
+            echo "🔵 Applied section env vars to line $line_number: $section_env_vars"
+        fi
+    fi
+    
+    # Check for EXPERIMENT__SKIP=1 flag in the final modified line
+    if read -r nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment env_var <<< "$modified_line"; then
+        if has_skip_flag "$env_var"; then
+            echo "⏭️  Skipping config line $line_number due to EXPERIMENT__SKIP=1: $original_line"
+            continue
+        fi
+    fi
+    
+    # Check if CHECK_TOTAL_BS is specified in env_var and verify bs * mb = CHECK_TOTAL_BS
+    if read -r nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment env_var <<< "$modified_line"; then
+        check_total_bs=$(extract_check_total_bs "$env_var")
+        if [ ! -z "$check_total_bs" ]; then
+            total_bs=$((batch_size * microbatch_size))
+            if [ "$total_bs" -ne "$check_total_bs" ]; then
+                echo "📊 Skipping config line $line_number due to CHECK_TOTAL_BS=$check_total_bs (bs($batch_size) * mb($microbatch_size) = $total_bs): $original_line"
+                continue
+            fi
+        fi
+    fi
+    
+    config_sweep_memory+=("$line_number:$modified_line")
+done < "$CONFIG_FILE"
 
 for config_with_line in "${config_sweep_memory[@]}"; do
     # Extract line number and config
@@ -724,7 +937,7 @@ done
 # Function to extract EXPERIMENT_SCHEDULE_PRIORITY from env_var string
 extract_schedule_priority() {
     local env_var="$1"
-    local priority=0
+    local priority=10
     
     if [ ! -z "$env_var" ]; then
         # Remove surrounding quotes if present
@@ -1083,7 +1296,7 @@ for config in "${cases[@]}"; do
     export CHANGE_LONG_DOC_RATIO=$change_long_doc_ratio
 
     export RATIO=$(echo "8 / ($NNODES / $BATCH_SIZE)" | bc -l)
-    export OUTPUT_DIR_SUFFIX_ADDON="-${MODEL_PATH_normalized}"
+    # export OUTPUT_DIR_SUFFIX_ADDON="${OUTPUT_DIR_SUFFIX_ADDON}"
 
 
     export ELONGATE_FACTOR=$(($NUM_TOKENS / 65536))
@@ -1142,7 +1355,14 @@ for config in "${cases[@]}"; do
     
     # Construct the expected output directory for this run
     run_timestamp="${TS}"
-    run_output_dir="${OUTPUT_DIR_PREFIX}/${run_timestamp}.${MODE}-n${NNODES}-t${NUM_TOKENS}-b${BATCH_SIZE}-mb${NUM_MICROBATCH}-cp${CP_SIZE}tp${TP_SIZE}pp${PP_SIZE}${OUTPUT_DIR_SUFFIX_ADDON}"
+    
+    # Check if FOLDER_SEPARATOR flag is enabled for simplified directory naming
+    if [ "${FOLDER_SEPARATOR:-0}" == "1" ]; then
+        run_output_dir="${OUTPUT_DIR_PREFIX}/${run_timestamp}.-----"
+        echo "🔧 FOLDER_SEPARATOR=1: Using simplified directory name: ${run_timestamp}.-----"
+    else
+        run_output_dir="${OUTPUT_DIR_PREFIX}/${run_timestamp}.${MODE}-n${NNODES}-t${NUM_TOKENS}-b${BATCH_SIZE}-mb${NUM_MICROBATCH}-cp${CP_SIZE}tp${TP_SIZE}pp${PP_SIZE}${OUTPUT_DIR_SUFFIX_ADDON}"
+    fi
     
     if [ $MODE == "d2" ]; then
         if [ "$MONITOR_STUCK" == "1" ]; then

@@ -5,8 +5,10 @@ import json
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250920_test_pp/logs.v14-large-scale-pp--512k"
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v1-sweep-pp-34b"
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v2-sweep-pp-34b"
-root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v3-sweep-pp-34b"
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v3-sweep-pp-34b"
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v4-sweep-pp-34b"
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v5-sweep-pp-34b"
+root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v6-sweep-pp-34b"
 a = os.listdir(root_path)
 a = sorted(a)
 
@@ -35,6 +37,7 @@ for folder in a:
         value = value.strip()
         readme_config[key] = value
     name = folder[27:]
+    print(folder)
     mode = readme_config["mode"].strip()
     cp_size = int(readme_config["cp_size"].strip())
     pp_size = int(readme_config["pp_size"].strip())
@@ -102,6 +105,10 @@ for folder in a:
     # # mode, cp_size, nodes, batch_size, num_tokens = groups
     # print(f"{name}: {average_duration:.2f}ms")
 
+    if pp_size == 1 and num_microbatch > 1:
+        print(f"Skip {folder} because pp_size == 1 and num_microbatch > 1")
+        continue
+
 
     # only_focus_on_sample_id = {0}
     only_focus_on_sample_id = {}
@@ -151,9 +158,11 @@ wlb_groups_best = df[
 ].groupby(["model_size",  "num_tokens", "ratio", "nodes", "total_batch_size", "dataset"]).agg({
     'average_duration': ['min', lambda x: list(x)],
     'pp_size': lambda x: list(x),
-    'cp_size': lambda x: list(x)
+    'cp_size': lambda x: list(x),
+    'num_microbatch': lambda x: list(x),
+    'batch_size': lambda x: list(x),
 }).reset_index()
-wlb_groups_best.columns = ['model_size', 'num_tokens', 'ratio', 'nodes', 'total_batch_size', 'dataset', 'average_duration', 'average_duration_list', 'pp_size_list', 'cp_size_list']
+wlb_groups_best.columns = ['model_size', 'num_tokens', 'ratio', 'nodes', 'total_batch_size', 'dataset', 'average_duration', 'average_duration_list', 'pp_size_list', 'cp_size_list', 'num_microbatch_list', 'batch_size_list']
 
 # wlb_groups_best['config_list'] = wlb_groups_best.apply(
 #     lambda x: [
@@ -167,18 +176,23 @@ wlb_groups_best.columns = ['model_size', 'num_tokens', 'ratio', 'nodes', 'total_
 # )
 wlb_groups_best['config_list'] = wlb_groups_best.apply(
     lambda x: [
-        (cp, pp, round(duration, 2))
-        for cp, pp, duration in zip(
+        (batch_size, num_microbatch, cp, pp, round(duration, 2))
+        for cp, pp, duration, num_microbatch, batch_size in zip(
             x['cp_size_list'],
             x['pp_size_list'],
-            x['average_duration_list']
+            x['average_duration_list'],
+            x['num_microbatch_list'],
+            x['batch_size_list'],
         )
     ], axis=1
+)
+wlb_groups_best['config_list'] = wlb_groups_best['config_list'].apply(
+    lambda x: sorted(x, key=lambda x: x[-1])
 )
 wlb_groups_best['best_config'] = wlb_groups_best['config_list'].apply(
     lambda x: sorted(x, key=lambda x: x[-1])[0]
 )
-wlb_groups_best = wlb_groups_best.drop(columns=['average_duration_list', 'pp_size_list', 'cp_size_list'])
+wlb_groups_best = wlb_groups_best.drop(columns=['average_duration_list', 'pp_size_list', 'cp_size_list', 'num_microbatch_list', 'batch_size_list'])
 wlb_groups_best
 # %%
 d2_groups_best = df[
@@ -186,25 +200,32 @@ d2_groups_best = df[
 ].groupby(["model_size",  "num_tokens", "ratio", "nodes", "total_batch_size", "dataset"]).agg({
     'average_duration': ['min', lambda x: list(x)],
     'pp_size': lambda x: list(x),
-    'cp_size': lambda x: list(x)
+    'cp_size': lambda x: list(x),
+    'num_microbatch': lambda x: list(x),
+    'batch_size': lambda x: list(x),
 }).reset_index()
-d2_groups_best.columns = ['model_size', 'num_tokens', 'ratio', 'nodes', 'total_batch_size', 'dataset', 'average_duration', 'average_duration_list', 'pp_size_list', 'cp_size_list']
+d2_groups_best.columns = ['model_size', 'num_tokens', 'ratio', 'nodes', 'total_batch_size', 'dataset', 'average_duration', 'average_duration_list', 'pp_size_list', 'cp_size_list', 'num_microbatch_list', 'batch_size_list']
 
 d2_groups_best['config_list'] = d2_groups_best.apply(
     lambda x: [
-        (cp, pp, round(duration, 2))
-        for cp, pp, duration in zip(
+        (batch_size, num_microbatch, cp, pp, round(duration, 2))
+        for cp, pp, duration, num_microbatch, batch_size in zip(
             x['cp_size_list'],
             x['pp_size_list'],
-            x['average_duration_list']
+            x['average_duration_list'],
+            x['num_microbatch_list'],
+            x['batch_size_list'],
         )
     ], axis=1
+)
+d2_groups_best['config_list'] = d2_groups_best['config_list'].apply(
+    lambda x: sorted(x, key=lambda x: x[-1])
 )
 d2_groups_best['best_config'] = d2_groups_best['config_list'].apply(
     lambda x: sorted(x, key=lambda x: x[-1])[0]
 )
 
-d2_groups_best = d2_groups_best.drop(columns=['average_duration_list', 'pp_size_list', 'cp_size_list'])
+d2_groups_best = d2_groups_best.drop(columns=['average_duration_list', 'pp_size_list', 'cp_size_list', 'num_microbatch_list', 'batch_size_list'])
 d2_groups_best
 # %%
 # merge wlb_groups_best and d2_groups_best - 
@@ -225,8 +246,9 @@ merged_wlb_vs_d2['line_id'] = merged_wlb_vs_d2['num_tokens'].apply(
 merged_wlb_vs_d2_display = merged_wlb_vs_d2.sort_values(by=['model_size', 'num_tokens', 'nodes'], ascending=True)
 front_columns = ['model_size', 'nodes', 'num_tokens', 'ratio', 'total_batch_size', 
 'speedup', 'dataset',
-'average_duration_wlb', 'average_duration_d2', 
-'linear_speedup', 'line_id']
+'average_duration_d2', 'best_config_d2', 
+'average_duration_wlb','best_config_wlb', 
+]
 back_columns = [x for x in merged_wlb_vs_d2_display.columns if x not in front_columns]
 merged_wlb_vs_d2_display = merged_wlb_vs_d2_display[front_columns + back_columns]
 merged_wlb_vs_d2_display__wlbllm = merged_wlb_vs_d2_display[merged_wlb_vs_d2_display['dataset'] == 'wlbllm']

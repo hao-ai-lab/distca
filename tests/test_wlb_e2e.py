@@ -400,10 +400,17 @@ def test(args):
     )
 
     # for _ in range(20):
-    #     print(f"🟡 get_next_batch: {get_next_batch(batch_size * 2)}")
+    #     print(f"🟡 get_next_batch: {get_next_batch(int(num_microbatch * batch_size * 2))}")
+    # exit(0)
 
     # Setup the model and configuration
-    hf_config = AutoConfig.from_pretrained(model_path)
+    try:
+        # First try with local_files_only to use cached version
+        hf_config = AutoConfig.from_pretrained(model_path, local_files_only=True)
+    except Exception as e:
+        print(f"Local cache not found for {model_path}, downloading... Error: {e}")
+        # Fallback to downloading with cache_dir specified
+        hf_config = AutoConfig.from_pretrained(model_path, cache_dir="./models/")
     hidden_size_q = hf_config.hidden_size
 
     hidden_size_kv = hidden_size_q
@@ -475,16 +482,15 @@ def test(args):
 
         ENABLE_BALANCED_FLOS_NO_DEFER = True
 
-        unbalanced_micro_batches = get_next_batch(batch_size * 2 * num_microbatch)
+        batch_size_x2 = int(batch_size * 2)
+        unbalanced_micro_batches = get_next_batch(batch_size_x2 * num_microbatch)
         print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
         
         all_seq_lens.append(unbalanced_micro_batches)
         my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
 
         if ENABLE_BALANCED_FLOS_NO_DEFER:
-            batch_size_x2 = int(batch_size * 2)
             assert isinstance(batch_size_x2, int) and batch_size_x2 > 0
-            unbalanced_micro_batches = get_next_batch(batch_size_x2 * num_microbatch)
             print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
             my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
             print(f"🟡 my_batch_ranks: {my_batch_ranks}")
@@ -499,7 +505,6 @@ def test(args):
             unbalanced_micro_batches = []
             for i in range(num_microbatch):
                 a = get_next_batch(batch_size_x2 * num_microbatch)
-                all_seq_lens.append(a)
                 b = a[
                     dp_rank * (batch_size_x2):
                     (dp_rank + 1) * (batch_size_x2)
@@ -517,10 +522,10 @@ def test(args):
         print(f"🟡 balanced_seq_lens: {balanced_seq_lens}, {len(balanced_seq_lens) = }")
         assert len(balanced_seq_lens) == num_microbatch, f"len(balanced_seq_lens) == num_microbatch, {len(balanced_seq_lens)} != {num_microbatch}"
         print(f"🟡 new_batch: {new_batch}")
-        all_seq_lens.append(new_batch)
+        # all_seq_lens.append(new_batch)
         
         microbatches = []
-        all_seq_lens.append(balanced_seq_lens)
+        # all_seq_lens.append(balanced_seq_lens)
         for mb_idx, seq_lens in enumerate(balanced_seq_lens):
             # doc_lens = flatten(seq_lens)
             # TODO: (Refactor) doc lens must satisfies the TP requirement
@@ -678,7 +683,7 @@ def test(args):
                     "sample_id": sample_idx,
                     "duration_ms": average_duration_ms,
                     "duration_list": durations_ms,
-                    "samples": balanced_seq_lens,
+                    "samples": unbalanced_micro_batches,
                 }) + "\n")
 
             print(f"🟡 Write benchmark log to {benchmark_log_path}")
@@ -734,7 +739,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--max-sample-id", type=int, default=3)
     parser.add_argument("--should-add-debug-cases", action="store_true")
-    parser.add_argument("--sample-name", type=str, default="wlbllm")
     parser.add_argument("--sample-name", type=str, default="wlbllm", choices=["wlbllm", "prolong"])
     parser.add_argument("--change-long-doc-ratio", type=float, default=0.0)
 
