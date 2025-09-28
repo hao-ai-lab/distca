@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import os
 from typing import Optional, Sequence
 
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -595,18 +596,18 @@ def from_planner_output(
         world_size, scheduler_output, q_bytes, k_bytes, element_size,
         compute_attn_out_metadata=True, attn_out_bytes=out_bytes,
     )
-    # FIXME(junda): print only when environment variable is set
-    import rich
-    # qkv_linear_to_attn, qkv_grad_attn_to_linear, out_attn_to_linear,
-    #  out_grad_linear_to_attn, attn_metadata
-    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    if rank % 8 == 1:
-        rich.print(f"from_planner_output: qkv_linear_to_attn=", qkv_linear_to_attn)
-        rich.print(f"from_planner_output: qkv_grad_attn_to_linear=", qkv_grad_attn_to_linear)
-        rich.print(f"from_planner_output: out_attn_to_linear=", out_attn_to_linear)
-        rich.print(f"from_planner_output: out_grad_linear_to_attn=", out_grad_linear_to_attn)
-        rich.print(f"from_planner_output: attn_metadata=", attn_metadata)
-        pass
+
+    if os.getenv("D2_DEBUG_PRINT_METADATA", "0") == "1":
+        import rich
+        # qkv_linear_to_attn, qkv_grad_attn_to_linear, out_attn_to_linear,
+        #  out_grad_linear_to_attn, attn_metadata
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+        if rank % 8 == 1:
+            rich.print(f"from_planner_output: qkv_linear_to_attn=", qkv_linear_to_attn)
+            rich.print(f"from_planner_output: qkv_grad_attn_to_linear=", qkv_grad_attn_to_linear)
+            rich.print(f"from_planner_output: out_attn_to_linear=", out_attn_to_linear)
+            rich.print(f"from_planner_output: out_grad_linear_to_attn=", out_grad_linear_to_attn)
+            rich.print(f"from_planner_output: attn_metadata=", attn_metadata)
 
     if is_pipeline_tick:
         # Force them to None to avoid being misused.
@@ -653,13 +654,14 @@ def backward_from_planner_output(
         world_size, scheduler_output_bwd, q_bytes, k_bytes, element_size,
         compute_attn_out_metadata=False, attn_out_bytes=None
     )
-    # FIXME(junda): print only when environment variable is set
-    import rich
-    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-    if rank % 8 == 1:
-        rich.print(f"backward_from_planner_output: qkv_resend_and_out_grad_linear_to_attn=", qkv_resend_and_out_grad_linear_to_attn.__better_print__())
-        rich.print(f"backward_from_planner_output: qkv_grad_attn_to_linear=", qkv_grad_attn_to_linear.__better_print__())
-        for i, metadata in enumerate(bwd_attn_metadata):
-            rich.print(f"backward_from_planner_output: bwd_attn_metadata[{i}]=", metadata)
-        pass
+
+    if os.getenv("D2_DEBUG_PRINT_METADATA", "0") == "1":
+        import rich
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+        if rank % 8 == 1:
+            rich.print(f"backward_from_planner_output: qkv_resend_and_out_grad_linear_to_attn=", qkv_resend_and_out_grad_linear_to_attn.__better_print__())
+            rich.print(f"backward_from_planner_output: qkv_grad_attn_to_linear=", qkv_grad_attn_to_linear.__better_print__())
+            for i, metadata in enumerate(bwd_attn_metadata):
+                rich.print(f"backward_from_planner_output: bwd_attn_metadata[{i}]=", metadata)
+
     return qkv_resend_and_out_grad_linear_to_attn, qkv_grad_attn_to_linear, bwd_attn_metadata

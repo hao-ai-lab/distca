@@ -257,7 +257,7 @@ def test(args):
         stride_kv * max_tokens_key_value * max_cp_degree * 2
     )
     worker = init_worker_torch_distributed(
-        world_size, buffer_size, Worker
+        world_size, buffer_size, Worker, None,
     )
     print("init done.")
     test_qkv(
