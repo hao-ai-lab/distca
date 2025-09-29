@@ -7,6 +7,7 @@ void launch_memcpy_non_cp(
   uint8_t *nvshmem_buffer,
   const int64_t *seq_nvshmem_offset,
   const int64_t *seq_tokens,
+  const int8_t *copy_seq_mask,
   const int64_t token_bytes,
   const int32_t total_num_tokens,
   const bool to_nvshmem,

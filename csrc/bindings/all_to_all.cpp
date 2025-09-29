@@ -49,9 +49,18 @@ void _fast_a2a_memcpy_non_cp_core(
   uint8_t *buffer_ptr,
   const at::Tensor &seq_nvshmem_offset,
   const at::Tensor &seq_tokens,
+  const std::optional<at::Tensor> &copy_seq_mask,
   const bool to_nvshmem
 ) {
-  TORCH_CHECK(tensor.ndimension() == 2, "Input tensor is of dimension (token, hidden_size)");
+  _CHECK_TENSOR(2, tensor);
+  _CHECK_TENSOR(1, seq_nvshmem_offset);
+
+  const int64_t num_seq = seq_nvshmem_offset.size(0);
+  if (copy_seq_mask.has_value()) {
+    _CHECK_TENSOR(1, copy_seq_mask.value());
+    TORCH_CHECK(copy_seq_mask.value().size(0) == num_seq,
+                "copy_seq_mask must be of shape (num_sequence,)");
+  }
   const int64_t token_bytes = tensor.size(1) * tensor.element_size();
   const int64_t num_tokens = tensor.size(0);
   uint8_t *tensor_ptr = (uint8_t *)tensor.data_ptr();
@@ -62,6 +71,7 @@ void _fast_a2a_memcpy_non_cp_core(
     tensor_ptr, buffer_ptr,
     seq_nvshmem_offset.const_data_ptr<int64_t>(),
     seq_tokens.const_data_ptr<int64_t>(),
+    copy_seq_mask.has_value() ? copy_seq_mask.value().const_data_ptr<int8_t>() : nullptr,
     token_bytes, num_tokens, to_nvshmem, stream
   );
 }
@@ -72,6 +82,7 @@ void fast_a2a_memcpy_non_cp(
   at::Tensor &tensor,
   const at::Tensor &seq_nvshmem_offset,
   const at::Tensor &seq_tokens,
+  const std::optional<at::Tensor> &copy_seq_mask,
   const bool to_nvshmem
 ) {
   // This is the non-buffer branch.
@@ -83,8 +94,8 @@ void fast_a2a_memcpy_non_cp(
     // Otherwise, it's a recv side memcpy
     buffer_ptr = ((FastA2aDispatchHelper*)fptr)->buffer.recv_buffer;
   }
-  _fast_a2a_memcpy_non_cp_core(tensor, buffer_ptr,
-                        seq_nvshmem_offset, seq_tokens, to_nvshmem);
+  _fast_a2a_memcpy_non_cp_core(tensor, buffer_ptr, seq_nvshmem_offset,
+    seq_tokens, copy_seq_mask, to_nvshmem);
 }
 
 
@@ -92,12 +103,13 @@ void fast_a2a_memcpy_non_cp_debug(
   at::Tensor &tensor,
   const at::Tensor &seq_nvshmem_offset,
   const at::Tensor &seq_tokens,
+  const std::optional<at::Tensor> &copy_seq_mask,
   const bool to_nvshmem,
   at::Tensor &buffer
 ) {
   uint8_t *buffer_ptr = (uint8_t *)buffer.data_ptr();
-  _fast_a2a_memcpy_non_cp_core(tensor, buffer_ptr,
-                        seq_nvshmem_offset, seq_tokens, to_nvshmem);
+  _fast_a2a_memcpy_non_cp_core(tensor, buffer_ptr, seq_nvshmem_offset,
+    seq_tokens, copy_seq_mask, to_nvshmem);
 }
 
 
@@ -225,20 +237,6 @@ void fast_a2a_grad_acc_pre_memcpy_cp(
   } else {
     TORCH_CHECK(false, "Only fp32, fp16 and bf16 inputs are supported");
   }
-//   template <typename T>
-// void launch_inplace_grad_sum(
-//   T* data,
-//   const int32_t* num_copies,
-//   const int64_t* copy_start_id,
-//   const int64_t* seq_lens,
-//   const int64_t num_tokens,
-//   // NOTE: unlike other kernels, hidden is not in terms of bytes,
-//   // but instead in terms of elements
-//   const int64_t hidden,
-//   const int64_t num_seq,
-//   const int64_t num_max_copies,
-//   cudaStream_t stream
-// )
 }
 
 

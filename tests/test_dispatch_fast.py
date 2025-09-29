@@ -89,6 +89,7 @@ class Worker(BaseWorker):
 
         nvshmem_barrier_all()
 
+        copy_seq_mask = fa2a_metadata_rev.kv_grad_send_dedup.main_copy_mask
         fast_a2a_qkv(
             dst_tensor_q, dst_tensor_k, dst_tensor_v,
             fa2a_metadata_rev.kv_replica_mask,
@@ -103,7 +104,8 @@ class Worker(BaseWorker):
             fa2a_metadata_rev.my_rank_send_offset,
             fa2a_metadata_rev.my_rank_recv_offset,
             fa2a_metadata_rev.my_rank_send_sz,
-            is_fwd=False
+            is_fwd=False,
+            kv_grad_copy_seq_mask=copy_seq_mask,
         )
         nvshmem_barrier_all()
         torch.cuda.synchronize()
@@ -151,7 +153,7 @@ def create_answer(
     )
     rev_qs, rev_ks, rev_vs = simulate_all2all(
         dst_qs, dst_ks, dst_vs, bwd_qkv_metadata, element_size, hidden_size_q, hidden_size_k,
-        is_from_linear_layout=False,
+        is_from_linear_layout=False, zero_mask_kv_grad=True,
     )
     kv_mask = fwd_qkv_metadata.kv_replica_mask
     src_kvs = [

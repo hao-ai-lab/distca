@@ -6,7 +6,7 @@ from megatron.core.packed_seq_params import PackedSeqParams
 import torch
 
 from d2.runtime.metadata import (
-    AlltoAllMetadata, LogicalShape, SeqLens,
+    AlltoAllMetadata, LogicalShape, SeqLens, DedupGradSumMetadata,
     compute_reverse_a2a_layout_metadata, _get_my_rank_from_metadata,
 )
 from d2.runtime.shard_info import ShardInfo
@@ -24,8 +24,8 @@ class _ShardPos:
     id_on_rank: int
 @dataclass(frozen=True, eq=True)
 class _ShardCommInfo:
-    linear_rank_id: int
-    attn_rank_id: int
+    id_on_linear_rank: int
+    id_on_attn_rank: int
     shard_glob_id: _ShardID
     replica_id: Optional[int]  # None for q, replica id for k/v
 
@@ -198,6 +198,7 @@ def _get_seqlens(doc_info: _AllDocInfo,
 ####
 
 
+### Dedup items
 def _dedup_k_shard(comm_infos: list[_ShardCommInfo]):
     """See _dedup_k_shard_world."""
     seen = set()
@@ -218,6 +219,61 @@ def _dedup_k_shard(comm_infos: list[_ShardCommInfo]):
     return _PairCommInfo(comm_infos, dedup_shards, is_main_copy, id_to_main_copy_id)
 
 
+def _get_dedup_grad_sum_metadata(
+    attn_shard_lens: torch.Tensor,
+    attn_shard_comm_info: list[_PairCommInfo],
+):
+    """
+    Compute the grad sum metadata for dedup k/v shards on one rank.
+    """
+    assert attn_shard_lens.ndim == 1
+    num_seq = attn_shard_lens.shape[0]
+
+    # assert len(attn_shard_ids) == num_seq
+    # max_num_copies = 
+
+    copy_indices = [[] for _ in range(num_seq)]
+    main_copy_mask = torch.zeros((num_seq,), dtype=torch.bool, device=attn_shard_lens.device)
+    # Record the copy relations
+    # NOTE: this might be confusing. We have two indices:
+    # 1. the index of this shard on the attn layout. This is used for
+    # `attn_shard_lens`, `copy_indices`, etc. This is obtained by
+    # `id_on_attn_rank` of each shard.
+    # 2. the index within elements of _PairCommInfo. This is obtained
+    # by `_PairCommInfo.main_copy_id` or enumerating _PairCommInfo's
+    # `is_main_copy` and `shards`.
+    for pair_comm_info in attn_shard_comm_info:
+        shards = pair_comm_info.shards
+        for sid, shard in enumerate(pair_comm_info.shards):
+            seq_idx = shard.id_on_attn_rank
+            is_main_copy = pair_comm_info.is_main_copy[sid]
+            if not is_main_copy:
+                main_copy_id = pair_comm_info.main_copy_id[sid]
+                main_copy = shards[main_copy_id]
+                # check they are the same copy
+                assert main_copy.shard_glob_id == shard.shard_glob_id
+                assert main_copy.replica_id == shard.replica_id
+                assert main_copy.id_on_linear_rank == shard.id_on_linear_rank
+                # record this idx
+                copy_indices[main_copy.id_on_attn_rank].append(seq_idx)
+            main_copy_mask[seq_idx] = is_main_copy
+    # transform to tensors
+    num_copies = torch.tensor(
+        [len(cis) for cis in copy_indices], dtype=torch.int32, device=attn_shard_lens.device
+    )
+    max_num_copies = num_copies.max().item()
+    # start token id of each copy
+    copy_start_id = torch.zeros(
+        (num_seq, max_num_copies), dtype=torch.int64, device=attn_shard_lens.device
+    )
+    start_token_idx = exclusive_cumsum(attn_shard_lens, dim=0)
+    for seq_idx, cis in enumerate(copy_indices):
+        for cid, copy_idx in enumerate(cis):
+            copy_start_id[seq_idx, cid] = start_token_idx[copy_idx]
+    return DedupGradSumMetadata(num_copies, copy_start_id, main_copy_mask)
+
+
+#### Offset
 def _assign_offsets(
     cur_offset_send: int,
     cur_offset_recv: int,
@@ -239,8 +295,8 @@ def _assign_offsets(
         comm_infos = shards
 
     for idx, comm_info in enumerate(comm_infos):
-        linear_rank_id = comm_info.linear_rank_id
-        attn_rank_id = comm_info.attn_rank_id
+        id_on_linear_rank = comm_info.id_on_linear_rank
+        id_on_attn_rank = comm_info.id_on_attn_rank
         shard_id = comm_info.shard_glob_id
         replica_id = comm_info.replica_id
 
@@ -252,14 +308,14 @@ def _assign_offsets(
                 assert main_copy.shard_glob_id == shard_id
                 assert main_copy.replica_id == replica_id
 
-                recv_offset[attn_rank][attn_rank_id] = recv_offset[attn_rank][main_copy.attn_rank_id]
+                recv_offset[attn_rank][id_on_attn_rank] = recv_offset[attn_rank][main_copy.id_on_attn_rank]
                 continue
 
         if is_kv_linear:
-            send_offset[linear_rank][replica_id, linear_rank_id] = cur_offset_send
+            send_offset[linear_rank][replica_id, id_on_linear_rank] = cur_offset_send
         else:
-            send_offset[linear_rank][linear_rank_id] = cur_offset_send
-        recv_offset[attn_rank][attn_rank_id] = cur_offset_recv
+            send_offset[linear_rank][id_on_linear_rank] = cur_offset_send
+        recv_offset[attn_rank][id_on_attn_rank] = cur_offset_recv
 
         shard_len = doc_info[shard_id.doc_id][shard_id.logical_id].shard_len
         cur_offset_send += shard_len * token_bytes
@@ -498,13 +554,8 @@ def _from_planner_output(
         tensor_shape=(q_shape, k_shape),
         kv_replica_mask=tuple(kv_replica_masks)
     )
-    # FIXME: simply reversing it will make the to_send_buffer memcpy in the reverse
-    # side wrong: multiple shards writing to the same place.
-    # TODO: introduce a new metadata to add it to the main copy first.
-    qkv_grad_attn_to_linear = compute_reverse_a2a_layout_metadata(
-        qkv_linear_to_attn
-    )
 
+    ## Flash Attn metadata
     attn_q_seqlens_on_rank = [
         torch.tensor(v, dtype=torch.int32) for v in attn_q_seqlens_on_rank
     ]
@@ -514,6 +565,22 @@ def _from_planner_output(
     attn_metadata = get_attn_metadata(
         attn_q_seqlens_on_rank, attn_k_seqlens_on_rank
     )
+
+    ## Bwd metadata
+    qkv_grad_attn_to_linear = compute_reverse_a2a_layout_metadata(
+        qkv_linear_to_attn
+    )
+    dedup_metadata = []
+    for a_rank in range(world_size):
+        attn_k_shard_lens = linear_to_attn_seqlens_k.recv_seqlens[a_rank]
+        rank_dedup = _get_dedup_grad_sum_metadata(
+            attn_k_shard_lens,
+            [linear_to_attn_k[l_rank][a_rank] for l_rank in range(world_size)]
+        )
+        dedup_metadata.append(rank_dedup)
+    qkv_grad_attn_to_linear.kv_grad_send_dedup = dedup_metadata
+
+    ## Attn out metadata
     if compute_attn_out_metadata:
         # fa2a metadata
         out_grad_linear_to_attn_bytes = (

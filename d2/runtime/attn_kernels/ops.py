@@ -154,12 +154,14 @@ class DispatcherWrapper:
 def a2a_memcpy_non_cp(
     tensor: torch.Tensor, nvshmem_offset: torch.Tensor,
     seq_tokens: torch.Tensor, to_nvshmem: bool,
+    copy_seq_mask: Optional[torch.Tensor]=None,
     buffer: Optional[torch.Tensor]=None, instance_id: int=None
 ):
     if buffer is not None:
         # Debug mode, explicitly pass the "nvshmem" buffer.
         return _ops.fast_a2a_memcpy_non_cp_debug(
-            tensor, nvshmem_offset, seq_tokens, to_nvshmem, buffer
+            tensor, nvshmem_offset, seq_tokens, copy_seq_mask,
+            to_nvshmem, buffer
         )
 
     if instance_id is not None:
@@ -171,7 +173,7 @@ def a2a_memcpy_non_cp(
 
     return _ops.fast_a2a_memcpy_non_cp(
         DispatcherWrapper.get_instance(instance_id).handle,
-        tensor, nvshmem_offset, seq_tokens, to_nvshmem
+        tensor, nvshmem_offset, seq_tokens, copy_seq_mask, to_nvshmem
     )
 
 

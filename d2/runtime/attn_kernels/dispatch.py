@@ -14,6 +14,8 @@ def pre_a2a_qkv(
     q_seq_tokens: Tensor, k_seq_tokens: Tensor,
     q_send_buffer_offset: Tensor, k_send_buffer_offset: Tensor, v_send_buffer_offset: Tensor,
     is_fwd: bool, instance_id: int=None,
+    # TODO: reorder args to make it more logical
+    kv_grad_copy_seq_mask: Tensor=None,
 ):
     # copy in advance
     to_nvshmem = True
@@ -31,12 +33,15 @@ def pre_a2a_qkv(
             instance_id=instance_id,
         )
     else:
+        assert kv_grad_copy_seq_mask is not None, "kv grad copy requires a dedup mask."
         a2a_memcpy_non_cp(
             k.contiguous(), k_send_buffer_offset, k_seq_tokens, to_nvshmem,
+            copy_seq_mask=kv_grad_copy_seq_mask,
             instance_id=instance_id,
         )
         a2a_memcpy_non_cp(
             v.contiguous(), v_send_buffer_offset, k_seq_tokens, to_nvshmem,
+            copy_seq_mask=kv_grad_copy_seq_mask,
             instance_id=instance_id,
         )
     return q, k, v
@@ -91,13 +96,16 @@ def fast_a2a_qkv(
     my_rank_send_offset: int, my_rank_recv_offset: int, my_rank_send_sz: int,
     is_fwd: bool,
     switch_buffer: bool = True,
-    instance_id: int=None
+    instance_id: int=None,
+    # TODO: reorder args to make it more logical
+    kv_grad_copy_seq_mask: Tensor=None,
 ):
     # copy in advance
     q, k, v = pre_a2a_qkv(
         q, k, v, kv_dispatch_mask, q_seq_tokens, k_seq_tokens,
         q_send_buffer_offset, k_send_buffer_offset, v_send_buffer_offset,
         is_fwd=is_fwd, instance_id=instance_id,
+        kv_grad_copy_seq_mask=kv_grad_copy_seq_mask,
     )
     # all2all
     fast_a2a(
@@ -176,8 +184,8 @@ def pre_a2a_attn_out_grad_resend_qkv(
     # create merged_q
     merged_q = _concat_with_uint8_and_pad([attn_out_grad, attn_out, lse_norm, q], dim=1)
     return pre_a2a_qkv(merged_q, k, v, kv_dispatch_mask, q_seq_tokens, k_seq_tokens,
-                            q_send_buffer_offset, k_send_buffer_offset, v_send_buffer_offset,
-                            is_fwd=is_fwd, instance_id=instance_id)
+                       q_send_buffer_offset, k_send_buffer_offset, v_send_buffer_offset,
+                       is_fwd=is_fwd, instance_id=instance_id)
 
 
 def post_a2a_attn_out_grad_resend_qkv(

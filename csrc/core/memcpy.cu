@@ -10,12 +10,22 @@
 // and split output to q,k,v.
 namespace attn{
 namespace {
-template <bool TO_NVSHMEM>
+template <bool USE_SEQ_MASK>
+__forceinline__ __device__ bool copy_seq(const size_t idx, const int8_t *copy_seq_mask) {
+  if constexpr (USE_SEQ_MASK) {
+    return __ldg(&copy_seq_mask[idx]);
+  } else {
+    return true;
+  }
+}
+
+template <bool TO_NVSHMEM, bool USE_SEQ_MASK>
 __global__ void memcpy_nvshmem_non_cp(
   uint8_t *tensor,
   uint8_t *nvshmem_buffer,
   const int64_t *seq_nvshmem_offset,
   const int64_t *seq_tokens,
+  const int8_t *copy_seq_mask,
   const int64_t token_bytes,
   const int32_t total_num_tokens
 ) {
@@ -24,6 +34,7 @@ __global__ void memcpy_nvshmem_non_cp(
   size_t cur_seq_end = __ldg(&seq_tokens[0]);
   size_t cur_seq_start_token_id = 0;
   size_t cur_seq_start_offset = __ldg(&seq_nvshmem_offset[0]);
+  bool copy_cur_seq = copy_seq<USE_SEQ_MASK>(0, copy_seq_mask);
 
   for (size_t token_idx = blockIdx.x; token_idx < total_num_tokens;
        token_idx += gridDim.x) {
@@ -34,7 +45,11 @@ __global__ void memcpy_nvshmem_non_cp(
       cur_seq_end += __ldg(&seq_tokens[cur_seq]);
       if (token_idx < cur_seq_end) {
         cur_seq_start_offset = __ldg(&seq_nvshmem_offset[cur_seq]);
+        copy_cur_seq = copy_seq<USE_SEQ_MASK>(cur_seq, copy_seq_mask);
       }
+    }
+    if (!copy_cur_seq) {
+      continue;
     }
 
     const uint8_t *src_ = tensor + token_idx * token_bytes;
@@ -227,6 +242,7 @@ void launch_memcpy_non_cp(
   uint8_t *nvshmem_buffer,
   const int64_t *seq_nvshmem_offset,
   const int64_t *seq_tokens,
+  const int8_t *copy_seq_mask,
   const int64_t token_bytes,
   const int32_t total_num_tokens,
   const bool to_nvshmem,
@@ -249,28 +265,20 @@ void launch_memcpy_non_cp(
     &nvshmem_buffer,
     const_cast<int64_t **>(&seq_nvshmem_offset),
     const_cast<int64_t **>(&seq_tokens),
+    const_cast<int8_t **>(&copy_seq_mask),
     const_cast<int64_t *>(&token_bytes),
     const_cast<int32_t *>(&total_num_tokens)
   };
-  if (to_nvshmem) {
-    CUDACHECK(cudaLaunchKernel(
-      (void *)memcpy_nvshmem_non_cp<true>,
-      dimGrid,
-      dimBlock,
-      args,
-      sharedMemory,
-      stream
-    ));
-  } else {
-    CUDACHECK(cudaLaunchKernel(
-      (void *)memcpy_nvshmem_non_cp<false>,
-      dimGrid,
-      dimBlock,
-      args,
-      sharedMemory,
-      stream
-    ));
-  }
+  void * kernel = to_nvshmem ? (
+    copy_seq_mask != nullptr ?
+      (void *)memcpy_nvshmem_non_cp<true, true> :
+      (void *)memcpy_nvshmem_non_cp<true, false>
+  ) : (
+    (void *)memcpy_nvshmem_non_cp<false, false>
+  );
+  CUDACHECK(cudaLaunchKernel(
+    kernel, dimGrid, dimBlock, args, sharedMemory, stream
+  ));
 }
 
 
