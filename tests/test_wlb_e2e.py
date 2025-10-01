@@ -479,17 +479,18 @@ def test(args):
     for sample_idx in range(max_sample_id):
 
         # Get the unbalanced microbatches from the data loader
-
         ENABLE_BALANCED_FLOS_NO_DEFER = True
 
         batch_size_x2 = int(batch_size * 2)
-        unbalanced_micro_batches = get_next_batch(batch_size_x2 * num_microbatch)
-        print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
-        
-        all_seq_lens.append(unbalanced_micro_batches)
-        my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
 
         if ENABLE_BALANCED_FLOS_NO_DEFER:
+            
+            unbalanced_micro_batches = get_next_batch(batch_size_x2 * num_microbatch)
+            print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
+            
+            all_seq_lens.append(unbalanced_micro_batches)
+            my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
+
             assert isinstance(batch_size_x2, int) and batch_size_x2 > 0
             print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
             my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
@@ -656,12 +657,13 @@ def test(args):
             with torch.cuda.nvtx.range(f"wlbllm({config_name})[sample={sample_idx}][repeat={repeat_idx}]"):
                 with memory_logging_ctx:
                     torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-                    loss, grad = worker.forward_backward_batch(
-                        microbatches=microbatches,
-                        forward_only=False,
-                        mode="orig_reimpl", # actually wlbllm
-                        with_dummy=False,
-                    )
+                    if True:
+                        loss, grad = worker.forward_backward_batch(
+                            microbatches=microbatches,
+                            forward_only=False,
+                            mode="orig_reimpl", # actually wlbllm
+                            with_dummy=False,
+                        )
                     torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
 
                     duration = end_time - start_time

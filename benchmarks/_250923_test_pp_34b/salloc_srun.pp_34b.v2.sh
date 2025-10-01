@@ -29,6 +29,8 @@ FILTER_MODE=""
 FILTER_CP=""
 FILTER_PP=""
 FILTER_TP=""
+FILTER_PRIORITY_GE=""
+FILTER_PRIORITY_LE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -116,6 +118,14 @@ while [[ $# -gt 0 ]]; do
             FILTER_TP="$2"
             shift 2
             ;;
+        --filter-priority-ge)
+            FILTER_PRIORITY_GE="$2"
+            shift 2
+            ;;
+        --filter-priority-le)
+            FILTER_PRIORITY_LE="$2"
+            shift 2
+            ;;
         --config)
             CONFIG_FILE="$2"
             shift 2
@@ -150,6 +160,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --filter-cp VALUE           Filter by CP size"
             echo "  --filter-pp VALUE           Filter by PP size"
             echo "  --filter-tp VALUE           Filter by TP size"
+            echo "  --filter-priority-ge VALUE  Filter by priority >= VALUE (default priority: 10)"
+            echo "  --filter-priority-le VALUE  Filter by priority <= VALUE (default priority: 10)"
             echo ""
             echo "Per-Config Environment Variables (set in env_var field of each config line):"
             echo "  CHECK_TOTAL_BS=N        Skip config if batch_size * microbatch_size != N"
@@ -212,7 +224,7 @@ matches_filter() {
 }
 
 # Function to check if a case matches all active filters
-# Usage: case_matches_filters model_path attn_linear_breakpoint num_layers nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size
+# Usage: case_matches_filters model_path attn_linear_breakpoint num_layers nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size env_var
 case_matches_filters() {
     local model_path="$1"
     local attn_linear_breakpoint="$2"
@@ -225,6 +237,7 @@ case_matches_filters() {
     local cp_size="$9"
     local pp_size="${10}"
     local tp_size="${11}"
+    local env_var="${12}"
     
     # Check each filter - if any filter fails, return false
     if ! matches_filter "$model_path" "$FILTER_MODEL_PATH"; then
@@ -271,6 +284,23 @@ case_matches_filters() {
         return 1
     fi
     
+    # Check priority filters if specified
+    if [ ! -z "$FILTER_PRIORITY_GE" ] || [ ! -z "$FILTER_PRIORITY_LE" ]; then
+        local priority=$(extract_schedule_priority "$env_var")
+        
+        if [ ! -z "$FILTER_PRIORITY_GE" ]; then
+            if [ "$priority" -lt "$FILTER_PRIORITY_GE" ]; then
+                return 1
+            fi
+        fi
+        
+        if [ ! -z "$FILTER_PRIORITY_LE" ]; then
+            if [ "$priority" -gt "$FILTER_PRIORITY_LE" ]; then
+                return 1
+            fi
+        fi
+    fi
+    
     # All filters passed
     return 0
 }
@@ -308,6 +338,37 @@ parse_global_variable_overrides() {
 
 # Parse global variable overrides from config file before setting defaults
 parse_global_variable_overrides "$CONFIG_FILE"
+
+
+# Use EXPERIMENT_DISTS if set, otherwise fallback to default
+if [ -z "${EXPERIMENT_DISTS}" ]; then
+    dists=(
+        "wlbllm 0.0"
+    )
+else
+    # Check if EXPERIMENT_DISTS looks like bash array syntax
+    if [[ "${EXPERIMENT_DISTS}" =~ ^[[:space:]]*\(.*\)[[:space:]]*$ ]]; then
+        # Parse bash array syntax: ("item1" "item2" "item3")
+        # Remove outer parentheses and leading/trailing whitespace
+        array_content="${EXPERIMENT_DISTS#*\(}"
+        array_content="${array_content%\)*}"
+        array_content="${array_content# }"
+        array_content="${array_content% }"
+        
+        # Use eval to safely parse the quoted strings into an array
+        eval "dists=($array_content)"
+    else
+        # Fallback: Split EXPERIMENT_DISTS string into array (comma-separated)
+        IFS=',' read -ra dists <<< "${EXPERIMENT_DISTS}"
+    fi
+fi
+
+for sample_config in "${dists[@]}"; do
+    echo sample_config="$sample_config" ";"
+done
+
+
+
 
 # Set OUTPUT_DIR_PREFIX with default value if not already set by config file
 export OUTPUT_DIR_PREFIX=${OUTPUT_DIR_PREFIX:-/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v4-sweep-pp-34b}
@@ -722,10 +783,33 @@ line_number=0
 section_env_vars=""  # Store environment variables for current section
 in_section=false     # Track if we're inside a section
 
+# Check if Start here marker exists in the file - if not, process all lines
+if grep -q "Start here\|$$$ Start here $$$" "$CONFIG_FILE"; then
+    found_start_marker=false  # Start here exists, so we need to find it first
+    echo "🔍 Start here marker detected in config file, will skip lines until marker is found"
+else
+    found_start_marker=true   # No Start here marker, process all lines from the beginning
+fi
+
 while IFS= read -r line; do
     line_number=$((line_number + 1))
     echo "$line"
-    if [[ "$line" == *"Stop here"* ]]; then
+    
+    # Check for Start here marker: Start processing from this line onwards
+    if [[ "$found_start_marker" == "false" ]] && ([[ "$line" == *"Start here"* ]] || [[ "$line" == *"$$$ Start here $$$"* ]]); then
+        found_start_marker=true
+        echo "🟢 Found Start here marker at line $line_number, starting processing from this line"
+        continue
+    fi
+    
+    # Skip lines until we find the Start here marker
+    if [[ "$found_start_marker" == "false" ]]; then
+        continue
+    fi
+    
+    # Check for Stop here marker: Stop processing when we hit this
+    if [[ "$line" == *"Stop here"* ]] || [[ "$line" == *"$$$ Stop here $$$"* ]]; then
+        echo "🔴 Found Stop here marker at line $line_number, stopping processing"
         break
     fi
     
@@ -992,11 +1076,6 @@ sort_cases_by_priority
 # done
 
 
-dists=(
-    # "wlbllm 0.0"
-    "prolong 0.3"
-)
-
 function write_status_log() {
     echo "$1" >> $STATUS_FILE_PATH
 }
@@ -1068,7 +1147,7 @@ format_str="%-4s  %-15s  %5s  %6s  %4s  %4s  %4s  %6s  %7s  %4s  %4s  %4s  %4s %
 
 # Display active filters
 filters_active=false
-if [ ! -z "$FILTER_MODEL_PATH" ] || [ ! -z "$FILTER_ATB" ] || [ ! -z "$FILTER_NLAYERS" ] || [ ! -z "$FILTER_N" ] || [ ! -z "$FILTER_BS" ] || [ ! -z "$FILTER_MB" ] || [ ! -z "$FILTER_TOKS" ] || [ ! -z "$FILTER_MODE" ] || [ ! -z "$FILTER_CP" ] || [ ! -z "$FILTER_PP" ] || [ ! -z "$FILTER_TP" ]; then
+if [ ! -z "$FILTER_MODEL_PATH" ] || [ ! -z "$FILTER_ATB" ] || [ ! -z "$FILTER_NLAYERS" ] || [ ! -z "$FILTER_N" ] || [ ! -z "$FILTER_BS" ] || [ ! -z "$FILTER_MB" ] || [ ! -z "$FILTER_TOKS" ] || [ ! -z "$FILTER_MODE" ] || [ ! -z "$FILTER_CP" ] || [ ! -z "$FILTER_PP" ] || [ ! -z "$FILTER_TP" ] || [ ! -z "$FILTER_PRIORITY_GE" ] || [ ! -z "$FILTER_PRIORITY_LE" ]; then
     filters_active=true
     echo ""
     echo "🔍 Active Filters:"
@@ -1083,6 +1162,8 @@ if [ ! -z "$FILTER_MODEL_PATH" ] || [ ! -z "$FILTER_ATB" ] || [ ! -z "$FILTER_NL
     [ ! -z "$FILTER_CP" ] && echo "  cp: $FILTER_CP"
     [ ! -z "$FILTER_PP" ] && echo "  pp: $FILTER_PP"
     [ ! -z "$FILTER_TP" ] && echo "  tp: $FILTER_TP"
+    [ ! -z "$FILTER_PRIORITY_GE" ] && echo "  priority >= $FILTER_PRIORITY_GE"
+    [ ! -z "$FILTER_PRIORITY_LE" ] && echo "  priority <= $FILTER_PRIORITY_LE"
     echo ""
 fi
 
@@ -1099,7 +1180,7 @@ for case in "${cases[@]}"; do
     read -r line_num model_path attn_linear_breakpoint num_layers nnodes batch_size microbatch_size num_tokens mode cp_size pp_size tp_size comment env_var <<< "$case"
     
     # Apply filters - skip this case if it doesn't match
-    if ! case_matches_filters "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size"; then
+    if ! case_matches_filters "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size" "$env_var"; then
         continue
     fi
     
@@ -1253,6 +1334,7 @@ cases_index=0
 
 set -x
 
+
 for sample_config in "${dists[@]}"; do
 for config in "${cases[@]}"; do
     echo config="$config" ";" sample_config="$sample_config" ";"
@@ -1262,7 +1344,7 @@ for config in "${cases[@]}"; do
     fi
     
     # Apply filters - skip this case if it doesn't match
-    if ! case_matches_filters "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size"; then
+    if ! case_matches_filters "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size" "$env_var"; then
         echo "🔍 Skipping config due to filters: $config"
         continue
     fi
@@ -1363,6 +1445,9 @@ for config in "${cases[@]}"; do
     else
         run_output_dir="${OUTPUT_DIR_PREFIX}/${run_timestamp}.${MODE}-n${NNODES}-t${NUM_TOKENS}-b${BATCH_SIZE}-mb${NUM_MICROBATCH}-cp${CP_SIZE}tp${TP_SIZE}pp${PP_SIZE}${OUTPUT_DIR_SUFFIX_ADDON}"
     fi
+
+    # echo CHANGE_LONG_DOC_RATIO=$CHANGE_LONG_DOC_RATIO
+    # exit 0
     
     if [ $MODE == "d2" ]; then
         if [ "$MONITOR_STUCK" == "1" ]; then

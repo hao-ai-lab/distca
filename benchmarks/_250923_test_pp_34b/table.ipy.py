@@ -8,7 +8,18 @@ import json
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v3-sweep-pp-34b"
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v4-sweep-pp-34b"
 # root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v5-sweep-pp-34b"
-root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v6-sweep-pp-34b"
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v6-sweep-pp-34b"
+
+
+
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v6-small-scale-pp-34b-384k"
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v7-small-scale-pp-34b-384k-wlbllm-0.0"
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v7-small-scale-pp-34b-16node-128k-256k-384k--pretrain"
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v7-small-scale-pp-34b-16node-128k-256k-384k--prolong-0.3"
+root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v9-large-scale-pp-34b-16node-128k-256k-384k-pretrain"
+
+# root_path = "/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks/_250923_test_pp_34b/logs.v10-large-scale-pp-34b-16node-128k-256k-384k--prolong-0.3"
+
 a = os.listdir(root_path)
 a = sorted(a)
 
@@ -111,11 +122,14 @@ for folder in a:
 
 
     # only_focus_on_sample_id = {0}
-    only_focus_on_sample_id = {}
+    only_focus_on_sample_id = {0,1,2,3}
+    # only_focus_on_sample_id = {}
     sample_durations = {}
     for i, d in enumerate(durations):
         if (only_focus_on_sample_id and i in only_focus_on_sample_id) or not only_focus_on_sample_id:
             sample_durations[f"sample_{i}"] = d
+    num_samples = len(sample_durations)
+    row['num_samples'] = num_samples
     average_duration = sum(sample_durations.values()) / len(sample_durations) if len(sample_durations) > 0 else 0
     row['average_duration'] = average_duration
     row.update(sample_durations)
@@ -266,6 +280,9 @@ display(merged_wlb_vs_d2_display__prolong)
 print(
     merged_wlb_vs_d2_display__prolong.to_csv("merged_wlb_vs_d2_display__prolong.tsv", index=False, sep="\t")
 )
+
+# %%
+
 
 # %%
 # # Plot speedup vs nodes for each num_tokens/batch_size combination

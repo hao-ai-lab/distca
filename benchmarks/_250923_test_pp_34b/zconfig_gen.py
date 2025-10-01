@@ -2,16 +2,19 @@
 
 param_configs_cases = []
 K = 1024
-
+tp_size = 8
 print("N bs mb   tok   M cp pp tp comment")
 rows = []
-# for seq_len in [128 * K]:
 # for seq_len in [128 * K, 256 * K, 384 * K, 512 * K]:
-for seq_len in [128 * K, 256 * K, 384 * K, ]:
-    for nnodes in [64]:
+# for seq_len in [256 * K]:
+for seq_len in [384 * K, ]:
+    for nnodes in [16]:
         _ratios = {
-            128 * K: [8],
-            256 * K: [4],
+            # 128 * K: [16],
+            # 128 * K: [8],
+            # 256 * K: [4],
+            # 256 * K: [2],
+            # 384 * K: [1],
             384 * K: [2],
             # 512 * K: [1, 2],
         }[seq_len]
@@ -33,8 +36,8 @@ for seq_len in [128 * K, 256 * K, 384 * K, ]:
                     for pp_size in [1, 2, 4, 8]:
 
                         # if pp_size = 1, then microbatch_size must be 1
-                        # if pp_size == 1 and microbatch_size != 1:
-                        #     continue
+                        if pp_size == 1 and microbatch_size != 1:
+                            continue
                                                         # microbatch_size >= pp_size * 2
                         if pp_size > 1 and microbatch_size < pp_size * 2:
                             continue
@@ -49,7 +52,6 @@ for seq_len in [128 * K, 256 * K, 384 * K, ]:
                                 
                                 cp_size = nnodes // pp_size
 
-                                tp_size = 8
                                 mode = "d2"
 
                                 config = dict(
@@ -112,7 +114,7 @@ df
 # # #   n   bs   mb     t       mode   cp   pp  tp     comment        env_var
 print('    # n  bs  mb   t         mode   cp  pp tp    comment    env_var')
 for _, row in df.iterrows():
-    print(f"    {row['nnodes']:2d} {row['batch_size']:3g} {row['microbatch_size']:3d} {row['seq_len']:6d}    {row['mode']:<8} {row['cp_size']:2d} {row['pp_size']:2d} {row['tp_size']:2d} \'some comment\'  \'\'")
+    print(f"    {row['nnodes']:2d} {row['batch_size']:3g} {row['microbatch_size']:3d} {row['seq_len']:6d}    {row['mode']:<8} {row['cp_size']:2d} {row['pp_size']:2d} {row['tp_size']:2d} \'some_comment\'  \'\'")
 
 
 # %%

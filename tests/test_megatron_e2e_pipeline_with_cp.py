@@ -251,11 +251,13 @@ def create_pp_microbatches(
         print("No planner. Use random batch.")
 
 
+    start_time = time.time()
     all_original_seq_lens = []
     for i in range(num_microbatch + pp_degree - 1):
         # For the last few ticks (drain-out ticks)
         # add a dummy forward microbatch at PP rank 0.
         add_dummy_forward = i >= num_microbatch
+        start_time = time.time()
         print(f"🟡 tick_per_rank_doc_lens: {tick_per_rank_doc_lens}")
         (
             fa_fwd_params, fa_bwd_params,
@@ -274,7 +276,10 @@ def create_pp_microbatches(
             use_planner=use_planner,
             return_original_doclen=return_seq_lens,
         )
-        print(f"🟡 fa_fwd_params: {fa_fwd_params}")
+        end_time = time.time()
+        print(f"🟡 create_qkv_dispatch_pipeline_tick duration: {end_time - start_time} seconds")
+        if rank == 1:
+            print(f"🟡 fa_fwd_params: {fa_fwd_params}")
         all_original_seq_lens.append(original_tick_per_rank_doc_lens)
         
         # For MLP-CP, we need to transfer List[List[int]] from CP layout back to DP, so each rank knows its number of tokens.
@@ -285,7 +290,10 @@ def create_pp_microbatches(
         # tick_per_rank_doc_lens cp list: List[List[int]] = [[8], [8], [8], [8], [256, 768],[512, 10, 502] ]
         # tick_per_rank_doc_lens mlp list: [[8], [8], [8], [8], [256, 128, 128], [256, 256], [512], [10, 502]]
 
+        start_time = time.time()
         tick_per_rank_doc_lens_after_cp_transfer = cp_list_to_mlp_list(tick_per_rank_doc_lens, as_world_size, num_token_per_rank)
+        end_time = time.time()
+        print(f"🟡 cp_list_to_mlp_list duration: {end_time - start_time} seconds")
         
         this_rank_num_tokens = sum(tick_per_rank_doc_lens_after_cp_transfer[as_rank])
         bwd_packed_seq_params = PackedSeqParams(
@@ -302,7 +310,7 @@ def create_pp_microbatches(
             attn_out_fwd_metadata=attn_out_fwd_fa2a_metadata.get_slice(as_rank),
             mlp_packed_seq_params=mlp_packed_seq_params,
         )
-        print(f"🟡 [bid = {i}] ping_pang_params", ping_pang_params)
+        # print(f"🟡 [bid = {i}] ping_pang_params", ping_pang_params)
 
         # NOTE: we init input_ids at the end after creating dispatching strategy
         # and seq lens of each iteration. This is to ensure that each
@@ -318,6 +326,8 @@ def create_pp_microbatches(
         bwd_metadata.append(
             (qkv_bwd_fa2a_metadata.get_slice(as_rank), attn_out_qkv_bwd_fa2a_metadata.get_slice(as_rank), bwd_packed_seq_params)
         )
+    end_time = time.time()
+    print(f"🟡 create_pp_microbatches - first for loop duration: {end_time - start_time} seconds")
 
     pp_rank = as_rank // dp_size
     dp_rank = as_rank % dp_size
@@ -381,7 +391,9 @@ def test(args):
     benchmark_final_path = os.path.join(output_dir, "benchmark.json")
     network_inspect_path = os.path.join(output_dir, "network_inspect.jsonl")
     network_inspect_summary_path = os.path.join(output_dir, "network_inspect.summary.jsonl")
+    microbatch_log_path = os.path.join(output_dir, "microbatch.log")
     os.environ["EXPERIMENT_OUTPUT_DIR"] = output_dir
+
 
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, "w") as f:
@@ -420,6 +432,15 @@ def test(args):
 
     print(f"tp_size: {tp_size}, pp_size: {pp_size}, dpcp_size: {dpcp_size}, world_size: {world_size}, num_tokens_per_rank: {num_token_per_rank}, total_seq_len: {total_seq_len}, num_batches: {num_batches}")
 
+    should_balance_ping_pong = os.environ.get("EXPERIMENT_BALANCE_PING_PONG", "0") == "1"
+    print(f"should_balance_ping_pong: {should_balance_ping_pong}")
+
+    balance_ping_pong_batch_size = None
+    if should_balance_ping_pong:
+        balance_ping_pong_batch_size = dict(
+            mb=num_microbatch,
+            batch_size=num_batches,
+        )
     setup_global_batch(
         total_seq_len=num_tokens,
         up_sample_factor=args.up_sample_factor,
@@ -429,10 +450,7 @@ def test(args):
         should_add_debug_cases=args.should_add_debug_cases,
         change_long_doc_ratio=args.change_long_doc_ratio,
         sample_name=args.sample_name,
-        # balance_ping_pong_batch_size=dict(
-        #     mb=num_microbatch,
-        #     batch_size=num_batches,
-        # ),
+        balance_ping_pong_batch_size=balance_ping_pong_batch_size,
     )
     # for _ in range(20):
     #     print(f"🟡 get_next_batch: {get_next_batch(int(num_microbatch * num_batches * 2))}")
@@ -507,7 +525,7 @@ def test(args):
         #   For each tick, getting `num_batches` number of list from the data loader (GLOBAL_BATCH iterator). 
         #   This is the parameter controlling the number of batches per tick.
         # 
-        
+        start_time = time.time()
         microbatches_0, tick_per_rank_doc_lens_0 = create_pp_microbatches(
             num_microbatch, pp_size, as_rank,
             as_world_size, total_seq_len, num_seqs, dpcp_size,
@@ -524,6 +542,10 @@ def test(args):
             num_token_per_rank, num_batches, args.use_planner,
             return_seq_lens=True,
         )
+        end_time = time.time()
+        duration_ms = (end_time - start_time) * 1000
+        print(f"⚪ [Rank {rank}] [sample {sample_idx}] create_pp_microbatches: {duration_ms} ms")
+
         seq_lens = [tick_per_rank_doc_lens_0, tick_per_rank_doc_lens_1]
         # print(f"🟡 [sample_idx = {sample_idx}] seq_lens is: {seq_lens}")
         set_random_seed(seed, set_megatron=True)
@@ -531,8 +553,11 @@ def test(args):
         orig_impl_microbatches = []
         for mb_0, mb_1 in zip(microbatches_0, microbatches_1):
             # if rank % 8 == 2:
-            print(f"🟡 [sample_idx = {sample_idx}] mb_0", mb_0)
-            print(f"🟡 [sample_idx = {sample_idx}] mb_1", mb_1)
+            # FIXME: Print this to another file, and only rank 0 prints it.
+            if rank == 0:
+                with open(microbatch_log_path, "a") as f:
+                    f.write(f"🟡 [sample_idx = {sample_idx}] mb_0: {mb_0}\n")
+                    f.write(f"🟡 [sample_idx = {sample_idx}] mb_1: {mb_1}\n")
 
             mb_0_psp = mb_0["packed_seq_params"]
             mb_1_psp = mb_1["packed_seq_params"]
@@ -553,7 +578,9 @@ def test(args):
                 "position_ids": torch.concat([mb_0["position_ids"], mb_1["position_ids"]]),
                 "packed_seq_params": ping_pong_params,
             }
-            print(f"🟡 input_ids: {input_ids.shape}")
+            if rank == 0:
+                with open(microbatch_log_path, "a") as f:
+                    f.write(f"🟡 [sample_idx = {sample_idx}] input_ids: {input_ids.shape}\n")
             microbatches.append(mb)
 
             cu_seqlens_q = torch.concat([
@@ -675,6 +702,7 @@ def test(args):
 
         if should_run_d2:
             durations = []
+            print(f"Prepare to run d2 with total runs: {n_repeats = } + {n_warmup = } = {n_repeats + n_warmup = }")
             for _ in range(n_repeats + n_warmup):
                 mem_ctx = nullcontext()
                 if _ < n_warmup and should_log_memory_during_warmup:
@@ -686,12 +714,14 @@ def test(args):
                 with torch.cuda.nvtx.range(f"d2({config_name})[sample={sample_idx}][repeat={_}]"):
                     with mem_ctx:
                         torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
-                        loss_reduced, grad_sample = worker.forward_backward_batch(
-                            microbatches=microbatches,
-                            forward_only=False,
-                            mode="ping_pong",
-                            with_dummy=True,
-                        )
+                        
+                        if True:
+                            loss_reduced, grad_sample = worker.forward_backward_batch(
+                                microbatches=microbatches,
+                                forward_only=False,
+                                mode="ping_pong",
+                                with_dummy=True,
+                            )
                         torch.cuda.synchronize(); torch.distributed.barrier(); end_time = time.time()
                         duration_ms = (end_time - start_time) * 1000
                         durations.append(duration_ms)

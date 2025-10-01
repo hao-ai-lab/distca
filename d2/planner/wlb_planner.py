@@ -69,7 +69,7 @@ def balance_data_for_wlbllm(
         #   (or DP*PP, depending on the outer function calls - if you don't understand, see WLBLLM paper 
         #   and understand how it works by taking DP * PP batches each time). 
         # TODO: Sorting / swapping batches may have perforamnce regression. Be careful of what you wish for.
-        Lmax = total_seq_len * 2 * batch_size // dp_size
+        Lmax = int(total_seq_len * 2 * batch_size) // dp_size
         rich.print(f"🟡 Lmax = total_seq_len({total_seq_len}) * 2 * batch_size({batch_size}) // dp_size({dp_size}) = Lmax({Lmax})")
 
         all_docs = flatten(_seq_lens)
