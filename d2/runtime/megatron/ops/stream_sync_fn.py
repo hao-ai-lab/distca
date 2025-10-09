@@ -136,8 +136,10 @@ class TickSync(torch.autograd.Function):
         return (None, None, None, None, *grads,)
 
 
-def tick_sync_with_info(compute_stream: torch.cuda.Stream, comm_stream: torch.cuda.Stream,
-                       *tensors, layer_info: str = "unknown", operation_info: str = "unknown"):
+def tick_sync_with_info(
+    compute_stream: torch.cuda.Stream, comm_stream: torch.cuda.Stream,
+    layer_info: str, operation_info: str, *tensors
+):
     """
     Wrapper around TickSync that includes layer and operation information for blocking detection.
     """
