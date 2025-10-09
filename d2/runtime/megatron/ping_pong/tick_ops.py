@@ -183,7 +183,7 @@ def tick_sync(compute_stream, comm_stream, arg_group_0, keys_0, arg_group_1, key
     tensors = tensors_0 + tensors_1
     out_tensors = tick_sync_with_info(
         compute_stream, comm_stream,
-        layer_info, operation_info
+        layer_info, operation_info,
         *tensors
     )
     out_tensors_0 = out_tensors[:len(tensors_0)]
