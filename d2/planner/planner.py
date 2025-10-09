@@ -1,5 +1,7 @@
 from collections import defaultdict
 from copy import deepcopy
+import math
+import random
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 import time
@@ -540,7 +542,6 @@ def group_items_by_seqid(items: list[Item]) -> dict:
 
 # {doc_id: {'items': [Item], 'doc_len':4096 , 'cp_group_index': 0}}
 def flex_sp(doc_info: dict, total_cp_degree: int) -> tuple[list[list[int]], dict]:
-    rich.print(f"🟡 flex_sp: doc_info = {doc_info}, total_cp_degree = {total_cp_degree}")
     cp_groups = []
     import pulp
     group_sizes = [1]
@@ -582,6 +583,15 @@ def flex_sp(doc_info: dict, total_cp_degree: int) -> tuple[list[list[int]], dict
                     doc_info[i]['cp_group_index'] = len(cp_groups) - 1
 
     return cp_groups, doc_info
+
+
+if __name__ == "__main__":
+    docs = {}
+    for i in range(36):
+        docs[str(i)] = {'doc_len': int(math.floor(random.expovariate() % 10 / 10 * 65536)) + 1}
+    cp_groups, doc_info = flex_sp(docs, 20)
+    for i, group in enumerate(cp_groups):
+        print(f"Group {i} (size {len(group)}): {[doc_info[d]['doc_len'] for d in doc_info if doc_info[d]['cp_group_index'] == i]}")
 
 
 class Planner:
