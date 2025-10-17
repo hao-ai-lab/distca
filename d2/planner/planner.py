@@ -520,6 +520,64 @@ class Item:
             border_style="blue"
         )
 
+def group_items_by_seqid(items: list[Item]) -> dict:
+    doc_info = defaultdict(lambda: {'items': [], 'doc_len': -1, 'cp_group_index': -1})
+    
+    for item in items:
+        if not doc_info[item.seqid]['items']:
+            doc_info[item.seqid]['doc_len'] = item.seq_len
+        
+        doc_info[item.seqid]['items'].append(item)
+        
+    return doc_info
+
+
+# {doc_id: {'items': [Item], 'doc_len':4096 , 'cp_group_index': 0}}
+def flex_sp(doc_info: dict, total_cp_degree: int) -> tuple[list[list[int]], dict]:
+    rich.print(f"🟡 flex_sp: doc_info = {doc_info}, total_cp_degree = {total_cp_degree}")
+    cp_groups = []
+    import pulp
+    group_sizes = [1]
+    while group_sizes[-1] * 2 <= total_cp_degree:
+        group_sizes.append(group_sizes[-1] * 2)
+    max_group_sizes = {k: total_cp_degree // k for k in group_sizes}
+    prob = pulp.LpProblem("DocAssignment", pulp.LpMinimize)
+    C_max = pulp.LpVariable("C_max", lowBound=0, cat='Continuous')
+    x = pulp.LpVariable.dicts(
+        "AssignDoc",
+        ((i, j, k) for i in doc_info for k in group_sizes for j in range(max_group_sizes[k])),
+        cat='Binary',
+    )
+    y = pulp.LpVariable.dicts(
+        "GroupUsed",
+        ((j, k) for k in group_sizes for j in range(max_group_sizes[k])),
+        cat='Binary',
+    )
+    prob += C_max
+    prob += pulp.lpSum(k * y[j, k] for k in group_sizes for j in range(max_group_sizes[k])) == total_cp_degree
+    for i in doc_info:
+        prob += pulp.lpSum(x[i, j, k] for k in group_sizes for j in range(max_group_sizes[k])) == 1
+    for k in group_sizes:
+        for j in range(max_group_sizes[k]):
+            prob += pulp.lpSum((doc_info[i]['doc_len'] + 1) * doc_info[i]['doc_len'] / k * x[i, j, k] for i in doc_info) <= C_max
+            for i in doc_info:
+                prob += x[i, j, k] <= y[j, k]
+    prob.solve(solver=pulp.PULP_CBC_CMD(msg=False, timeLimit=60))
+
+    cp_groups = []
+    current = 0
+    for k in reversed(group_sizes):
+        for j in range(max_group_sizes[k]):
+            if pulp.value(y[j, k]) > 0.5:
+                cp_groups.append(list(range(current, current + k)))
+                current += k
+            for i in doc_info:
+                if pulp.value(x[i, j, k]) > 0.5:
+                    doc_info[i]['cp_group_index'] = len(cp_groups) - 1
+
+    return cp_groups, doc_info
+
+
 class Planner:
     def __init__(self,
                 world_size: int,
@@ -538,10 +596,14 @@ class Planner:
         self.tolerance_factor = tolerance_factor
 
     # from item to metadata.
-    def plan(self, items_: list[Item], verbose=False, plot=False, is_resend_qkv:bool=False):
-        mlp_shard_len = self.items_to_mlp_doc_len(items_)
+    def plan(self, items_: list[Item], verbose=False, plot=False, device="cuda", is_resend_qkv:bool=False):
+        mlp_shard_len = self.items_to_mlp_doc_len(items_, device)
         planned_items: list[Item] = self.plan_items(items_, verbose, plot)
-        planned_items: list[dict] = self.postprocess_items(planned_items)
+        # After ILP planner, source gpu id should equals to the doc's gpuid.
+        if self.planner_type == "ilp":
+            assert all(item.src_gpuid == item.gpuid for item in planned_items), "After ILP planner, source gpu id should equals to the doc's gpuid. But got {item.src_gpuid} != {item.gpuid} for item {item}."
+            mlp_shard_len = self.items_to_mlp_doc_len(planned_items, device)
+        planned_items: list[dict] = self.postprocess_items(planned_items) 
         planner_output: list[list[ShardInfo]] = self.items_into_shardinfos(planned_items)
         tp_size = self.parallel_config.tensor_model_parallel_size
         if self.parallel_config.pipeline_model_parallel_size == 1:
@@ -598,6 +660,59 @@ class Planner:
         return ret
     
     def plan_items(self, items_: list[Item], verbose=False, plot=False) -> list[Item]:
+        if self.planner_type == "greedy":
+            return self.plan_items_greedy(items_, verbose, plot)
+        elif self.planner_type == "ilp":
+            return self.plan_items_ilp(items_, verbose, plot)
+        else:
+            raise ValueError(f"Unknown planner_type: '{self.planner_type}'")
+
+    # This is FlexSP ILP planner.
+    # MLP layout is not changed. Only Attention in CP.
+    # Documents' MLP GPU id is specified by Item's src_gpuid.
+    # Documents' Attention GPU id is specified by Item's gpuid.
+    def plan_items_ilp(self, items_: list[Item], verbose=False, plot=False) -> list[Item]:
+        items = deepcopy(items_)
+        doc_info = group_items_by_seqid(items)
+
+        # For ILP planner, total_cp_degree can be treated as attention_server_world_size.
+        # Aftr calling flex_sp functione
+        # cp_groups: [[0, 1], [2,3,4,5], [6, 7, 8, 9], [10, 11]]
+        # doc_info: {doc_id: {'items': [Item], 'doc_len':4096 , 'cp_group_index': cp_group_index_in_cp_groups}}
+        cp_groups, doc_info = flex_sp(doc_info, self.attention_server_world_size)
+        rich.print(f"🟡 cp_groups = {cp_groups}")
+
+        # Split items according to flexsp plan.
+        # TODO:Support MLP CP Split...
+        final_items = []
+        
+        for doc_id, doc_info in doc_info.items():
+            original_item = doc_info['items'][0]
+            cp_index = doc_info['cp_group_index']
+            cp_degree = len(cp_groups[cp_index])
+            rich.print(f"🟡 item: {original_item}, cp_index: {cp_index}, cp_degree: {cp_degree}")
+            total_flops = original_item.total_flops
+            assert total_flops % cp_degree == 0, "Total flops should be divisible by cp_degree."
+            flops_per_cp = total_flops / cp_degree
+
+            split_items = doc_info['items']
+            for _ in range(cp_degree-1):
+                split_item, _ = original_item.split_item(flops_per_cp, -1, verbose=False)
+                split_items.append(split_item)
+
+            assert len(split_items) == cp_degree
+            assert sum(item.total_flops for item in split_items) == total_flops
+            assert all(item.total_flops == flops_per_cp for item in split_items), "Each split item should have the same total flops."
+
+            cp_group = cp_groups[cp_index]
+            for i, item in enumerate(split_items):
+                item.gpuid = cp_group[i]
+                item.src_gpuid = cp_group[i]    # in flex sp, mlp layout is similar to attention layout.
+                final_items.append(item)
+        rich.print(f"🟡 final_items = {final_items}")
+        return final_items
+    
+    def plan_items_greedy(self, items_: list[Item], verbose=False, plot=False) -> list[Item]:
         items = deepcopy(items_)
 
         def rlog(message):
@@ -758,6 +873,8 @@ class Planner:
             torch.tensor(shard_len_list, dtype=torch.int32, device=device) for shard_len_list in final_shards_by_rank
             ]
         return doc_lens_per_rank
+
+
 
     def items_into_shardinfos(self, item_dicts):
         return items_into_shardinfos(item_dicts)
