@@ -833,6 +833,7 @@ class Planner:
         shard_infos = self.items_into_shardinfos(planned_items)
         return shard_infos
     
+    def postprocess_items(self, items: list[Item]) -> list[dict]:
         dict_items = []
         for item in items:
             dict_items.extend(item.to_dicts())
