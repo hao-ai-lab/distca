@@ -534,7 +534,7 @@ def group_items_by_seqid(items: list[Item]) -> dict:
 
 # {doc_id: {'items': [Item], 'doc_len':4096 , 'cp_group_index': 0}}
 # cost = alpha * l(l-1)/2 / k + beta * (k-1)/k * l, l is doc_len, k is cp_degree.
-def flex_sp(doc_info: dict, total_cp_degree: int, alpha: float = 1.0, beta: float = 1.0) -> tuple[list[list[int]], dict]:
+def flex_sp(doc_info: dict, total_cp_degree: int, alpha: float = 1.0, beta: float = 1.0, time_limit: int = 180) -> tuple[list[list[int]], dict]:
     cp_groups = []
     import pulp
     group_sizes = [1]
@@ -563,7 +563,7 @@ def flex_sp(doc_info: dict, total_cp_degree: int, alpha: float = 1.0, beta: floa
             for i in doc_info:
                 prob += x[i, j, k] <= y[j, k]
             prob += pulp.lpSum(x[i, j, k] for i in doc_info) >= y[j, k]
-    prob.solve(solver=pulp.PULP_CBC_CMD(msg=False, timeLimit=180))
+    prob.solve(solver=pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit))
 
     cp_groups = []
     current = 0
@@ -577,16 +577,6 @@ def flex_sp(doc_info: dict, total_cp_degree: int, alpha: float = 1.0, beta: floa
                     doc_info[i]['cp_group_index'] = len(cp_groups) - 1
 
     return cp_groups, doc_info
-
-
-if __name__ == "__main__":
-    docs = {}
-    for i in range(36):
-        docs[str(i)] = {'doc_len': int(math.floor(random.expovariate() % 10 / 10 * 65536)) + 1}
-    cp_groups, doc_info = flex_sp(docs, 32, beta=300.0)
-    for i, group in enumerate(cp_groups):
-        doc_lens = [doc_info[d]['doc_len'] for d in doc_info if doc_info[d]['cp_group_index'] == i]
-        print(f"Group {i} (size {len(group)}): {doc_lens}, {sum(d * (d + 1) // 2 // len(group) for d in doc_lens)} flops, {sum(doc_lens) * (len(group) - 1) / len(group)} comm")
 
 
 class Planner:
@@ -607,9 +597,9 @@ class Planner:
         self.tolerance_factor = tolerance_factor
         rich.print(f"[bold green] world_size: {self.world_size}, DP: {self.data_parallel}[/bold green], PP: {parallel_config.pipeline_model_parallel_size}, TP: {parallel_config.tensor_model_parallel_size}, attention_server_world_size: {self.attention_server_world_size}")
     # from item to metadata.
-    def plan(self, items_: list[Item], verbose=False, plot=False, device="cuda", is_resend_qkv:bool=False):
+    def plan(self, items_: list[Item], time_limit: int = 60, verbose=False, plot=False, device="cuda", is_resend_qkv:bool=False):
         mlp_shard_len = self.items_to_mlp_doc_len(items_, device)
-        planned_items: list[Item] = self.plan_items(items_, verbose, plot)
+        planned_items: list[Item] = self.plan_items(items_, time_limit, verbose, plot)
         # After ILP planner, source gpu id should equals to the doc's gpuid.
         if self.planner_type == "ilp":
             assert all(item.src_gpuid == item.gpuid for item in planned_items), "After ILP planner, source gpu id should equals to the doc's gpuid. But got {item.src_gpuid} != {item.gpuid} for item {item}."
@@ -670,11 +660,11 @@ class Planner:
             return ret, items
         return ret
 
-    def plan_items(self, items_: list[Item], verbose=False, plot=False) -> list[Item]:
+    def plan_items(self, items_: list[Item], time_limit: int = 60, verbose=False, plot=False) -> list[Item]:
         if self.planner_type == "greedy":
             return self.plan_items_greedy(items_, verbose, plot)
         elif self.planner_type == "ilp":
-            return self.plan_items_ilp(items_, verbose, plot)
+            return self.plan_items_ilp(items_, time_limit, verbose, plot)
         else:
             raise ValueError(f"Unknown planner_type: '{self.planner_type}'")
 
@@ -682,7 +672,7 @@ class Planner:
     # MLP layout is not changed. Only Attention in CP.
     # Documents' MLP GPU id is specified by Item's src_gpuid.
     # Documents' Attention GPU id is specified by Item's gpuid.
-    def plan_items_ilp(self, items_: list[Item], verbose=False, plot=False) -> list[Item]:
+    def plan_items_ilp(self, items_: list[Item], time_limit: int = 60, verbose=False, plot=False) -> list[Item]:
         def rlog(message):
             if verbose:
                 rich.print(message)
@@ -693,7 +683,7 @@ class Planner:
         # Aftr calling flex_sp functione
         # cp_groups: [[0, 1], [2,3,4,5], [6, 7, 8, 9], [10, 11]]
         # doc_info: {doc_id: {'items': [Item], 'doc_len':4096 , 'cp_group_index': cp_group_index_in_cp_groups}}
-        cp_groups, doc_info = flex_sp(doc_info, self.attention_server_world_size)
+        cp_groups, doc_info = flex_sp(doc_info, self.attention_server_world_size, time_limit=time_limit)
         rlog(f"🟡 cp_groups = {cp_groups}")
 
         # Split items according to flexsp plan.

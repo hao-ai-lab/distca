@@ -1345,7 +1345,18 @@ def test(args):
                 _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
             except StopIteration:
                 break
-            
+            # Post Process seq_lens, to divisible by cp_total.
+            cp_total = world_size
+            for docs in _seq_lens:
+                remain_doc_length = 0 
+                for i in range(len(docs)):
+                    doc_len = docs[i]
+                    new_doc_len = (doc_len // cp_total) * cp_total
+                    remain_doc_length += doc_len - new_doc_len
+                    docs[i] = new_doc_len 
+
+                smallest_doc_idx = min(range(len(docs)), key=lambda x: docs[x])
+                docs[smallest_doc_idx] += remain_doc_length
             # Rebalance Ping pong
             def balance_ping_pong(seq_lens: list[list[int]]) -> tuple[list[list[int]], list[list[int]]]:
                 def batch_flops(batch):
@@ -1391,11 +1402,11 @@ def test(args):
                 rich.print(f"🟡 [Rank {rank}] original _items_0 = {_items_0}")
                 rich.print(f"🟡 [Rank {rank}] original _items_1 = {_items_1}")
             
-            tolerance_factor = 0.1
+            tolerance_factor = 0.1  # We don't need tolerance factor for ILP planner.
             planner = Planner(world_size, parallel_config, model_config=model_config, planner_type = "ilp")
             
-            fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, is_resend_qkv=resend_qkv, verbose=verbose)
-            fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1, is_resend_qkv=resend_qkv, verbose=verbose)
+            fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose)
+            fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose)
 
 
             if verbose:

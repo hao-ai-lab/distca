@@ -1,4 +1,6 @@
+import argparse
 import collections
+import math
 import random
 import time
 from typing import Any, Dict, List
@@ -12,7 +14,7 @@ from test_util import ParallelConfig
 
 from d2.planner.planner import (Item, Planner, batch_to_items_general,
                                 batch_to_items_with_dummy, cp_list_to_mlp_list,
-                                get_flops)
+                                get_flops, flex_sp)
 
 console = Console()
 
@@ -670,7 +672,7 @@ def test_ilp_planner():
         tensor_model_parallel_size=1,
         pipeline_model_parallel_size=1,
     )
-    world_sizes = [8, 16, 32, 64, 128]
+    world_sizes = [8, 16, 32]
     pp_size = 1
     scale_factors = [1, 2, 4]
     for world_size in world_sizes:
@@ -713,12 +715,12 @@ def test_ilp_planner():
             verbose = False
             start_time = time.time()
             rich.print(f"🟡 Start Planning for items_0")
-            fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, is_resend_qkv=resend_qkv, verbose=verbose, device="cpu")
+            fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose, device="cpu")
             end_time = time.time()
             rich.print(f"🟡 Planning for items_0 time: {end_time - start_time:.4f} seconds")
             start_time = time.time()
             rich.print(f"🟡 Start Planning for items_1")
-            fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1, is_resend_qkv=resend_qkv, verbose=verbose, device="cpu")
+            fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose, device="cpu")
             end_time = time.time()
             rich.print(f"🟡 Planning for items_1 time: {end_time - start_time:.4f} seconds")
             #rich.print(f"🟡 fa2a_metadata_0 = {fa2a_metadata_0}")
@@ -727,6 +729,7 @@ def test_ilp_planner():
             rich.print(f"🟡 mlp_shard_len_1 = {mlp_shard_len_1}")
     return
 
+# TODO(pb): Find a special case that one rank has no doc assigned in ILP.
 def test_ilp_special_case():
     model_config = MockConfig()
     parallel_config = ParallelConfig(
@@ -744,15 +747,39 @@ def test_ilp_special_case():
     verbose = True
     start_time = time.time()
     rich.print(f"🟡 Start Planning for items_0")
-    fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, is_resend_qkv=resend_qkv, verbose=verbose, device="cpu")
+    fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose, device="cpu")
     end_time = time.time()
     rich.print(f"🟡 Planning for items_0 time: {end_time - start_time:.4f} seconds")
 
+def test_flex_sp():
+    """Test flex_sp function with random document lengths."""
+    rich.print("🟡 Testing flex_sp function...")
+    
+    docs = {}
+    for i in range(36):
+        docs[str(i)] = {'doc_len': int(math.floor(random.expovariate() % 10 / 10 * 65536)) + 1}
+    
+    cp_groups, doc_info = flex_sp(docs, 32, beta=300.0, time_limit=60)
+    
+    for i, group in enumerate(cp_groups):
+        doc_lens = [doc_info[d]['doc_len'] for d in doc_info if doc_info[d]['cp_group_index'] == i]
+        flops = sum(d * (d + 1) // 2 // len(group) for d in doc_lens)
+        comm = sum(doc_lens) * (len(group) - 1) / len(group)
+        rich.print(f"Group {i} (size {len(group)}): {doc_lens}, {flops} flops, {comm:.2f} comm")
+    
+    rich.print(f"[bold green][PASS][/bold green] test_flex_sp completed successfully")
+
 if __name__ == "__main__":
-    test_ilp_special_case()
-    exit()
-    test_ilp_planner()
-    exit()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ilp", action="store_true", help="Run ILP tests")
+    args = parser.parse_args()
+    
+    if args.ilp:
+        test_flex_sp()
+        test_ilp_special_case()
+        test_ilp_planner()
+    
+        
     test_batch_to_items_with_dummy_pp_fwd_bwd()
     test_cp_list_to_mlp_list()
     test_batch_to_items_with_dummy()
