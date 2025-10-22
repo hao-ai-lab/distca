@@ -562,7 +562,8 @@ def flex_sp(doc_info: dict, total_cp_degree: int, alpha: float = 1.0, beta: floa
             prob += pulp.lpSum(alpha / 2 * (doc_info[i]['doc_len'] + 1) * doc_info[i]['doc_len'] / k * x[i, j, k] + beta * (k - 1) / k * doc_info[i]['doc_len'] for i in doc_info) <= C_max
             for i in doc_info:
                 prob += x[i, j, k] <= y[j, k]
-    prob.solve(solver=pulp.PULP_CBC_CMD(msg=False, timeLimit=60))
+            prob += pulp.lpSum(x[i, j, k] for i in doc_info) >= y[j, k]
+    prob.solve(solver=pulp.PULP_CBC_CMD(msg=False, timeLimit=180))
 
     cp_groups = []
     current = 0
@@ -582,9 +583,10 @@ if __name__ == "__main__":
     docs = {}
     for i in range(36):
         docs[str(i)] = {'doc_len': int(math.floor(random.expovariate() % 10 / 10 * 65536)) + 1}
-    cp_groups, doc_info = flex_sp(docs, 20)
+    cp_groups, doc_info = flex_sp(docs, 32, beta=300.0)
     for i, group in enumerate(cp_groups):
-        print(f"Group {i} (size {len(group)}): {[doc_info[d]['doc_len'] for d in doc_info if doc_info[d]['cp_group_index'] == i]}")
+        doc_lens = [doc_info[d]['doc_len'] for d in doc_info if doc_info[d]['cp_group_index'] == i]
+        print(f"Group {i} (size {len(group)}): {doc_lens}, {sum(d * (d + 1) // 2 // len(group) for d in doc_lens)} flops, {sum(doc_lens) * (len(group) - 1) / len(group)} comm")
 
 
 class Planner:
