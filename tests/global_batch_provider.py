@@ -102,10 +102,11 @@ def setup_global_batch(
     should_add_debug_cases=False,
     change_long_doc_ratio=0.0,
     sample_name='wlbllm',
+    reset_global_batch=False,
     balance_ping_pong_batch_size: None | dict[str, int] =None,
 ):
     global GLOBAL_BATCH
-    if GLOBAL_BATCH is not None:
+    if GLOBAL_BATCH is not None and not reset_global_batch:
         return
 
     assert elongate_factor > 0, f"elongate_factor: {elongate_factor} must be greater than 0"

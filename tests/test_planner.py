@@ -821,9 +821,9 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
             elongate_factor = num_token // 64 // K
             tp_size = 8
             if sample_name == 'wlbllm':
-                setup_global_batch(total_seq_len=num_token, elongate_factor=int(elongate_factor), sample_name=sample_name)
+                setup_global_batch(total_seq_len=num_token, elongate_factor=int(elongate_factor), sample_name=sample_name, reset_global_batch=True)
             elif sample_name == 'prolong':
-                setup_global_batch(total_seq_len=num_token, elongate_factor=int(elongate_factor), change_long_doc_ratio=0.3, sample_name=sample_name)
+                setup_global_batch(total_seq_len=num_token, elongate_factor=int(elongate_factor), change_long_doc_ratio=0.3, sample_name=sample_name, reset_global_batch=True)
             else:
                 raise ValueError(f"Invalid sample_name: {sample_name}")
             
@@ -832,7 +832,11 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
                 # Run ILP planner.
                 planner = Planner(world_size, parallel_config, model_config=model_config, planner_type = "ilp")
                 for sample_idx in range(num_sample):
-                    _seq_lens: list[list[int]] = get_next_batch(batch_size)
+                    try:
+                        _seq_lens: list[list[int]] = get_next_batch(batch_size)
+                    except StopIteration:
+                        rich.print(f"🟡 No more batches available for num_token={num_token}, world_size={world_size}, batch_size={batch_size}, time_limit={time_limit}, sample_index={sample_idx}")
+                        continue
                     seq_lens = post_process_seq_lens(_seq_lens, world_size)
                     # for seq in seq_lens:
                     #     assert sum(seq) == num_token, f"seq sum={sum(seq)} must be equal to num_token={num_token}"
@@ -841,12 +845,14 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
                     #             rich.print(f"🟡 seq[{j}]={seq[j]} is not divisible by total_cp_size={total_cp_size}")
                     #             raise ValueError(f"seq[{j}]={seq[j]} is not divisible by total_cp_size={total_cp_size}")
                     
-                    seq_lens_0, seq_lens_1 = seq_lens[:batch_size], seq_lens[batch_size:]
-                    seq_lens_0 = [seq for seqlist in seq_lens_0 for seq in seqlist]
-                    seq_lens_1 = [seq for seqlist in seq_lens_1 for seq in seqlist]
+                    micro_batch_size = batch_size // 2
+                    original_seq_lens_0, original_seq_lens_1 = seq_lens[:micro_batch_size], seq_lens[micro_batch_size:]
+                    assert len(original_seq_lens_0) == len(original_seq_lens_1), f"original_seq_lens_0 and original_seq_lens_1 must have the same length"
+                    seq_lens_0 = [seq for seqlist in original_seq_lens_0 for seq in seqlist]
+                    seq_lens_1 = [seq for seqlist in original_seq_lens_1 for seq in seqlist]
                     # Origin Item for ILP.
                     _items_0 = [Item(model_config, seq_lens_0[i], i, -1, -1, {'q': seq_lens_0[i], 'kv': seq_lens_0[i]}) for i in range(len(seq_lens_0))]
-                    _items_1 = [Item(model_config, seq_lens_1[i], i, -1, -1, {'q': seq_lens_1[i], 'kv': seq_lens_1[i]}) for i in range(len(seq_lens_1))]
+                    _items_1 = [Item(model_config, seq_lens_1[i], i, -1, -1, {'q': seq_lens_1[i], 'kv': seq_lens_1[i]}) for i in range(len(original_seq_lens_1))]
                 
 
                     # Plan items_0. 
@@ -863,8 +869,8 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
 
                     if dump_data:
                         data_to_save = {
-                            "seq_lens_0": seq_lens_0,
-                            "seq_lens_1": seq_lens_1,
+                            "seq_lens_0": original_seq_lens_0,
+                            "seq_lens_1": original_seq_lens_1,
                             "items_0": _items_0,
                             "items_1": _items_1,
                             "items_after_ilp_0": items_after_ilp_0,
@@ -884,12 +890,51 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
                         base_dir = project_root / "tests" / "ilp_plan_ahead"
                         curr_dir = os.path.join(base_dir, f"{sample_name}_num_token={num_token}_batch_size={batch_size}_world_size={world_size}_time_limit={time_limit}")
                         os.makedirs(curr_dir, exist_ok=True)
-                        filepath = os.path.join(curr_dir, f"plan_ahead_sample_idx={sample_idx}.pkl")
+                        filepath = os.path.join(curr_dir, f"sample_idx{sample_idx}.pkl")
 
                         # use pickle to save data_to_save.
                         with open(filepath, "wb") as f:
                             pickle.dump(data_to_save, f)
-                        rich.print(f"Finish world_size={world_size}, batch_size={batch_size}, time_limit={time_limit}, sample_index={sample_idx}")
+                        rich.print(f"Finish num_token={num_token}, world_size={world_size}, batch_size={batch_size}, time_limit={time_limit}, sample_index={sample_idx}")
+
+
+def load_plan_ahead_data(sample_name: str, num_token: int, batch_size: int, world_size: int, time_limit: int, sample_idx: int):
+    from pathlib import Path
+    import pickle
+    import os
+    current_script_dir = Path(__file__).parent
+    project_root = current_script_dir.parent
+    base_dir = project_root / "tests" / "ilp_plan_ahead"
+    curr_dir = os.path.join(base_dir, f"{sample_name}_num_token={num_token}_batch_size={batch_size}_world_size={world_size}_time_limit={time_limit}")
+    filepath = os.path.join(curr_dir, f"sample_idx{sample_idx}.pkl")
+    if os.path.exists(filepath):
+        with open(filepath, "rb") as f:
+            return pickle.load(f)
+    else:
+        rich.print(f"🟡 File not found: {filepath}")
+        return None
+
+def test_load_plan_ahead_data():
+    sample_name = 'wlbllm'
+    num_token = 128*K
+    batch_size = 8
+    world_size = 64
+    time_limit = 60
+    sample_idx = 0
+    data = load_plan_ahead_data(sample_name, num_token, batch_size, world_size, time_limit, sample_idx)
+
+    rich.print(f"🟡 data['seq_lens_0'] = {data['seq_lens_0']}")
+    rich.print(f"🟡 data['seq_lens_1'] = {data['seq_lens_1']}")
+    rich.print(f"🟡 data['items_after_ilp_0'] = {data['items_after_ilp_0']}")
+    rich.print(f"🟡 data['items_after_ilp_1'] = {data['items_after_ilp_1']}")
+    rich.print(f"🟡 data['time_limit'] = {data['time_limit']}")
+    rich.print(f"🟡 data['items0_time'] = {data['items0_time']}")
+    rich.print(f"🟡 data['items1_time'] = {data['items1_time']}")
+    rich.print(f"🟡 data['batch_size'] = {data['batch_size']}")
+    rich.print(f"🟡 data['world_size'] = {data['world_size']}")
+    rich.print(f"🟡 data['sample_idx'] = {data['sample_idx']}")
+    rich.print(f"🟡 data['sample_name'] = {data['sample_name']}")
+    return
 
 def test_pre_plan_for_ilp_planner():
     K = 1024
@@ -933,11 +978,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ilp", action="store_true", help="Run ILP tests")
     parser.add_argument("--ilp-plan-ahead", action="store_true", help="Run ILP plan ahead tests")
+    parser.add_argument("--load-ilp", action="store_true", help="Load ILP plan ahead data")
     args = parser.parse_args()
     if args.ilp_plan_ahead:
         test_pre_plan_for_ilp_planner()
         exit()
-
+    if args.load_ilp:
+        test_load_plan_ahead_data()
+        exit()
     if args.ilp:
         test_flex_sp()
         test_ilp_special_case()
