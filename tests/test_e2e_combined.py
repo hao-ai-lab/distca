@@ -1323,20 +1323,18 @@ def test(args):
             pass
 
         elif mode == "ilp":
-            if args.load_planned_items:
-                from test_planner import load_plan_ahead_data
+            load_planned_items = True   # Hard code true for experiment.
+            if load_planned_items:
+                from test_planner import load_plan_ahead_data, MockConfig
                 rich.print(f"🟡 Sample {sample_id} is loading plan ahead data...")
                 sample_name = 'wlbllm'
                 time_limit = 60
                 total_batch_size = batch_size * 2
                 num_token = total_seq_len
                 planned_ahead_data = load_plan_ahead_data(sample_name, num_token, total_batch_size, world_size, time_limit, sample_id)
-                # Post check for planned data:
+                # Post check for planned data, Make sure every as_world_size gpu has at least one document.
                 planned_items_0 = planned_ahead_data['items_after_ilp_0']
                 planned_items_1 = planned_ahead_data['items_after_ilp_1']
-                # INSERT_YOUR_CODE
-                # We want to make sure every as_world_size gpu (gpu_id) has at least one document.
-                # Collect all unique gpu_ids from planned_items_0.
                 gpu_ids_in_0 = set()
                 gpu_ids_in_1 = set()
                 for item in planned_items_0:
@@ -1353,6 +1351,10 @@ def test(args):
                     rich.print(f"🟡 Bad ILP Plan: Every rank should have at least one doc in planned_items_1. missing_gpu_ids: {missing_gpu_ids}")
                     rich.print(f"🟡 Bad ILP Plan: planned_items_1 = {planned_items_1}")
                     continue
+                parallel_config = ParallelConfig(
+                    tensor_model_parallel_size=tp_size,
+                    pipeline_model_parallel_size=1,
+                )
                 planner = Planner(world_size, parallel_config, model_config=model_config, planner_type = "ilp")
                 fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan_with_plan_ahead(planned_ahead_data['items_after_ilp_0'], is_resend_qkv=resend_qkv)
                 fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan_with_plan_ahead(planned_ahead_data['items_after_ilp_1'], is_resend_qkv=resend_qkv)
@@ -1366,6 +1368,8 @@ def test(args):
                 verbose = (rank % 8 == 0)
 
                 print(f"🟡 [Rank {rank}] hidden_size_q_tp = {hidden_size_q_tp}, hidden_size_k_tp = {hidden_size_k_tp}, element_size = {element_size}")
+                print(f"🟡 [Rank {rank}] hidden_size_q_tp = {hidden_size_q_tp}, hidden_size_k_tp = {hidden_size_k_tp}, element_size = {element_size}")
+
 
                 dp_size = as_world_size     # this should be total cp size.
                 num_batched_token_per_as_rank = total_seq_len * batch_size // dp_size
@@ -1388,6 +1392,19 @@ def test(args):
                         new_doc_len = (doc_len // cp_total) * cp_total
                         remain_doc_length += doc_len - new_doc_len
                         docs[i] = new_doc_len 
+                try:
+                    _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+                except StopIteration:
+                    break
+                # Post Process seq_lens, to divisible by cp_total.
+                cp_total = world_size
+                for docs in _seq_lens:
+                    remain_doc_length = 0 
+                    for i in range(len(docs)):
+                        doc_len = docs[i]
+                        new_doc_len = (doc_len // cp_total) * cp_total
+                        remain_doc_length += doc_len - new_doc_len
+                        docs[i] = new_doc_len 
 
                     smallest_doc_idx = min(range(len(docs)), key=lambda x: docs[x])
                     docs[smallest_doc_idx] += remain_doc_length
@@ -1395,7 +1412,18 @@ def test(args):
                 def balance_ping_pong(seq_lens: list[list[int]]) -> tuple[list[list[int]], list[list[int]]]:
                     def batch_flops(batch):
                         return sum(y ** 2 // 2 for y in batch)
+                    smallest_doc_idx = min(range(len(docs)), key=lambda x: docs[x])
+                    docs[smallest_doc_idx] += remain_doc_length
+                # Rebalance Ping pong
+                def balance_ping_pong(seq_lens: list[list[int]]) -> tuple[list[list[int]], list[list[int]]]:
+                    def batch_flops(batch):
+                        return sum(y ** 2 // 2 for y in batch)
 
+                    assert len(seq_lens) % 2 == 0, f"ping pong should have even number of batches, but got {len(seq_lens)} batches, seq_lens={seq_lens}"
+                    sorted_batches = sorted(seq_lens, key=batch_flops, reverse=True)
+                    ping, pong = [], []
+                    ping_flops, pong_flops = 0, 0
+                    avg_num_batches = len(seq_lens) // 2
                     assert len(seq_lens) % 2 == 0, f"ping pong should have even number of batches, but got {len(seq_lens)} batches, seq_lens={seq_lens}"
                     sorted_batches = sorted(seq_lens, key=batch_flops, reverse=True)
                     ping, pong = [], []
@@ -1409,12 +1437,30 @@ def test(args):
                         else:
                             pong.append(batch)
                             pong_flops += batch_flops(batch)
+                    for batch in sorted_batches:
+                        if (ping_flops <= pong_flops and len(ping) < avg_num_batches) or len(pong) >= avg_num_batches:
+                            ping.append(batch)
+                            ping_flops += batch_flops(batch)
+                        else:
+                            pong.append(batch)
+                            pong_flops += batch_flops(batch)
 
                     assert len(ping) == len(pong) == avg_num_batches, f"ping batches={ping}, pong batches={pong}"
                     return ping, pong
+
     
                 rich.print(f"🟡 [Rank {rank}] _seq_lens = {_seq_lens}")
 
+                should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
+                if should_d2_balance_ping_pong:
+                    print(f"🟢 [Rank {rank}] Balancing ping pong")
+                    seq_lens_0, seq_lens_1 = balance_ping_pong(_seq_lens)
+                else:
+                    print(f"🟡 [Rank {rank}] Not Balancing ping pong")
+                    seq_lens_0, seq_lens_1 = _seq_lens[:batch_size], _seq_lens[batch_size:]
+                
+                rich.print(f"🟡 [Rank {rank}] seq_lens_0 = {seq_lens_0}")
+                rich.print(f"🟡 [Rank {rank}] seq_lens_1 = {seq_lens_1}")
                 should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
                 if should_d2_balance_ping_pong:
                     print(f"🟢 [Rank {rank}] Balancing ping pong")
@@ -1431,7 +1477,21 @@ def test(args):
                 flat_seq_lens_1 = [length for batch in seq_lens_1 for length in (batch if isinstance(batch, list) else [batch])]
                 _items_0 = [Item(model_config, flat_seq_lens_0[i], i, -1, -1, {'q': flat_seq_lens_0[i], 'kv': flat_seq_lens_0[i]}) for i in range(len(flat_seq_lens_0))]
                 _items_1 = [Item(model_config, flat_seq_lens_1[i], i, -1, -1, {'q': flat_seq_lens_1[i], 'kv': flat_seq_lens_1[i]}) for i in range(len(flat_seq_lens_1))]
+                # Origin Item for ILP.
+                flat_seq_lens_0 = [length for batch in seq_lens_0 for length in (batch if isinstance(batch, list) else [batch])]
+                flat_seq_lens_1 = [length for batch in seq_lens_1 for length in (batch if isinstance(batch, list) else [batch])]
+                _items_0 = [Item(model_config, flat_seq_lens_0[i], i, -1, -1, {'q': flat_seq_lens_0[i], 'kv': flat_seq_lens_0[i]}) for i in range(len(flat_seq_lens_0))]
+                _items_1 = [Item(model_config, flat_seq_lens_1[i], i, -1, -1, {'q': flat_seq_lens_1[i], 'kv': flat_seq_lens_1[i]}) for i in range(len(flat_seq_lens_1))]
 
+                if rank % 8 == 0:
+                    rich.print(f"🟡 [Rank {rank}] original _items_0 = {_items_0}")
+                    rich.print(f"🟡 [Rank {rank}] original _items_1 = {_items_1}")
+                
+                tolerance_factor = 0.1  # We don't need tolerance factor for ILP planner.
+                planner = Planner(world_size, parallel_config, model_config=model_config, planner_type = "ilp")
+                
+                fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose)
+                fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose)
                 if rank % 8 == 0:
                     rich.print(f"🟡 [Rank {rank}] original _items_0 = {_items_0}")
                     rich.print(f"🟡 [Rank {rank}] original _items_1 = {_items_1}")

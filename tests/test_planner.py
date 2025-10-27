@@ -899,6 +899,7 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
 
 
 def load_plan_ahead_data(sample_name: str, num_token: int, batch_size: int, world_size: int, time_limit: int, sample_idx: int):
+    from test_planner import MockConfig
     from pathlib import Path
     import pickle
     import os
