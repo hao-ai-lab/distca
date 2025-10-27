@@ -1402,11 +1402,31 @@ def test(args):
                 rich.print(f"🟡 [Rank {rank}] original _items_0 = {_items_0}")
                 rich.print(f"🟡 [Rank {rank}] original _items_1 = {_items_1}")
             
+            load_from_plan_ahead = ...
+
             tolerance_factor = 0.1  # We don't need tolerance factor for ILP planner.
             planner = Planner(world_size, parallel_config, model_config=model_config, planner_type = "ilp")
             
-            fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose)
-            fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose)
+            fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0, planned_items_0 = planner.plan(_items_0, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose, return_items=True)
+            fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1, planned_items_1 = planner.plan(_items_1, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose, return_items=True)
+
+            
+            def check_planned_items_have_all_gpus(items, as_world_size: int):
+                seen_gpuid_set = set()
+                for item in items:
+                    seen_gpuid_set.add(item['gpuid'])
+                return len(seen_gpuid_set) == as_world_size
+
+            if not check_planned_items_have_all_gpus(planned_items_0, as_world_size):
+                print(f"🔴 [Rank {rank}] planned_items_0 do not have all gpus: {planned_items_0}. Skipping {sample_id = }.")
+                continue
+            if not check_planned_items_have_all_gpus(planned_items_1, as_world_size):
+                print(f"🔴 [Rank {rank}] planned_items_1 do not have all gpus: {planned_items_1}. Skipping {sample_id = }.")
+                continue
+
+            if rank % 8 == 0:
+                rich.print(f"🟡 [Rank {rank}] planned_items_0 = {planned_items_0}")
+                rich.print(f"🟡 [Rank {rank}] planned_items_1 = {planned_items_1}")
 
 
             if verbose:
