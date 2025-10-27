@@ -641,6 +641,42 @@ class Planner:
             # Now PP 3D parallel is directly support in: test_megatron_e2e_pipeline.py
             raise NotImplementedError("PP > 1 will be supported very soon.")
     
+    def plan_with_plan_ahead(self, planned_items: list[Item], is_resend_qkv:bool=False):
+        assert all(item.src_gpuid == item.gpuid for item in planned_items), "After ILP planner, source gpu id should equals to the doc's gpuid. But got {item.src_gpuid} != {item.gpuid} for item {item}."
+        mlp_shard_len = self.items_to_mlp_doc_len(planned_items)
+        planned_items: list[dict] = self.postprocess_items(planned_items) 
+        planner_output: list[list[ShardInfo]] = self.items_into_shardinfos(planned_items)
+        tp_size = self.parallel_config.tensor_model_parallel_size
+        if self.parallel_config.pipeline_model_parallel_size == 1:
+            hidden_size_q = self.model_config.hidden_size
+            hidden_size_kv = hidden_size_q
+            if hasattr(self.model_config, "num_key_value_heads"):
+                hidden_size_kv = (hidden_size_kv * self.model_config.num_key_value_heads //
+                                self.model_config.num_attention_heads)
+
+            hidden_size_q_tp = hidden_size_q // tp_size
+            hidden_size_k_tp = hidden_size_kv // tp_size
+
+            lse_size = self.model_config.num_attention_heads // tp_size
+            element_size = self.dtype.itemsize
+            # TODO: We should get the transformer config
+            if getattr(self.model_config, "attention_softmax_in_fp32", True): # if self.model_config.attention_softmax_in_fp32:
+                # lse_size *= torch.float32.element_size // element_size
+                lse_size *= torch.float32.itemsize // element_size
+
+            (qkv_fwd_fa2a_metadata, qkv_rev_fa2a_metadata,
+            attn_out_fwd_fa2a_metadata, attn_out_rev_fa2a_metadata,
+            as_attn_metadata,
+            ) = from_planner_output(
+                self.attention_server_world_size, planner_output, hidden_size_q_tp, hidden_size_k_tp,
+                lse_size, element_size, is_pipeline_tick=False, is_resend_qkv=is_resend_qkv,
+            )
+            fa2a_metadata = (
+                qkv_fwd_fa2a_metadata, qkv_rev_fa2a_metadata,
+                attn_out_fwd_fa2a_metadata, attn_out_rev_fa2a_metadata,
+            )
+            return fa2a_metadata, as_attn_metadata, mlp_shard_len
+
     # This function will be deprecated. As we don't need logical metadata anymore.
     def plan_to_raw_qkv_dispatch(self, items_: list[Item], verbose=False, plot=False, should_plan = True, return_items = False):
         # no plan for cp debug
@@ -713,6 +749,7 @@ class Planner:
                 item.gpuid = cp_group[i]
                 item.src_gpuid = cp_group[i]    # in flex sp, mlp layout is similar to attention layout.
                 final_items.append(item)
+        
         return final_items
     
     def plan_items_greedy(self, items_: list[Item], verbose=False, plot=False) -> list[Item]:
