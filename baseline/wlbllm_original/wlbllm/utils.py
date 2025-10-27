@@ -475,6 +475,87 @@ def compute_per_seq_metadate_combined(context_length, q_tensor, k_tensor, v_tens
 
     return local_q, local_k, local_v, cu_seqlens_q_list, cu_seqlens_k_list, max_seqlen_q_list, max_seqlen_k_list, k_offset_list, local_d_out
 
+def compute_per_seq_metadate_combined__metadata_only(context_length, doc_lens, cp_size, rank, device):
+    """
+    Compute the cumulative sequence lengths for per-sequence CP.
+    """
+    # ============== Split doc lens for sequence sharding =================
+    chunk_size = context_length // (2 * cp_size)
+
+    split_doc_lens = []
+    prefix_lens = []
+    cur_length = 0
+    for i, doc_len in enumerate(doc_lens):
+        if cur_length + doc_len <= chunk_size: 
+            split_doc_lens.append(doc_len)
+            prefix_lens.append(0)
+            cur_length += doc_len
+        else: # split the document
+            split_doc_lens.append(chunk_size - cur_length)
+            prefix_lens.append(0)
+            cu_prefix = chunk_size - cur_length
+            remained_length = doc_len - (chunk_size - cur_length)
+            while remained_length > chunk_size:
+                split_doc_lens.append(chunk_size)
+                prefix_lens.append(cu_prefix)
+                cu_prefix += chunk_size
+                remained_length -= chunk_size
+            if remained_length > 0:
+                split_doc_lens.append(remained_length)
+                prefix_lens.append(cu_prefix)
+                cur_length = remained_length
+            else:
+                cur_length = 0
+        
+        if cur_length == chunk_size:
+            cur_length = 0
+    assert sum(split_doc_lens) == context_length, f"Total length {sum(split_doc_lens)} must equals context length {context_length}."
+    
+    cur_offset = 0
+    doc_idx_list = [0] # to record the document index for each chunk
+    for i, doc_len in enumerate(split_doc_lens):
+        cur_length += doc_len
+        if cur_length == chunk_size:
+            doc_idx_list.append(i + 1)
+            cur_length = 0
+        elif cur_length > chunk_size:
+            assert False, "cur_length > chunk_size, this should not happen."
+        
+    for i in range(len(doc_idx_list)-1):
+        assert sum(split_doc_lens[doc_idx_list[i]:doc_idx_list[i+1]]) == chunk_size, f"error doc per chunk"
+    
+    # ============== Compute metadata =================
+    cu_seqlens_q_list = []
+    max_seqlen_q_list = []
+    cu_seqlens_k_list = []
+    max_seqlen_k_list = []
+    k_offset_list = []
+    for chunk_id in range(2):
+        if chunk_id == 0:
+            chunk_index = rank
+        else:
+            chunk_index = 2 * cp_size - 1 - rank
+    
+        this_chunk_docs = split_doc_lens[doc_idx_list[chunk_index]:doc_idx_list[chunk_index+1]]
+        k_offset = chunk_index * chunk_size
+        doc_id_split = doc_idx_list[chunk_index]
+
+        cu_seqlens_q_list.append(torch.tensor([0] + list(accumulate(this_chunk_docs)), dtype=torch.int32).to(device))
+        max_seqlen_q_list.append(torch.tensor([max(this_chunk_docs)], dtype=torch.int32).to(device))
+
+        # check if the first doc is splitted
+        if prefix_lens[doc_id_split] > 0:
+            k_offset -= prefix_lens[doc_id_split]
+            this_chunk_docs[0] += prefix_lens[doc_id_split]
+            assert k_offset >= 0, f"error k_offset {k_offset} < 0"
+
+        cu_seqlens_k_list.append(torch.tensor([0] + list(accumulate(this_chunk_docs)), dtype=torch.int32).to(device))
+        max_seqlen_k_list.append(torch.tensor([max(this_chunk_docs)], dtype=torch.int32).to(device))
+        k_offset_list.append(k_offset)
+
+    return cu_seqlens_q_list, cu_seqlens_k_list, max_seqlen_q_list, max_seqlen_k_list, k_offset_list
+
+
 def per_seq_correctness_evaluate(global_out_ref, local_out, context_length, cp_size, rank, rtol=None, atol=None):
     chunk_size = context_length // (2 * cp_size)
     out_chunks = global_out_ref.chunk(2 * cp_size, dim=0)

@@ -14,6 +14,7 @@ from torch.distributed import (
 )
 from torch.cuda.nvtx import range_push as nvtx_range_push
 from torch.cuda.nvtx import range_pop  as nvtx_range_pop
+from torch.cuda.nvtx import range  as nvtx_range
 
 
 from wlbllm.attn_module import (
@@ -81,9 +82,9 @@ class PerSequenceCPAttention(torch.autograd.Function):
         attn_mask_type,
         cp_group,
         cp_stream,
-        allgather_events,
-        allreduce_events,
-        attn_events,
+        allgather_events: 'Optional[List[torch.cuda.Event]]',
+        allreduce_events: 'Optional[List[torch.cuda.Event]]',
+        attn_events: 'Optional[List[torch.cuda.Event]]',
     ):
         nvtx_range_push("PerSequenceCPAttention.fwd")
         assert attn_mask_type == "causal", "Only causal attention is supported"
@@ -93,6 +94,7 @@ class PerSequenceCPAttention(torch.autograd.Function):
         cp_size = get_world_size(cp_group)
         rank = get_rank(cp_group)
 
+        print(f"🟡 [Rank {rank}] FORWARD: local_q.shape={local_q.shape}, local_k.shape={local_k.shape}, local_v.shape={local_v.shape}")
         chunk_size = local_k.size(0) // 2
 
         # allgather kv, then shuffle back to global order
@@ -161,7 +163,8 @@ class PerSequenceCPAttention(torch.autograd.Function):
                 dropout_p=0.0,
                 softmax_scale=softmax_scale,
                 causal=True,
-                return_attn_probs=True
+                return_attn_probs=True,
+                deterministic=False,
             )
 
             outputs.append(out)
@@ -174,6 +177,7 @@ class PerSequenceCPAttention(torch.autograd.Function):
         if attn_events is not None:
             attn_events[1].record()
 
+        print(f"🟡 [Rank {rank}] final_out.shape={final_out.shape}, {k_global.shape = }, {local_ks[0].shape = }")
         ctx.save_for_backward(
             local_q,
             k_global, v_global,
@@ -213,12 +217,23 @@ class PerSequenceCPAttention(torch.autograd.Function):
             cu_q_L, cu_q_R, cu_k_L, cu_k_R,
             maxq_L, maxq_R, maxk_L, maxk_R,
         ) = ctx.saved_tensors
-
+        
         cp_group   = ctx.cp_group
+        rank    = get_rank(cp_group)
+        
+        print(f"🟡 [Rank {rank}] gathered_k.shape={gathered_k.shape}, gathered_v.shape={gathered_v.shape}")
+        print(f"🟡 [Rank {rank}] out_L.shape={out_L.shape}, out_R.shape={out_R.shape}")
+        print(f"🟡 [Rank {rank}] lse_L.shape={lse_L.shape}, lse_R.shape={lse_R.shape}")
+        print(f"🟡 [Rank {rank}] k_L.shape={k_L.shape}, k_R.shape={k_R.shape}")
+        print(f"🟡 [Rank {rank}] v_L.shape={v_L.shape}, v_R.shape={v_R.shape}")
+        print(f"🟡 [Rank {rank}] cu_q_L.shape={cu_q_L.shape}, cu_q_R.shape={cu_q_R.shape}")
+        print(f"🟡 [Rank {rank}] cu_k_L.shape={cu_k_L.shape}, cu_k_R.shape={cu_k_R.shape}")
+        print(f"🟡 [Rank {rank}] maxq_L.shape={maxq_L.shape}, maxq_R.shape={maxq_R.shape}")
+        print(f"🟡 [Rank {rank}] maxk_L.shape={maxk_L.shape}, maxk_R.shape={maxk_R.shape}")
+
         k_offsets  = ctx.k_offsets
         (qlen_L, qlen_R) = ctx.q_chunk_sizes
         world_size = get_world_size(cp_group)
-        rank    = get_rank(cp_group)
 
         # split grad_out into two chunks
         dq_local = torch.zeros_like(local_q)
@@ -270,12 +285,21 @@ class PerSequenceCPAttention(torch.autograd.Function):
         dk_global, dv_global = per_seq_kv_shuffle(dk_global, dv_global, cp_size)
 
         # now do reduce_scatter for dk/dv
-        dk_local = torch.empty_like(dq_local)
-        dv_local = torch.empty_like(dq_local)
+        # dk_local and dv_local should have shapes that correspond to local_k and local_v
+        world_size = get_world_size(cp_group)
+        local_k_shape = (gathered_k.size(0) // world_size, *gathered_k.shape[1:])
+        local_v_shape = (gathered_v.size(0) // world_size, *gathered_v.shape[1:])
+        
+        print(f"🟡 [Rank {rank}] BACKWARD: calculated local_k_shape={local_k_shape}, local_v_shape={local_v_shape}")
+        print(f"🟡 [Rank {rank}] BACKWARD: original local_q.shape={local_q.shape}")
+        
+        dk_local = torch.empty(local_k_shape, dtype=gathered_k.dtype, device=gathered_k.device)
+        dv_local = torch.empty(local_v_shape, dtype=gathered_v.dtype, device=gathered_v.device)
         with torch.cuda.stream(ctx.cp_stream):
             dk_global = dk_global.contiguous()
             dv_global = dv_global.contiguous()
 
+            print(f"🟡 [Rank {rank}] dk_global.shape={dk_global.shape}, dk_local.shape={dk_local.shape}")
             dist.reduce_scatter_tensor(dk_local, dk_global,
                                     op=dist.ReduceOp.SUM, group=cp_group)
             dist.reduce_scatter_tensor(dv_local, dv_global,

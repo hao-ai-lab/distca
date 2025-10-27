@@ -622,9 +622,9 @@ def test(args):
     element_size = dtype.itemsize
 
     # Set forward function mode based on test mode
-    normal_forward_fn = (mode in ["baseline", "wlbllm"])
+    normal_forward_fn = (mode == "baseline" or "wlbllm" in mode)
     # TODO: (Refactor) If WLBLLM is set, we must inform the transformer_engine to use the WLBLLM function. 
-    os.environ["WLBLLM_MODE"] = "1" if mode == "wlbllm" else "0"
+    os.environ["WLBLLM_MODE"] = "1" if "wlbllm" in mode else "0"
     
     # Setup unified attention timing collection for both WLBLLM and D2 modes
     if os.getenv("UNIFIED_RECORD_ATTENTION_TIMES", "0") == "1":
@@ -670,7 +670,7 @@ def test(args):
 
 
 
-    if mode == "wlbllm":
+    if "wlbllm" in mode:
         import wlbllm.megatron_patch.dot_product_attention
         wlbllm.megatron_patch.dot_product_attention.monkey_patch()
         import wlbllm.megatron_patch.backends
@@ -678,9 +678,9 @@ def test(args):
         pass
     
     # Check world size
-    if mode == "wlbllm":
+    if "wlbllm" in mode:
         # assert cp_degree * tp_size == world_size, f"WLBLLM world size ({world_size}) = num_nodes ({args.num_nodes}) * num_gpus_per_node ({args.num_gpus_per_node}) must be divisible by cp_degree ({cp_degree}) * tp_size ({tp_size})"
-        print(f"🟡 Running WLBLLM config: cp_degree={cp_degree}, tp_size={tp_size}, world_size={world_size}")
+        print(f"🟡 Running {mode} config: cp_degree={cp_degree}, tp_size={tp_size}, world_size={world_size}")
     elif mode == "d2":
         print(f"🟡 Running D2 config: tp_size={tp_size}, world_size={world_size}")
     else:
@@ -701,7 +701,7 @@ def test(args):
 
     # TODO(HACK): WLBLLM and Megatron have different comm group initialization process.
     # This is a code divergence. We need to consolidate the comm group.
-    if mode == "wlbllm":
+    if "wlbllm" in mode:
         worker: MegatronE2eWorker = init_wlbllm_e2e_test(
             hidden_size_q, hidden_size_kv, num_tokens,
             world_size, max_cp_degree * 1, tp_size,
@@ -745,7 +745,7 @@ def test(args):
     # torch.cuda.memory.set_per_process_memory_fraction(0.85)
     # print("🟡 [Rank {worker.rank}] torch.cuda.memory.set_per_process_memory_fraction to 0.85")
 
-    if mode == "wlbllm":
+    if "wlbllm" in mode:
         rank = torch.distributed.get_rank()
         as_rank = mpu.get_context_parallel_rank()
         as_world_size = mpu.get_context_parallel_world_size() * mpu.get_data_parallel_world_size()
@@ -811,6 +811,173 @@ def test(args):
                 "packed_seq_params": packed_seq_params,
             }
             assert isinstance(microbatch["packed_seq_params"], PackedSeqParams)
+
+        elif mode == "wlbllm_perseq":
+            cp_rank = mpu.get_context_parallel_rank()
+            cp_size = mpu.get_context_parallel_world_size()
+            dp_rank = mpu.get_data_parallel_rank()
+            dp_size = mpu.get_data_parallel_world_size()
+            cp_group = mpu.get_context_parallel_group()
+
+            rank = torch.distributed.get_rank()
+            device = torch.cuda.current_device()
+
+            try:
+                _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            except StopIteration:
+                break
+            print(f"🟡 sample_id={sample_id}: {_seq_lens}")
+            # TODO: Adding proper support for context parallel in megatron.
+            # Baseline mode: Use simple batch generation
+            # seq_lens = _seq_lens[2 * as_rank] + _seq_lens[2 * as_rank + 1]
+            # seq_lens = _seq_lens[as_rank] + _seq_lens[as_rank + as_world_size]
+
+            print(f"🟡 [Rank {rank}] cp_rank={cp_rank}, cp_size={cp_size}, dp_rank={dp_rank}, dp_size={dp_size}, as_rank={as_rank}, as_world_size={as_world_size}, device={device}")
+            # test an all reduce to ensure things are doing good
+            # exit(0)
+
+            print(f"🟡 _seq_lens={_seq_lens}")
+
+            def flatten(a):
+                return [y for x in a for y in x]
+
+            
+            alpha_factor = args.alpha_factor # at max tolerate 2x memory imbalance. This number can go infinite...
+            seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
+                dp_size, dp_rank, total_seq_len, batch_size, _seq_lens, 
+                ENABLE_BALANCED_FLOS_NO_DEFER=True,
+                model_config=hf_config, # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
+                Lmax=int(total_seq_len * 2 * batch_size // dp_size * alpha_factor),
+            )
+            
+            # TODO: Estimate and calculate flops imbalance and print it here...
+            print(f"🟡 [Rank {rank}] WLBLLM Reordered Batch: new_batch={new_batch}")
+            # also calculate the flops 
+            def calc_relative_flops(batches: list[list[int]]):
+                flops_per_batch = [0] * len(batches)
+                for batch_idx, batch in enumerate(batches):
+                    for seq_len in batch:
+                        flops_per_batch[batch_idx] += seq_len ** 2
+                # Now find the min flops per gpu, and everyone divide the min flops per gpu
+                min_flops_per_gpu = min(flops_per_batch)
+                flops_per_batch = [flops / min_flops_per_gpu for flops in flops_per_batch]
+                return flops_per_batch
+            
+            relative_flops_per_batch = calc_relative_flops(new_batch)
+            print(f"🟡 [Rank {rank}] Relative Flops per batch: {relative_flops_per_batch}")
+            print(f"🟡 [Rank {rank}] Taking seq_lens={seq_lens}")
+
+
+            doc_lens = flatten(seq_lens)
+            if len(doc_lens) < dp_size:
+                # Pad the doc_lens to dp_size
+                doc_lens += [512] * (dp_size - len(doc_lens))
+                pass
+            if sum(doc_lens) % (cp_size * 2 * 8) != 0:
+                # TODO(HACK): This is a hack to ensure the doc_lens is divisible by cp_size*2.
+                sum_of_doc_lens = sum(doc_lens)
+                doc_lens[-1] += (cp_size * 2 * 8) - sum_of_doc_lens % (cp_size * 2 * 8)
+                # assert doc_lens[-1] > 0
+                pass
+            assert sum(doc_lens) % (cp_size * 2 * 8) == 0, f"sum(doc_lens)={sum(doc_lens)} must be divisible by {cp_size * 2 * 8}"
+            assert sum(doc_lens) % (cp_size * 2) == 0, f"sum(doc_lens)={sum(doc_lens)} must be divisible by {cp_size * 2}"
+            
+            rank = torch.distributed.get_rank()
+            
+            print(f"🟡 [Rank {rank}] doc_lens={doc_lens}")
+            assert cp_size == cp_degree, f"cp_size={cp_size} must be equal to cp_degree={cp_degree}"
+
+            # local_context_length = total_seq_len * 2
+            local_context_length = sum(doc_lens) // cp_size
+            context_length = local_context_length * cp_size
+
+            # cp_group = d2.runtime.megatron_patch.create_group.get_attn_server_group()
+            # debug_print(f"cp_size", cp_size)
+            debug_print(f"local_context_length", local_context_length)
+            debug_print(f"context_length", context_length)
+            
+            # doc_shards = wlbllm.utils.compute_per_doc_cp_shard_doc_len(
+            #     doc_lens, context_length, cp_size
+            # )
+
+            chunk_size = context_length // (2 * cp_size)
+            (
+                cu_seqlens_q_list, cu_seqlens_k_list, 
+                max_seqlen_q_list, max_seqlen_k_list, 
+                # kv_idx_list,
+                k_offset_list,
+            ) = wlbllm.utils.compute_per_seq_metadate_combined__metadata_only(    
+                context_length, 
+                doc_lens, 
+                cp_size, 
+                cp_rank, 
+                device=torch.cuda.current_device()
+            )
+            
+
+            input_ids = torch.randint(100, 10000, (as_world_size, local_context_length))
+            input_ids_local = input_ids[cp_rank]
+            position_ids = torch.arange(total_seq_len, dtype=torch.int64).repeat(as_world_size, 2)
+            position_ids_local = position_ids[cp_rank]
+            # debug_print(f"input_ids_local", input_ids_local.shape)
+            # debug_print(f"position_ids_local", position_ids_local.shape)
+
+            packed_seq_params = PackedSeqParams(
+                qkv_format="thd",
+                # TODO(HACK): These variables are not used in the WLBLLM functions.
+                # If anywhere we used them, we will fail.
+                # See PerDocCPAttention in the wlbllm/per_doc_cp_attn.py
+                cu_seqlens_q=cu_seqlens_q_list[-1],
+                cu_seqlens_kv=cu_seqlens_k_list[-1],
+                max_seqlen_q=max_seqlen_q_list[-1],
+                max_seqlen_kv=max_seqlen_k_list[-1],
+            )
+
+            microbatch = {
+                "input_ids": input_ids_local,
+                "position_ids": position_ids_local,
+                "packed_seq_params": packed_seq_params,
+            }
+            assert isinstance(microbatch["packed_seq_params"], PackedSeqParams)
+
+            
+            # Now save some context for the use of WLBLLM function
+            if rank % 8 == 0:
+                rich.print(f"[Rank {rank}] [sample_id = {sample_id}] doc_lens", doc_lens)
+                # Note: doc_shards is not used in per-seq mode
+                # rich.print(f"[Rank {rank}] [sample_id = {sample_id}] doc_shards", doc_shards)
+                rich.print(f"[Rank {rank}] [sample_id = {sample_id}] cu_seqlens_q_list", cu_seqlens_q_list)
+                rich.print(f"[Rank {rank}] [sample_id = {sample_id}] cu_seqlens_k_list", cu_seqlens_k_list)
+                rich.print(f"[Rank {rank}] [sample_id = {sample_id}] max_seqlen_q_list", max_seqlen_q_list)
+                rich.print(f"[Rank {rank}] [sample_id = {sample_id}] max_seqlen_k_list", max_seqlen_k_list)
+                rich.print(f"[Rank {rank}] [sample_id = {sample_id}] k_offset_list", k_offset_list)
+                rich.print(f"[Rank {rank}] [sample_id = {sample_id}] input_ids_local", input_ids_local.shape)
+                rich.print(f"[Rank {rank}] [sample_id = {sample_id}] position_ids_local", position_ids_local.shape)
+
+
+            # Create for wlbllm
+            # cp_stream = torch.cuda.Stream()
+            cp_stream = torch.cuda.current_stream()
+
+            wlbllm.registry.clear()
+            wlbllm.registry.set("mode", "per-seq")
+            wlbllm.registry.set("doc_lens", doc_lens)
+            # Note: per-seq mode uses k_offset_list instead of kv_idx_list
+            wlbllm.registry.set("kv_idx_list", k_offset_list)  # Using k_offset_list as equivalent
+            wlbllm.registry.set("k_offset_list", k_offset_list)
+            wlbllm.registry.set("cp_group", cp_group)
+            wlbllm.registry.set("cp_stream", cp_stream)
+            wlbllm.registry.set("cu_seqlens_q_list", cu_seqlens_q_list)
+            wlbllm.registry.set("cu_seqlens_kv_list", cu_seqlens_k_list)
+            wlbllm.registry.set("max_seqlen_q_list", max_seqlen_q_list)
+            wlbllm.registry.set("max_seqlen_kv_list", max_seqlen_k_list)
+            wlbllm.registry.set("global_tensor_length", context_length)
+            # wlbllm.registry.set("global_tensor_length", (total_seq_len * cp_size * 2))
+            # Set current sample ID for attention timing
+            wlbllm.registry.set("current_sample_id", sample_id)
+            # Initialize timing for this sample if enabled
+            if os.getenv("WLBLLM_RECORD_ATTENTION_TIMES", "0") == "1":
+                wlbllm.registry.init_attention_timing_for_sample(sample_id)
 
         elif mode == "wlbllm":
             cp_rank = mpu.get_context_parallel_rank()
@@ -960,6 +1127,7 @@ def test(args):
             cp_stream = torch.cuda.current_stream()
 
             wlbllm.registry.clear()
+            wlbllm.registry.set("mode", "per-doc")
             wlbllm.registry.set("doc_lens", doc_lens)
             wlbllm.registry.set("doc_shards", doc_shards)
             wlbllm.registry.set("kv_idx_list", kv_idx_list)
@@ -2105,8 +2273,8 @@ def clear_unified_a2a_times():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=str, choices=["baseline", "d2", "wlbllm"], default="baseline", 
-                        help="Test mode: 'baseline' for simple batch generation, 'd2' for balanced flops planning, 'wlbllm' for wlbllm")
+    parser.add_argument("--mode", type=str, choices=["baseline", "d2", "wlbllm", "wlbllm_perseq"], default="baseline", 
+                        help="Test mode: 'baseline' for simple batch generation, 'd2' for balanced flops planning, 'wlbllm' for wlbllm, 'wlbllm_perseq' for wlbllm per sequence")
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=2)

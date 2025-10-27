@@ -268,11 +268,6 @@ class PerDocumentCPAttention(torch.autograd.Function):
             #     debug_print(f"  - max_seqlen_q_list[chunk_id] = {max_seqlen_q_list[chunk_id]}")
             #     debug_print(f"  - max_seqlen_kv_list[chunk_id] = {max_seqlen_kv_list[chunk_id]}")
 
-            
-            # TODO:(Hack) PerDocumentCPAttention performance degrade significantly when returning LSE.
-            # We create an env var to disable it only for performance testing.
-            
-            
             if should_sync_time_flash_attn:
                 torch.cuda.synchronize()
                 start_time = time.time()
