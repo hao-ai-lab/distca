@@ -644,9 +644,9 @@ class Planner:
             # Now PP 3D parallel is directly support in: test_megatron_e2e_pipeline.py
             raise NotImplementedError("PP > 1 will be supported very soon.")
     
-    def plan_with_plan_ahead(self, planned_items: list[Item], is_resend_qkv:bool=False, return_items:bool=False):
+    def plan_with_plan_ahead(self, planned_items: list[Item], is_resend_qkv:bool=False, return_items:bool=False, device: str = "cuda"):
         assert all(item.src_gpuid == item.gpuid for item in planned_items), "After ILP planner, source gpu id should equals to the doc's gpuid. But got {item.src_gpuid} != {item.gpuid} for item {item}."
-        mlp_shard_len = self.items_to_mlp_doc_len(planned_items)
+        mlp_shard_len = self.items_to_mlp_doc_len(planned_items, device)
         planned_items: list[dict] = self.postprocess_items(planned_items) 
         planner_output: list[list[ShardInfo]] = self.items_into_shardinfos(planned_items)
         tp_size = self.parallel_config.tensor_model_parallel_size
@@ -725,16 +725,21 @@ class Planner:
         # Aftr calling flex_sp functione
         # cp_groups: [[0, 1], [2,3,4,5], [6, 7, 8, 9], [10, 11]]
         # doc_info: {doc_id: {'items': [Item], 'doc_len':4096 , 'cp_group_index': cp_group_index_in_cp_groups}}
-        cp_groups, doc_info = flex_sp(doc_info, self.attention_server_world_size, time_limit=time_limit)
+        cp_groups, all_doc_info = flex_sp(doc_info, self.attention_server_world_size, time_limit=time_limit)
         rlog(f"🟡 cp_groups = {cp_groups}")
 
         # Split items according to flexsp plan.
         # TODO:Support MLP CP Split...
         final_items = []
         
-        for doc_id, doc_info in doc_info.items():
+        for _, doc_info in all_doc_info.items():
             original_item = doc_info['items'][0]    # Only one item per doc originally.
             cp_index = doc_info['cp_group_index']
+            if cp_index <0 or cp_index >= len(cp_groups):
+                rich.print(f"🟡 Bad ILP Plan: cp index out of range. cp_index = {cp_index}, cp_groups = {cp_groups}")
+                doc_lengths = [doc_info['doc_len'] for doc_info in all_doc_info.values()]
+                rich.print(f"🟡 Doc lengths: {doc_lengths}")
+                continue
             cp_degree = len(cp_groups[cp_index])
             rlog(f"🟡 item: {original_item}, cp_index: {cp_index}, cp_degree: {cp_degree}")
             total_flops = original_item.total_flops

@@ -785,6 +785,7 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
     import pickle
     import os
     import time
+    from pathlib import Path
     from global_batch_provider import setup_global_batch, get_next_batch
 
     def post_process_seq_lens(seq_lens: list[list[int]], world_size: int):
@@ -837,6 +838,16 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
                     except StopIteration:
                         rich.print(f"🟡 No more batches available for num_token={num_token}, world_size={world_size}, batch_size={batch_size}, time_limit={time_limit}, sample_index={sample_idx}")
                         continue
+                    # Check if file already exists.
+                    current_script_dir = Path(__file__).parent
+                    project_root = current_script_dir.parent
+                    base_dir = project_root / "tests" / "ilp_plan_ahead"
+                    curr_dir = os.path.join(base_dir, f"{sample_name}_num_token={num_token}_batch_size={batch_size}_world_size={world_size}_time_limit={time_limit}")
+                    os.makedirs(curr_dir, exist_ok=True)
+                    filepath = os.path.join(curr_dir, f"sample_idx{sample_idx}.pkl")
+                    if os.path.exists(filepath):
+                        rich.print(f"🟡 File already exists: {filepath}")
+                        continue
                     seq_lens = post_process_seq_lens(_seq_lens, world_size)
                     # for seq in seq_lens:
                     #     assert sum(seq) == num_token, f"seq sum={sum(seq)} must be equal to num_token={num_token}"
@@ -884,14 +895,6 @@ def plan_ahead_for_ilp_planner(num_tokens: list[int], batch_sizes_list: list[lis
                             "sample_name": sample_name,
                         }
 
-                        from pathlib import Path
-                        current_script_dir = Path(__file__).parent
-                        project_root = current_script_dir.parent
-                        base_dir = project_root / "tests" / "ilp_plan_ahead"
-                        curr_dir = os.path.join(base_dir, f"{sample_name}_num_token={num_token}_batch_size={batch_size}_world_size={world_size}_time_limit={time_limit}")
-                        os.makedirs(curr_dir, exist_ok=True)
-                        filepath = os.path.join(curr_dir, f"sample_idx{sample_idx}.pkl")
-
                         # use pickle to save data_to_save.
                         with open(filepath, "wb") as f:
                             pickle.dump(data_to_save, f)
@@ -914,29 +917,9 @@ def load_plan_ahead_data(sample_name: str, num_token: int, batch_size: int, worl
         rich.print(f"🟡 File not found: {filepath}")
         return None
 
-def test_load_plan_ahead_data():
-    sample_name = 'wlbllm'
-    num_token = 128*K
-    batch_size = 8
-    world_size = 64
-    time_limit = 60
-    sample_idx = 0
-    data = load_plan_ahead_data(sample_name, num_token, batch_size, world_size, time_limit, sample_idx)
-
-    rich.print(f"🟡 data['seq_lens_0'] = {data['seq_lens_0']}")
-    rich.print(f"🟡 data['seq_lens_1'] = {data['seq_lens_1']}")
-    rich.print(f"🟡 data['items_after_ilp_0'] = {data['items_after_ilp_0']}")
-    rich.print(f"🟡 data['items_after_ilp_1'] = {data['items_after_ilp_1']}")
-    rich.print(f"🟡 data['time_limit'] = {data['time_limit']}")
-    rich.print(f"🟡 data['items0_time'] = {data['items0_time']}")
-    rich.print(f"🟡 data['items1_time'] = {data['items1_time']}")
-    rich.print(f"🟡 data['batch_size'] = {data['batch_size']}")
-    rich.print(f"🟡 data['world_size'] = {data['world_size']}")
-    rich.print(f"🟡 data['sample_idx'] = {data['sample_idx']}")
-    rich.print(f"🟡 data['sample_name'] = {data['sample_name']}")
-    return
 
 def test_pre_plan_for_ilp_planner():
+    rich.print("🟡 Testing all ILP plan ahead data...")
     K = 1024
     num_sample = 15
     num_tokens = [
@@ -973,6 +956,90 @@ def test_pre_plan_for_ilp_planner():
     sample_name = 'prolong'
     plan_ahead_for_ilp_planner(num_tokens, batch_sizes_list, world_sizes_list,num_sample, time_limits, sample_name, dump_data)
 
+def load_and_simulate_ilp_plan_ahead_data(num_tokens: list[int], batch_sizes_list: list[list[int]], world_sizes_list: list[list[int]], num_sample: int=30, time_limits: list[int]=[60], sample_name: str="wlbllm"):
+    rich.print("🟡 Testing all ILP plan ahead data...")
+
+    def check_ilp_items(items: list[Item], as_world_size: int):
+        gpuid_set = set()
+        for item in items:
+            gpuid_set.add(item.gpuid)
+
+        expected_gpu_ids = set(range(as_world_size))
+
+        if gpuid_set != expected_gpu_ids:
+            missing_gpu_ids = list(expected_gpu_ids - gpuid_set)
+            extra_gpu_ids = list(gpuid_set - expected_gpu_ids)
+
+            rich.print(f"🟡 Bad ILP Plan:")
+            if missing_gpu_ids:
+                rich.print(f"  Missing GPU IDs: {missing_gpu_ids}")
+            if extra_gpu_ids:
+                rich.print(f"  Found extra GPU IDs: {extra_gpu_ids}")
+            return False
+        return True
+    tp_size = 8
+    parallel_config = ParallelConfig(
+            tensor_model_parallel_size=tp_size,
+            pipeline_model_parallel_size=1,
+    )
+    model_config = MockConfig()
+    for time_limit in time_limits:
+        for num_token, batch_sizes, world_sizes in zip(num_tokens, batch_sizes_list, world_sizes_list):
+            for batch_size, world_size in zip(batch_sizes, world_sizes):
+                for sample_idx in range(num_sample):
+                    data = load_plan_ahead_data(sample_name, num_token, batch_size, world_size, time_limit, sample_idx)
+                    if data is None:
+                        rich.print(f"🟡 File not found: {sample_name}_num_token={num_token}_batch_size={batch_size}_world_size={world_size}_time_limit={time_limit}_sample_index={sample_idx}")
+                        continue
+                    items_after_ilp_0 = data['items_after_ilp_0']
+                    items_after_ilp_1 = data['items_after_ilp_1']
+                    # post check for planned items. Each rank should have at least one doc.
+                    as_world_size = world_size // tp_size
+                    if not check_ilp_items(items_after_ilp_0, as_world_size) or not check_ilp_items(items_after_ilp_1, as_world_size):
+                        continue
+                    planner = Planner(world_size, parallel_config, model_config=model_config, planner_type = "ilp")
+                    resend_qkv = True
+                    fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan_with_plan_ahead(items_after_ilp_0, is_resend_qkv=resend_qkv, device="cpu")
+                    fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan_with_plan_ahead(items_after_ilp_1, is_resend_qkv=resend_qkv, device="cpu")
+                    rich.print(f"🟡 Passed sample_name={sample_name}, num_token={num_token}, batch_size={batch_size}, world_size={world_size}, time_limit={time_limit}, sample_index={sample_idx}")
+    return
+
+def test_all_ilp_plan_ahead_data():
+    num_sample = 15
+    num_tokens = [
+        128*K, 
+        256*K, 
+        512*K,
+        128*K, 
+        256*K, 
+        512*K
+    ]
+    batch_sizes_list = [
+        [8, 16, 32],
+        [4, 8, 16],
+        [2, 4, 8],
+        [4, 8, 16],
+        [2, 4, 8],
+        [2, 4, 8]
+    ]
+    world_sizes_list = [
+        [64, 128, 256],
+        [64, 128, 256],
+        [64, 128, 256],
+        [64, 128, 256],
+        [64, 128, 256],
+        [64, 128, 256]
+    ]
+    time_limits = [
+        60, 
+        300
+    ]
+    sample_name = 'wlbllm'
+    load_and_simulate_ilp_plan_ahead_data(num_tokens, batch_sizes_list, world_sizes_list, num_sample, time_limits, sample_name)
+    sample_name = 'prolong'
+    load_and_simulate_ilp_plan_ahead_data(num_tokens, batch_sizes_list, world_sizes_list, num_sample, time_limits, sample_name)
+    return
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -985,6 +1052,7 @@ if __name__ == "__main__":
         exit()
     if args.load_ilp:
         test_load_plan_ahead_data()
+        test_all_ilp_plan_ahead_data()
         exit()
     if args.ilp:
         test_flex_sp()
