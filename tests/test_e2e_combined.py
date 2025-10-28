@@ -11,6 +11,13 @@ Usage:
 bash test_e2e_combined.multi.sh <rzv_endpoint> <n_nodes>
 ```
 """
+class MockConfig:
+    def __init__(self):
+        self.hidden_size = 4096
+        self.num_attention_heads = 32
+        self.num_key_value_heads = 8
+        self.num_hidden_layers = 32
+
 
 import time
 start_time__ = time.time()
@@ -253,7 +260,9 @@ class MegatronE2eWorker(MegatronBaseWorker):
         forward_backward_func = get_forward_backward_func()
         n_micro_batch = len(microbatches)
         # thd layout
-        total_seqlen = microbatches[0]['input_ids'].shape[0]
+        # total_seqlen = microbatches[0]['input_ids'].shape[0]
+        total_seqlen = sum(microbatches[0]['packed_seq_params'].ping_pong_num_tokens)
+        print(f"🟡 [Rank {self.rank}] total_seqlen = {total_seqlen}")
 
         # from megatron.core.tensor_parallel.cross_entropy import vocab_parallel_cross_entropy
         def loss_func(logits):
@@ -375,6 +384,7 @@ def init_megatron_e2e_test(
     world_size: int, max_cp_degree: int, tp_size: int,
     dtype, worker_cls=MegatronE2eWorker
 ):
+    print(f"Inside init_megatron_e2e_test", flush=True)
     token_bytes_q = hidden_size_q * dtype.itemsize // tp_size
     token_bytes_kv = hidden_size_kv * dtype.itemsize // tp_size
     max_tokens_query = num_tokens * (world_size // tp_size)
@@ -397,7 +407,7 @@ def init_megatron_e2e_test(
         pass
 
     buffer_size_gb = buffer_size // 1024 / 1024 / 1024
-    print(f"🟡 buffer_size = {buffer_size_gb} GB")
+    print(f"🟡 buffer_size = {buffer_size_gb} GB", flush=True)
     parallel_config = ParallelConfig(
         tensor_model_parallel_size=tp_size
     )
@@ -621,6 +631,10 @@ def test(args):
     dtype = torch.bfloat16
     element_size = dtype.itemsize
 
+    # sample_ids_to_skip = [0, 1, 2, 3]
+    # sample_ids_to_skip = [0, 1]
+    sample_ids_to_skip = []
+
     # Set forward function mode based on test mode
     normal_forward_fn = (mode in ["baseline", "wlbllm"])
     # TODO: (Refactor) If WLBLLM is set, we must inform the transformer_engine to use the WLBLLM function. 
@@ -688,7 +702,7 @@ def test(args):
         
     write_status_log(f"Pass world size check")
     
-    print(f"🟡 setup_global_batch (mode={mode}): ")
+    print(f"🟡 setup_global_batch (mode={mode}): ", flush=True)
     print(f"  - total_seq_len = {total_seq_len}")
 
     hf_config = AutoConfig.from_pretrained(model_path)
@@ -701,6 +715,7 @@ def test(args):
 
     # TODO(HACK): WLBLLM and Megatron have different comm group initialization process.
     # This is a code divergence. We need to consolidate the comm group.
+    print("Start initializing worker", flush=True)
     if mode == "wlbllm":
         worker: MegatronE2eWorker = init_wlbllm_e2e_test(
             hidden_size_q, hidden_size_kv, num_tokens,
@@ -713,6 +728,12 @@ def test(args):
             world_size, max_cp_degree * 1, tp_size,
             dtype, MegatronE2eWorker
         )
+
+    if mode == "ilp":
+        # Change the dispatch wrapper's stream to current stream
+        DispatcherWrapper.instance[0].comm_stream = torch.cuda.current_stream()
+        DispatcherWrapper.instance[1].comm_stream = torch.cuda.current_stream()
+        pass
 
     write_status_log(f"Finish init worker")
     log_memory_usage("init worker object done", force=True)
@@ -1323,11 +1344,80 @@ def test(args):
             pass
 
         elif mode == "ilp":
-            load_from_plan_ahead = False
+            # Initialize variables needed for ILP mode
+            required_buffer_size = []
+            can_pass_tolerance_factor = []
+            did_pass_overflow_check = False
+            tolerance_factor = 0.1  # Default tolerance factor for ILP planner
+            parallel_config = ParallelConfig(
+                tensor_model_parallel_size=tp_size,
+                pipeline_model_parallel_size=1,
+            )
+            model_config = hf_config
+            dp_size = as_world_size     # this should be total cp size.
+            num_batched_token_per_as_rank = total_seq_len * batch_size // dp_size
+            model_config = hf_config
+
+            try:
+                _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
+            except StopIteration:
+                break
+            if sample_id in sample_ids_to_skip:
+                continue
+            # Post Process seq_lens, to divisible by cp_total.
+            cp_total = world_size
+            for docs in _seq_lens:
+                remain_doc_length = 0 
+                for i in range(len(docs)):
+                    doc_len = docs[i]
+                    new_doc_len = (doc_len // cp_total) * cp_total
+                    remain_doc_length += doc_len - new_doc_len
+                    docs[i] = new_doc_len 
+
+                smallest_doc_idx = min(range(len(docs)), key=lambda x: docs[x])
+                docs[smallest_doc_idx] += remain_doc_length
+            # Rebalance Ping pong
+            def balance_ping_pong(seq_lens: list[list[int]]) -> tuple[list[list[int]], list[list[int]]]:
+                def batch_flops(batch):
+                    return sum(y ** 2 // 2 for y in batch)
+
+                assert len(seq_lens) % 2 == 0, f"ping pong should have even number of batches, but got {len(seq_lens)} batches, seq_lens={seq_lens}"
+                sorted_batches = sorted(seq_lens, key=batch_flops, reverse=True)
+                ping, pong = [], []
+                ping_flops, pong_flops = 0, 0
+                avg_num_batches = len(seq_lens) // 2
+
+                for batch in sorted_batches:
+                    if (ping_flops <= pong_flops and len(ping) < avg_num_batches) or len(pong) >= avg_num_batches:
+                        ping.append(batch)
+                        ping_flops += batch_flops(batch)
+                    else:
+                        pong.append(batch)
+                        pong_flops += batch_flops(batch)
+
+                assert len(ping) == len(pong) == avg_num_batches, f"ping batches={ping}, pong batches={pong}"
+                return ping, pong
+
+            rich.print(f"🟡 [Rank {rank}] _seq_lens = {_seq_lens}")
+
+            should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
+            if should_d2_balance_ping_pong:
+                print(f"🟢 [Rank {rank}] Balancing ping pong")
+                seq_lens_0, seq_lens_1 = balance_ping_pong(_seq_lens)
+            else:
+                print(f"🟡 [Rank {rank}] Not Balancing ping pong")
+                seq_lens_0, seq_lens_1 = _seq_lens[:batch_size], _seq_lens[batch_size:]
+            
+            rich.print(f"🟡 [Rank {rank}] seq_lens_0 = {seq_lens_0}")
+            rich.print(f"🟡 [Rank {rank}] seq_lens_1 = {seq_lens_1}")
+            
+            # load_from_plan_ahead = False
+            load_from_plan_ahead = True
             if load_from_plan_ahead:
                 from test_planner import load_plan_ahead_data
                 rich.print(f"🟡 Sample {sample_id} is loading plan ahead data...")
-                sample_name = 'wlbllm'
+                # sample_name = "wlbllm"
+                sample_name = args.sample_name
                 time_limit = 60
                 total_batch_size = batch_size * 2
                 num_token = total_seq_len
@@ -1355,8 +1445,18 @@ def test(args):
                     rich.print(f"🟡 Bad ILP Plan: planned_items_1 = {planned_items_1}")
                     continue
                 planner = Planner(world_size, parallel_config, model_config=model_config, planner_type = "ilp")
-                fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan_with_plan_ahead(planned_ahead_data['items_after_ilp_0'], is_resend_qkv=resend_qkv)
-                fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan_with_plan_ahead(planned_ahead_data['items_after_ilp_1'], is_resend_qkv=resend_qkv)
+                fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0, planned_items_0 = planner.plan_with_plan_ahead(planned_ahead_data['items_after_ilp_0'], is_resend_qkv=resend_qkv, return_items=True)
+                fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1, planned_items_1 = planner.plan_with_plan_ahead(planned_ahead_data['items_after_ilp_1'], is_resend_qkv=resend_qkv, return_items=True)
+
+                ping_num_tokens = mlp_shard_len_0[as_rank].sum().item()
+                pong_num_tokens = mlp_shard_len_1[as_rank].sum().item()
+                this_rank_num_tokens = ping_num_tokens + pong_num_tokens
+                print(f"🟡 [Rank {rank}] this_rank_num_tokens = {this_rank_num_tokens}")
+                print(f"🟡 [Rank {rank}] ping_num_tokens = {ping_num_tokens}")
+                print(f"🟡 [Rank {rank}] pong_num_tokens = {pong_num_tokens}")   
+                # exit(1)             
+
+
             else:
                 # D2 will get 2 batch each time, one for ping, the other for pong.
                 # Suppose we have 
@@ -1368,64 +1468,8 @@ def test(args):
 
                 print(f"🟡 [Rank {rank}] hidden_size_q_tp = {hidden_size_q_tp}, hidden_size_k_tp = {hidden_size_k_tp}, element_size = {element_size}")
 
-                dp_size = as_world_size     # this should be total cp size.
-                num_batched_token_per_as_rank = total_seq_len * batch_size // dp_size
-                model_config = hf_config
-                parallel_config = ParallelConfig(
-                    tensor_model_parallel_size=tp_size,
-                    pipeline_model_parallel_size=1,
-                )
-
-                try:
-                    _seq_lens: list[list[int]] = get_next_batch(batch_size * 2)
-                except StopIteration:
-                    break
-                # Post Process seq_lens, to divisible by cp_total.
-                cp_total = world_size
-                for docs in _seq_lens:
-                    remain_doc_length = 0 
-                    for i in range(len(docs)):
-                        doc_len = docs[i]
-                        new_doc_len = (doc_len // cp_total) * cp_total
-                        remain_doc_length += doc_len - new_doc_len
-                        docs[i] = new_doc_len 
-
-                    smallest_doc_idx = min(range(len(docs)), key=lambda x: docs[x])
-                    docs[smallest_doc_idx] += remain_doc_length
-                # Rebalance Ping pong
-                def balance_ping_pong(seq_lens: list[list[int]]) -> tuple[list[list[int]], list[list[int]]]:
-                    def batch_flops(batch):
-                        return sum(y ** 2 // 2 for y in batch)
-
-                    assert len(seq_lens) % 2 == 0, f"ping pong should have even number of batches, but got {len(seq_lens)} batches, seq_lens={seq_lens}"
-                    sorted_batches = sorted(seq_lens, key=batch_flops, reverse=True)
-                    ping, pong = [], []
-                    ping_flops, pong_flops = 0, 0
-                    avg_num_batches = len(seq_lens) // 2
-
-                    for batch in sorted_batches:
-                        if (ping_flops <= pong_flops and len(ping) < avg_num_batches) or len(pong) >= avg_num_batches:
-                            ping.append(batch)
-                            ping_flops += batch_flops(batch)
-                        else:
-                            pong.append(batch)
-                            pong_flops += batch_flops(batch)
-
-                    assert len(ping) == len(pong) == avg_num_batches, f"ping batches={ping}, pong batches={pong}"
-                    return ping, pong
-    
-                rich.print(f"🟡 [Rank {rank}] _seq_lens = {_seq_lens}")
-
-                should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
-                if should_d2_balance_ping_pong:
-                    print(f"🟢 [Rank {rank}] Balancing ping pong")
-                    seq_lens_0, seq_lens_1 = balance_ping_pong(_seq_lens)
-                else:
-                    print(f"🟡 [Rank {rank}] Not Balancing ping pong")
-                    seq_lens_0, seq_lens_1 = _seq_lens[:batch_size], _seq_lens[batch_size:]
                 
-                rich.print(f"🟡 [Rank {rank}] seq_lens_0 = {seq_lens_0}")
-                rich.print(f"🟡 [Rank {rank}] seq_lens_1 = {seq_lens_1}")
+                
 
                 # Origin Item for ILP.
                 flat_seq_lens_0 = [length for batch in seq_lens_0 for length in (batch if isinstance(batch, list) else [batch])]
@@ -1437,13 +1481,32 @@ def test(args):
                     rich.print(f"🟡 [Rank {rank}] original _items_0 = {_items_0}")
                     rich.print(f"🟡 [Rank {rank}] original _items_1 = {_items_1}")
                 
-                tolerance_factor = 0.1  # We don't need tolerance factor for ILP planner.
+                # tolerance_factor already initialized at the start of ILP branch
                 planner = Planner(world_size, parallel_config, model_config=model_config, planner_type = "ilp")
                 
-                fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0 = planner.plan(_items_0, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose)
-                fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1 = planner.plan(_items_1, time_limit=60, is_resend_qkv=resend_qkv, verbose=verbose)
+                time_limit = 5 # seconds
+                fa2a_metadata_0, as_attn_metadata_0, mlp_shard_len_0, planned_items_0 = planner.plan(_items_0, time_limit=time_limit, is_resend_qkv=resend_qkv, verbose=verbose, return_items=True)
+                fa2a_metadata_1, as_attn_metadata_1, mlp_shard_len_1, planned_items_1 = planner.plan(_items_1, time_limit=time_limit, is_resend_qkv=resend_qkv, verbose=verbose, return_items=True)
+
+                # print(f"🟡 [Rank {rank}] mlp_shard_len_0 = {mlp_shard_len_0}")
+                # print(f"🟡 [Rank {rank}] mlp_shard_len_1 = {mlp_shard_len_1}")
+                print(f"🟡 [Rank {rank}] mlp_shard_len_0 = {mlp_shard_len_0[as_rank].sum().item()}")
+                print(f"🟡 [Rank {rank}] mlp_shard_len_1 = {mlp_shard_len_1[as_rank].sum().item()}")
 
 
+                # this_rank_num_tokens = sum(mlp_shard_len_0[as_rank]) + sum(mlp_shard_len_1[as_rank])
+                # for item in planned_items_0 + planned_items_1:
+                #     if item['gpuid'] == as_rank:
+                #         this_rank_num_tokens += item['q']
+                ping_num_tokens = mlp_shard_len_0[as_rank].sum().item()
+                pong_num_tokens = mlp_shard_len_1[as_rank].sum().item()
+                this_rank_num_tokens = ping_num_tokens + pong_num_tokens
+                print(f"🟡 [Rank {rank}] this_rank_num_tokens = {this_rank_num_tokens}")
+                # exit(1)
+                print(f"🟡 [Rank {rank}] ping_num_tokens = {ping_num_tokens}")
+                print(f"🟡 [Rank {rank}] pong_num_tokens = {pong_num_tokens}")
+                # exit(1)
+            verbose = True
             if verbose:
                 def print_2d_tensor(name: str, tensor):
                     print(f"🟡 [Rank {rank}] {name} = ")
@@ -1539,8 +1602,8 @@ def test(args):
                 
 
             # # Check size:
-            # buffer_size = DispatcherWrapper.instance[0].buffer_size
-            buffer_size = 0
+            buffer_size = DispatcherWrapper.instance[0].buffer_size
+            # # buffer_size = 0
             # def _check_self_overflow(fa2a_metadata, as_rank_):
             #     """Return the self-overflow status and the maximum size provisioned."""
             #     send_sz = [torch.sum(m.fa2a_metadata[1][as_rank_]).item() for m in fa2a_metadata]
@@ -1588,13 +1651,11 @@ def test(args):
             
             # can_pass_tolerance_factor.append(check_0 and check_1)
             # if not (check_0 and check_1):
-            #     print(f"⚠️ [Rank {rank}] Tolerance factor = {tolerance_factor}: Overflow check failed for fa2a_metadata_0 or fa2a_metadata_1 with tolerance_factor {tolerance_factor} and buffer_size {buffer_size / 1024**3} GB. Retry...")
+            #     print(f"⚠️ [Rank {rank}] Tolerance factor = {tolerance_factor}: Overflow check failed for fa2a_metadata_0 or fa2a_metadata_1 with tolerance_factor {tolerance_factor} and buffer_size {buffer_size / 1024**3} GB.")
+            #     did_pass_overflow_check = False
             # else:
             #     did_pass_overflow_check = True
-            #     break
 
-                
-        
             # if not did_pass_overflow_check:
             #     print(f"🔴 [Rank {rank}] Inspected required_buffer_size = {required_buffer_size}")
             #     print(f"🔴 [Rank {rank}] Specified buffer_size = {buffer_size / 1024**3} GB")
@@ -1604,7 +1665,6 @@ def test(args):
 
 
             #     DispatcherWrapper.update_buffer_size(buffer_size)
-
 
             #     rich.print(f"🟡 [Rank {rank}] Successfully force updated buffer_size to = {buffer_size / 1024**3} GB")
             #     buffer_size = DispatcherWrapper.instance[0].buffer_size
@@ -1668,10 +1728,14 @@ def test(args):
                 max_seqlen_q=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
                 max_seqlen_kv=torch.tensor([total_seq_len * 2], dtype=torch.int32)[0],
                 qkv_format="thd",
+                ping_pong_num_tokens=[ping_num_tokens, pong_num_tokens],
             )
             # Althrough, each rank has different number of tokens, but sum token number is still num_batched_token_per_as_rank * 2.
-            input_ids_local = torch.randint(0, 100, (1, num_batched_token_per_as_rank * 2))[0]
-            position_ids_local = torch.arange(num_batched_token_per_as_rank, dtype=torch.int64).repeat(1, 2)[0]
+            # input_ids_local = torch.randint(0, 100, (1, num_batched_token_per_as_rank * 2))[0]
+            tokens_this_rank = this_rank_num_tokens
+            # input_ids_local = torch.randint(0, 100, (tokens_this_rank,))
+            input_ids_local = torch.randint(0, 100, (1, tokens_this_rank))[0]
+            position_ids_local = torch.arange(tokens_this_rank, dtype=torch.int64)
 
             if rank % 8 == 0:
                 rich.print(f"🟡 [Rank {rank}] [{sample_id = }] input_ids_local.shape =", input_ids_local.shape)
@@ -1682,13 +1746,20 @@ def test(args):
                 "position_ids": position_ids_local,
                 "packed_seq_params": packed_seq_params,
             }
+            # print(f"🟡 [Rank {rank}] microbatch =", microbatch)
             pass
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
+        print(f"🟡 [Rank {rank}] Finish ilp mode", flush=True)
         microbatches = [microbatch]
 
-        if sample_id == 0:
+        # Success sample ids
+        if sample_id in sample_ids_to_skip:
+            continue
+
+        print(f"🟡 [Rank {rank}] Sample {sample_id} is running...", flush=True)
+        if sample_id == 0 or os.environ.get("EXPERIMENT_WARMUP_ALL_SAMPLES", "0") == "1":
             log_memory_usage("warmup start")
             write_status_log(f"Warmup start")
             with log_memory_usage_context():
@@ -1731,11 +1802,15 @@ def test(args):
                         if rank == 0:
                             prof.export_chrome_trace(os.path.join(output_dir, "trace.json"))
                     else:
+                        print(f"🟡 [Rank {rank}] Warmup forward_backward_batch (sample_id={sample_id})", flush=True)
+                        torch.cuda.synchronize()
+                        print(f"🟡 [Rank {rank}] Warmup forward_backward_batch (sample_id={sample_id})", flush=True)
                         ref = worker.forward_backward_batch(
                             microbatches=microbatches,
                             normal_forward_fn=normal_forward_fn,
                             forward_only=False,
                         )
+                        print(f"🟡 [Rank {rank}] Finish warmup forward_backward_batch (sample_id={sample_id})")
                         signal.alarm(0)
                 except TimeoutError as e:
                     print(f"🔴 Timeout {warmup_timeout_sec} seconds at the first warmup forward_backward function. It may suggest our all2all kernel failed, or just warmup did not completed.")
@@ -1754,9 +1829,9 @@ def test(args):
             torch.cuda.synchronize()
             torch.distributed.barrier()
             if rank == 0:
-                print("=" * 20 + "warmup done")
-            log_memory_usage("warmup done")
-            write_status_log(f"Finish warmup.")
+                print("=" * 20 + f"warmup done (with sample_id = {sample_id})")
+            log_memory_usage(f"warmup done (with sample_id = {sample_id})")
+            write_status_log(f"Finish warmup (with sample_id = {sample_id}).")
         
         
         # # --------------

@@ -68,6 +68,7 @@ class PingPangPackedSeqParams:
     max_seqlen_q: Optional[Union[torch.Tensor, int]] = None
     max_seqlen_kv: Optional[Union[torch.Tensor, int]] = None
     qkv_format: str = "thd"
+    ping_pong_num_tokens: List[int] = None
 
     def to_device(self):
 
@@ -77,6 +78,7 @@ class PingPangPackedSeqParams:
         max_seqlen_kv = self.max_seqlen_kv
         if max_seqlen_kv is None:
             max_seqlen_kv = max([p.max_seqlen_kv for p in self.mlp_layout_seq_params])
+        ping_pong_num_tokens = self.ping_pong_num_tokens
         return PingPangPackedSeqParams(
             seq_params=[seq_param.to_device() for seq_param in self.seq_params],
             mlp_layout_seq_params=[
@@ -86,6 +88,7 @@ class PingPangPackedSeqParams:
             do_gather=self.do_gather,
             max_seqlen_q=_to_int(max_seqlen_q),
             max_seqlen_kv=_to_int(max_seqlen_kv),
+            ping_pong_num_tokens=ping_pong_num_tokens,
         )
 
 

@@ -597,7 +597,7 @@ class Planner:
         self.tolerance_factor = tolerance_factor
         rich.print(f"[bold green] world_size: {self.world_size}, DP: {self.data_parallel}[/bold green], PP: {parallel_config.pipeline_model_parallel_size}, TP: {parallel_config.tensor_model_parallel_size}, attention_server_world_size: {self.attention_server_world_size}")
     # from item to metadata.
-    def plan(self, items_: list[Item], time_limit: int = 60, verbose=False, plot=False, device="cuda", is_resend_qkv:bool=False):
+    def plan(self, items_: list[Item], time_limit: int = 60, verbose=False, plot=False, device="cuda", is_resend_qkv:bool=False, return_items:bool=False):
         mlp_shard_len = self.items_to_mlp_doc_len(items_, device)
         planned_items: list[Item] = self.plan_items(items_, time_limit, verbose, plot)
         # After ILP planner, source gpu id should equals to the doc's gpuid.
@@ -635,13 +635,16 @@ class Planner:
                 qkv_fwd_fa2a_metadata, qkv_rev_fa2a_metadata,
                 attn_out_fwd_fa2a_metadata, attn_out_rev_fa2a_metadata,
             )
-            return fa2a_metadata, as_attn_metadata, mlp_shard_len
+            ret_values = (fa2a_metadata, as_attn_metadata, mlp_shard_len)
+            if return_items:
+                ret_values += (planned_items, )
+            return ret_values
         else:
             # new metadata computation for pipeline parallel is in test_util. hard to import.
             # Now PP 3D parallel is directly support in: test_megatron_e2e_pipeline.py
             raise NotImplementedError("PP > 1 will be supported very soon.")
     
-    def plan_with_plan_ahead(self, planned_items: list[Item], is_resend_qkv:bool=False):
+    def plan_with_plan_ahead(self, planned_items: list[Item], is_resend_qkv:bool=False, return_items:bool=False):
         assert all(item.src_gpuid == item.gpuid for item in planned_items), "After ILP planner, source gpu id should equals to the doc's gpuid. But got {item.src_gpuid} != {item.gpuid} for item {item}."
         mlp_shard_len = self.items_to_mlp_doc_len(planned_items)
         planned_items: list[dict] = self.postprocess_items(planned_items) 
@@ -675,7 +678,10 @@ class Planner:
                 qkv_fwd_fa2a_metadata, qkv_rev_fa2a_metadata,
                 attn_out_fwd_fa2a_metadata, attn_out_rev_fa2a_metadata,
             )
-            return fa2a_metadata, as_attn_metadata, mlp_shard_len
+            ret_values = (fa2a_metadata, as_attn_metadata, mlp_shard_len)
+            if return_items:
+                ret_values += (planned_items, )
+            return ret_values
 
     # This function will be deprecated. As we don't need logical metadata anymore.
     def plan_to_raw_qkv_dispatch(self, items_: list[Item], verbose=False, plot=False, should_plan = True, return_items = False):

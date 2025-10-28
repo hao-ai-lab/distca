@@ -53,11 +53,13 @@ def nvshmem_malloc(
     return _ops.nvshmem_malloc(shape, dtype, device)
 
 def nvshmem_barrier_all() -> None:
+    return
     if not _is_nvshmem_initialized:
         return
     _ops.nvshmem_barrier_all()
 
 def nvshmem_barrier_all_on_current_stream() -> None:
+    return
     if not _is_nvshmem_initialized:
         return
     _ops.nvshmem_barrier_all_on_current_stream()
@@ -131,6 +133,7 @@ class DispatcherWrapper:
     # However, for receive buffer, we need to monitor a singal to know whether
     # the remote receive buffer is ready as well.
     def acquire(instance_id: int):
+        return
         # TODO: acquire should be on the same stream as the all2all. Try to check it.
         assert not DispatcherWrapper.is_acquired[instance_id]
         DispatcherWrapper.is_acquired[instance_id] = True
@@ -140,6 +143,7 @@ class DispatcherWrapper:
         _ops.wait_and_consume_buffer(DispatcherWrapper.get_instance(instance_id).handle)
 
     def release(instance_id: int):
+        return
         assert DispatcherWrapper.is_acquired[instance_id]
         DispatcherWrapper.is_acquired[instance_id] = False
         stream = DispatcherWrapper.comm_stream
@@ -156,6 +160,16 @@ def a2a_memcpy_non_cp(
     shard_do_copy_mask: Optional[torch.Tensor]=None,
     buffer: Optional[torch.Tensor]=None, instance_id: int=None
 ):
+    return
+    # use_pytorch_impl = os.environ.get("EXPERIMENT_USE_PYTORCH_A2A", "0") == "1"
+    # print(f"a2a_memcpy_non_cp: {shard_tokens = }")
+    # print(f"a2a_memcpy_non_cp: {shard_do_copy_mask = }")
+    # if use_pytorch_impl:
+    #     return _a2a_memcpy_non_cp_pytorch(
+    #         tensor, nvshmem_offset, shard_tokens, to_nvshmem,
+    #         shard_do_copy_mask, instance_id
+    #     )
+    
     if buffer is not None:
         # Debug mode, explicitly pass the "nvshmem" buffer.
         return _ops.fast_a2a_memcpy_non_cp_debug(
@@ -178,15 +192,56 @@ def a2a_memcpy_non_cp(
     )
 
 
+import contextlib
+
+@contextlib.contextmanager
+def sync_if_debug(msg: str):
+    if os.environ.get("EXPERIMENT_SHOULD_SYNC_FAST_A2A_OPS", "0") == "1":
+        import traceback
+        traceback.print_stack()
+        print(f"Start sync for {msg}")
+        torch.cuda.synchronize()
+    try:
+        yield
+    finally:
+        if os.environ.get("EXPERIMENT_SHOULD_SYNC_FAST_A2A_OPS", "0") == "1":
+            torch.cuda.synchronize()
+            print(f"Finish sync for {msg}")
+
+def _ops_fast_a2a_memcpy_cp_debug(*args):
+    with sync_if_debug("_ops_fast_a2a_memcpy_cp_debug"):
+        return _ops.fast_a2a_memcpy_cp_debug(*args)
+
+def _ops_fast_a2a_memcpy_cp(*args):
+    with sync_if_debug("_ops_fast_a2a_memcpy_cp"):
+        return _ops.fast_a2a_memcpy_cp(*args)
+        # return _ops.fast_a2a_memcpy_non_cp(*args)
+
+def _ops_fast_a2a_memcpy_non_cp(*args):
+    with sync_if_debug("_ops_fast_a2a_memcpy_non_cp"):
+        return _ops.fast_a2a_memcpy_non_cp(*args)
+
+
+def _ops_fast_a2a_wrapper(*args):
+    with sync_if_debug("_ops_fast_a2a_wrapper"):
+        return _ops.fast_a2a(*args)
+
 def a2a_memcpy_cp(
     tensor: torch.Tensor, do_shard: torch.Tensor,
     nvshmem_offset: torch.Tensor, shard_tokens: torch.Tensor,
     to_nvshmem: bool, buffer: Optional[torch.Tensor]=None,
     instance_id: int=None,
 ):
+    return 
+    use_pytorch_impl = os.environ.get("EXPERIMENT_USE_PYTORCH_A2A", "0") == "1"
+    if use_pytorch_impl:
+        return _a2a_memcpy_cp_pytorch(
+            tensor, do_shard, nvshmem_offset, shard_tokens, to_nvshmem, instance_id
+        )
+    
     if buffer is not None:
         # Debug mode, explicitly pass the "nvshmem" buffer.
-        return _ops.fast_a2a_memcpy_cp_debug(
+        return _ops_fast_a2a_memcpy_cp_debug(
             tensor, do_shard, nvshmem_offset, shard_tokens, to_nvshmem, buffer
         )
 
@@ -197,7 +252,7 @@ def a2a_memcpy_cp(
         else:
             assert DispatcherWrapper.is_acquired[instance_id]
 
-    return _ops.fast_a2a_memcpy_cp(
+    return _ops_fast_a2a_memcpy_cp(
         DispatcherWrapper.get_instance(instance_id).handle,
         tensor, do_shard, nvshmem_offset, shard_tokens, to_nvshmem
     )
@@ -214,8 +269,6 @@ def pre_a2a_grad_acc(
     _ops.fast_a2a_grad_acc(tensor, num_copies, copy_start_id, shard_tokens)
     return tensor
 
-def _ops_fast_a2a_wrapper(*args):
-    return _ops.fast_a2a(*args)
 
 def fast_a2a(
     sender_send_disp: torch.Tensor, sender_transfer_sz: torch.Tensor,
@@ -223,8 +276,22 @@ def fast_a2a(
     my_rank_send_offset: int, my_rank_recv_offset: int, my_rank_send_sz: int,
     instance_id: int=None,
 ):
+    use_pytorch_impl = os.environ.get("EXPERIMENT_USE_PYTORCH_A2A", "0") == "1"
     should_fa2a_barrier = os.environ.get("EXPERIMENT_FA2A_BARRIER", "0") == "1"
     should_skip_fa2a_op = os.environ.get("EXPERIMENT_SKIP_FA2A_OP", "0") == "1"
+    
+    if use_pytorch_impl:
+        r = _fast_a2a_pytorch_mock(
+            sender_send_disp, sender_transfer_sz,
+            sender_recv_disp, recver_transfer_sz,
+            my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
+            instance_id
+        )
+        print(f"🔄 PyTorch mock A2A completed")
+        # torch.cuda.synchronize()
+        # torch.distributed.barrier()
+        print(f"🔄 PyTorch mock A2A passed barrier")
+        return r
     
     if instance_id is not None:
         assert not DispatcherWrapper.is_acquired[instance_id]
@@ -254,8 +321,88 @@ def fast_a2a(
         my_rank_send_offset, my_rank_recv_offset, my_rank_send_sz,
         True
     )
-
     return ret
+
+
+def _fast_a2a_pytorch_mock(
+    sender_send_disp: torch.Tensor, sender_transfer_sz: torch.Tensor,
+    sender_recv_disp: torch.Tensor, recver_transfer_sz: torch.Tensor,
+    my_rank_send_offset: int, my_rank_recv_offset: int, my_rank_send_sz: int,
+    instance_id: int=None,
+):
+    """
+    Mock PyTorch implementation of all-to-all-v using empty/zero tensors.
+    
+    This just performs the communication pattern without actually using NVSHMEM buffers.
+    Useful for debugging the communication pattern and bypassing NVSHMEM/CUDA kernel issues.
+    
+    Note: The input tensors are 1D tensors of shape [as_world_size] representing 
+    the per-rank view of the all-to-all operation in the attention server group.
+    """
+    if not torch.distributed.is_initialized():
+        print("⚠️ PyTorch A2A Mock: torch.distributed not initialized, skipping")
+        return
+    
+    # Get the attention server group for communication (NCCL, not gloo)
+    from d2.runtime.megatron.create_group import get_attn_server_group, get_attn_server_rank
+
+    group = get_attn_server_group()
+    as_rank = get_attn_server_rank()
+    rank = torch.distributed.get_rank()
+    as_world_size = torch.distributed.get_world_size(group=group)
+    
+    # if as_rank == 0:
+    print(f"🔄 Using PyTorch mock A2A (empty tensors, bypasses NVSHMEM) as_world_size={as_world_size}")
+    
+    # Move metadata to CPU for easier processing
+    sender_transfer_sz_cpu = sender_transfer_sz.cpu()
+    recver_transfer_sz_cpu = recver_transfer_sz.cpu()
+    
+    # sender_transfer_sz_cpu += 1
+    # recver_transfer_sz_cpu += 1
+    
+    # Check the actual tensor shapes
+    actual_size = sender_transfer_sz_cpu.shape[0]
+    if actual_size != as_world_size:
+        print(f"⚠️ Warning: tensor size {actual_size} != as_world_size {as_world_size}. Using tensor size.")
+    
+    # Prepare send/recv lists for torch.distributed.all_to_all
+    send_list = []
+    recv_list = []
+    
+    # Iterate over the actual tensor size
+    for peer_rank in range(actual_size):
+        # Create empty send tensor with the correct size (in bytes)
+        send_size = sender_transfer_sz_cpu[peer_rank].item()
+        send_size += 1
+        if send_size > 0:
+            send_tensor = torch.zeros(send_size, dtype=torch.uint8, device='cuda')
+        else:
+            send_tensor = torch.empty(0, dtype=torch.uint8, device='cuda')
+        send_list.append(send_tensor)
+        
+        # Create empty recv tensor with the correct size (in bytes)
+        recv_size = recver_transfer_sz_cpu[peer_rank].item()
+        recv_size += 1
+        if recv_size > 0:
+            recv_tensor = torch.empty(recv_size, dtype=torch.uint8, device='cuda')
+        else:
+            recv_tensor = torch.empty(0, dtype=torch.uint8, device='cuda')
+        recv_list.append(recv_tensor)
+    
+    # Perform the all-to-all communication with empty tensors on the attention server group
+    print(f"[Rank {rank}] 🔄 Performing PyTorch mock A2A communication")
+    for i, send_tensor in enumerate(send_list):
+        print(f"[Rank {rank}] 🔄 send_list[{i}] shape: {send_tensor.shape}")
+    for i, recv_tensor in enumerate(recv_list):
+        print(f"[Rank {rank}] 🔄 recv_list[{i}] shape: {recv_tensor.shape}")
+    torch.distributed.all_to_all(recv_list, send_list, group=group)
+    print(f"[Rank {rank}] 🔄 PyTorch mock A2A communication completed")
+    # torch.cuda.synchronize()
+    # torch.distributed.barrier()
+    print(f"[Rank {rank}] ✅ PyTorch mock A2A completed")
+    
+    return None
 
 
 def _debug_dump_buffer(

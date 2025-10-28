@@ -22,7 +22,7 @@ from d2.runtime.megatron.ping_pong.tick_ops import (
     tick_sync
 )
 from d2.runtime.megatron.ping_pong.transformer_layer import TransformerLayer
-from d2.runtime.megatron.ping_pong.utils import split_all_dict, gather_tensor
+from d2.runtime.megatron.ping_pong.utils import split_all_dict, split_all_dict_with_num_tokens, gather_tensor
 
 
 class _debug_monkey_patch:
@@ -105,6 +105,19 @@ class PingPongTransformerBlockInterface(MegatronTransformerBlock):
         setattr(packed_seq_params_0, "dispatcher_id", 0)
         setattr(packed_seq_params_1, "dispatcher_id", 1)
 
+        # ping_num_tokens = packed_seq_params_0.cu_seqlens_q.max().item()
+        # pong_num_tokens = packed_seq_params_1.cu_seqlens_q.max().item()
+        ping_num_tokens, pong_num_tokens = packed_seq_params.ping_pong_num_tokens
+        
+        # When sequence_parallel is enabled, the embedding layer scatters hidden_states
+        # across tensor_model_parallel_size ranks, dividing the sequence length.
+        # We need to adjust ping/pong token counts to match the scattered tensor size.
+        if self.config.sequence_parallel:
+            ping_num_tokens = ping_num_tokens // self.config.tensor_model_parallel_size
+            pong_num_tokens = pong_num_tokens // self.config.tensor_model_parallel_size
+        
+        print(f"🟡 {ping_num_tokens = }, {pong_num_tokens = }")
+
         with rng_context, outer_fp8_context:
             # Forward pass.
             if self.config.recompute_granularity == 'full' and self.training:
@@ -121,7 +134,12 @@ class PingPongTransformerBlockInterface(MegatronTransformerBlock):
                     "attention_bias": attention_bias,
                     "sequence_len_offset": sequence_len_offset,
                 }
-                arg_group_0, arg_group_1 = split_all_dict(arg_group, 2)
+                # Report the shape of each tensor in arg_group
+                for k, v in arg_group.items():
+                    print(f"🟡 [arg_group] {k} = {v.shape if v is not None else None}")
+                # TODO: Make the var len tensors implementation here.
+                # arg_group_0, arg_group_1 = split_all_dict(arg_group, 2)
+                arg_group_0, arg_group_1 = split_all_dict_with_num_tokens(arg_group, [ping_num_tokens, pong_num_tokens])
                 del arg_group
 
                 arg_group_0["packed_seq_params"] = packed_seq_params_0
