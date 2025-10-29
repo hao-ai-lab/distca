@@ -236,6 +236,7 @@ TORCHRUN_CMD=(
     --tp-size ${TP_SIZE}
     --pp-size ${PP_SIZE}
     --num-microbatch ${NUM_MICROBATCH}
+    --mode ${MODE}
     --model-path ${MODEL_PATH}
     --num-layers ${NUM_LAYERS}
     --sample-name ${SAMPLE_NAME}
