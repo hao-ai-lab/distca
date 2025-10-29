@@ -16,17 +16,12 @@ export EXPERIMENT_DEBUG_SET_METADATA_TRANSFER_SIZE_TO_0=0
 
 # torch: avoid recording streams 
 export TORCH_NCCL_AVOID_RECORD_STREAMS=1
-export TORCH_COMPILE_DISABLE=1
-export TORCHDYNAMO_DISABLE=1
-export TORCHINDUCTOR_DISABLE=1
+export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=1
 
 # Control how many GPUs per node we should use.
 export GPUS_PER_NODE=8
 # Control if we should use srun.
 export EXPERIMENT_NO_SRUN=0
-export CUDA_LAUNCH_BLOCKING=1
-export EXPERIMENT_SHOULD_SYNC_FAST_A2A_OPS=1
-export EXPERIMENT_WARMUP_ALL_SAMPLES=1
 
 DRY_RUN=${DRY_RUN:-0}
 
@@ -34,10 +29,10 @@ DRY_RUN=${DRY_RUN:-0}
 # Check and skip success runs
 # ------------------------------------
 
-export ENABLE_NSYS=0
-export MAX_SAMPLE_ID=10
+export ENABLE_NSYS=1
+export MAX_SAMPLE_ID=3
 
-export OUTPUT_DIR_PREFIX="/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks2/_251010_flexsp/logs.v4-8B"
+export OUTPUT_DIR_PREFIX="/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks2/_251028_flexsp/logs.v1-8B-nsys"
 
 # Run one d2 + one wlbllm-cpMax to justify the result.
 # "prolong 0.3" \
@@ -47,28 +42,35 @@ for sample_config in \
 
 # "deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 32" \
 # "astronomer/Llama-3-70B-Special-Tokens-Adjusted 170000 80" \
-# "deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 32" \
 for model_config in \
-"deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 4" \
+"deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 32" \
 ; do
 
-#    s r b    tok  e  N  mode    cp   tp
+#    s r b    tok  e  N  mode             cp   tp
 configs=(
-    # "1 1 1 131072  2  1  ilp     2   4"
-    # "1 1 1 131072  2  2  d2     2   8"
-    # "1 1 1 131072  2  2  ilp     2   8"
-    # "1 1 1 131072  2  2  ilp     2   8"
-# Node = 8
-    # "1 1 4 131072  2  4  ilp     4   8"
+
+# N = 8
     "1 1 4 131072  2  8  ilp     8   8"
+    # "1 1 2 262144  4  8  ilp     8   8"
+    # "1 1 1 524288  8  8  ilp     8   8"
+    
+# N = 16
+    # "1 1 8 131072  2 16  ilp     16   8"
+    # "1 1 4 262144  4 16  ilp     16   8"
+    # "1 1 2 524288  8 16  ilp     16   8"
+    
+# N = 32
+    # "1 1 16 131072  2 32  ilp     32   8"
+    # "1 1 8 262144  4 32  ilp     32   8"
+    # "1 1 4 524288  8 32  ilp     32   8"
+
 )
 
 
 # export EXPERIMENT_D2_BALANCE_PING_PONG=1
 export EXPERIMENT_PROFILE_RUN=0
 export WLBLLM_ENABLE_SHUFFLE=0
-export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2
-export EXPERIMENT_USE_PYTORCH_A2A=1
+
 
 for config in "${configs[@]}"; do
     read -r selective_ckpt resend_qkv batch_size num_tokens elongate_factor nnodes mode cp_size tp_size <<< "$config"
@@ -89,13 +91,14 @@ for config in "${configs[@]}"; do
     export NUM_LAYERS=$num_layers
     export CP_SIZE=$cp_size
     export TP_SIZE=$tp_size
+
+    export OUTPUT_DIR_SUFFIX_ADDON="-nsys"
     
     if [ "$mode" == "d2" ]; then
         # Run d2 mode with all on
         export MODE=d2
         export OUTPUT_DIR_SUFFIX_ADDON="-normal-${MODEL_PATH_NORMALIZED}-${sample_name}"
-        
-
+        # export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=$buffer_size
         echo "🟡 Running d2 with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR"
         if [ $DRY_RUN -eq 0 ]; then
             bash test_e2e_combined.salloc.sh
@@ -103,18 +106,27 @@ for config in "${configs[@]}"; do
             echo "\a"
         fi
     fi
+
+
+    if [ "$mode" == "ilp" ]; then
+        export MODE=ilp
+        echo "🟡 Running ilp with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR"
+        if [ $DRY_RUN -eq 0 ]; then
+            bash test_e2e_combined.salloc.sh
+            echo "🟡 Finished running ilp with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
+            echo "\a"
+        fi
+    fi
     
     
     
     # for CP_SIZE in 32 16 8 4 2 1; do
-    if [ "$mode" == "wlbllm" ] || [ "$mode" == "wlbllm_perseq" ] || [ "$mode" == "ilp" ]; then
+    if [ "$mode" == "wlbllm" ] || [ "$mode" == "wlbllm_perseq" ]; then
         # Run wlbllm mode with different CP sizes
         DP_SIZE=$((NNODES / CP_SIZE))
         if [ $DP_SIZE -gt $(($BATCH_SIZE * 2)) ]; then
             continue
         fi
-
-        
 
         export MODE=$mode
         export OUTPUT_DIR_SUFFIX_ADDON="-${MODEL_PATH_NORMALIZED}-${sample_name}"
