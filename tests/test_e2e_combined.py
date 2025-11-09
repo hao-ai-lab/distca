@@ -130,9 +130,9 @@ def dump_tensor(tensor, name: str, msg:str=None):
     else:
         print(f"🟢 {msg}: No non-finite values detected.")
         pass
-    if tensor_dump_dir is not None and tensor_dump_suffix is not None:
-        torch.save(tensor.cpu(), os.path.join(tensor_dump_dir, f"{name}.{tensor_dump_suffix}.pt"))
-        print(f"🟡 Dumped tensor to {os.path.join(tensor_dump_dir, f"{name}.{tensor_dump_suffix}.pt")}")
+    # if tensor_dump_dir is not None and tensor_dump_suffix is not None:
+    #     torch.save(tensor.cpu(), os.path.join(tensor_dump_dir, f"{name}.{tensor_dump_suffix}.pt"))
+    #     print(f"🟡 Dumped tensor to {os.path.join(tensor_dump_dir, f"{name}.{tensor_dump_suffix}.pt")}")
     return
 
 class MegatronE2eWorker(MegatronBaseWorker):
@@ -301,7 +301,8 @@ class MegatronE2eWorker(MegatronBaseWorker):
                 loss = (ce * loss_mask).sum() / denom
                 log_memory_usage("loss_func")
                 # Dump final scalar loss
-                dump_tensor(loss, f"loss.rank{self.rank}", msg="after normalized loss")
+                # dump_tensor(loss, f"loss.rank{self.rank}", msg="after normalized loss")
+                print(f"🟡 [Rank {self.rank}] loss = {loss}")
                 return loss, {'loss': loss}
             return output, loss_func_ce
 
@@ -698,6 +699,28 @@ def test(args):
         print(message)
         return
 
+    def write_loss_log(loss_value, sample_id=None, repeat_idx=None):
+        # get the caller's file and line number
+        import traceback
+        stack = traceback.extract_stack()
+        caller_file = stack[-2].filename
+        caller_line = stack[-2].lineno
+        
+        loss_log_file = os.path.join(output_dir, "loss.log")
+        elapsed_time = time.time() - start_time__
+        sid = "NA" if sample_id is None else sample_id
+        rep = "NA" if repeat_idx is None else repeat_idx
+        try:
+            loss_float = float(loss_value)
+        except Exception:
+            # best effort conversion
+            loss_float = loss_value.item() if torch.is_tensor(loss_value) else float("nan")
+        message = f"📉 [T{elapsed_time:.2f}] ({caller_file}:{caller_line}) sample_id={sid} repeat={rep} loss={loss_float:.6f}"
+        with open(loss_log_file, "a") as f:
+            f.write(message + "\n")
+        print(message)
+        return
+    
 
 
     if mode == "wlbllm":
@@ -743,6 +766,10 @@ def test(args):
             world_size, max_cp_degree * 1, tp_size,
             dtype, MegatronE2eWorker
         )
+
+    if mode == "d2":
+        print(f"🟡 [Rank {worker.rank}] {worker.as_rank = } {worker.as_world_size = }")
+
 
     write_status_log(f"Finish init worker")
     log_memory_usage("init worker object done", force=True)
@@ -1345,6 +1372,7 @@ def test(args):
                 rich.print(f"🟡 [Rank {rank}] [{sample_id = }] input_ids_local.shape =", input_ids_local.shape)
                 rich.print(f"🟡 [Rank {rank}] [{sample_id = }] position_ids_local.shape =", position_ids_local.shape)
 
+
             microbatch = {
                 "input_ids": input_ids_local,
                 "position_ids": position_ids_local,
@@ -1503,11 +1531,49 @@ def test(args):
             # start_event.record()
             start_it_time = time.time()
             log_memory_usage(f"forward_backward_batch:start(sample_id={sample_id},repeat={repeat_idx})")
-            ref = worker.forward_backward_batch(
+            losses_reduced, grad_norm = worker.forward_backward_batch(
                 microbatches=microbatches,
                 normal_forward_fn=normal_forward_fn,
                 forward_only=False,
             )
+            # Try to extract a scalar loss for logging
+            try:
+                loss_value = None
+                if isinstance(losses_reduced, dict):
+                    val = losses_reduced.get('loss', None)
+                    if val is not None:
+                        if isinstance(val, (list, tuple)):
+                            vals = []
+                            for v in val:
+                                if torch.is_tensor(v):
+                                    vals.append(v.item())
+                                else:
+                                    vals.append(float(v))
+                            if len(vals) > 0:
+                                loss_value = sum(vals) / len(vals)
+                        else:
+                            loss_value = val.item() if torch.is_tensor(val) else float(val)
+                elif torch.is_tensor(losses_reduced):
+                    loss_value = losses_reduced.item()
+                elif isinstance(losses_reduced, (list, tuple)) and len(losses_reduced) > 0:
+                    # Handle list of tensors or floats
+                    vals = []
+                    for v in losses_reduced:
+                        if torch.is_tensor(v):
+                            vals.append(v.item())
+                        elif isinstance(v, (int, float)):
+                            vals.append(float(v))
+                        elif isinstance(v, dict) and 'loss' in v:
+                            lv = v['loss']
+                            vals.append(lv.item() if torch.is_tensor(lv) else float(lv))
+                    if len(vals) > 0:
+                        loss_value = sum(vals) / len(vals)
+                if loss_value is not None:
+                    write_status_log(f"Loss (sample_id={sample_id},repeat={repeat_idx}) = {loss_value:.6f}")
+                    write_loss_log(loss_value, sample_id=sample_id, repeat_idx=repeat_idx)
+            except Exception as _:
+                # Best-effort logging; ignore extraction failures
+                pass
             torch.cuda.synchronize()
             torch.distributed.barrier()
             # end_event.record()

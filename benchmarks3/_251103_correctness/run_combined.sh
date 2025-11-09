@@ -7,7 +7,6 @@
 # set -e
 
 export NNODES=${NNODES:-32}
-export TP_SIZE=8
 # export JOBID=
 
 JOBID=${JOBID:-${SLURM_JOB_ID}}
@@ -25,13 +24,13 @@ sleep 1
 
 TS=$(TZ=America/Los_Angeles date +%m%d_%H%M%S)_PST
 export OUTPUT_DIR_PREFIX="/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks3/_251103_correctness/logs.v1"
-export MAX_SAMPLE_ID=1
+export MAX_SAMPLE_ID=30
 export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=1
-export TP_SIZE=8
+export TP_SIZE=${TP_SIZE:-8}
 export ENABLE_NSYS=0
 # export EXPERIMENT_LOG_MEMORY_USAGE=1
 export EXPERIMENT_LOG_MEMORY_USAGE=0
-export EXPERIMENT_REPEAT_TIMES=0
+export EXPERIMENT_REPEAT_TIMES=1
 export EXPERIMENT_WARMUP_TIMES=1
 export EXPERIMENT_D2_FLASH_ATTN_SKIP_GET_BACKEND=1 # default 1
 export SHOULD_ADD_DEBUG_CASES=0
@@ -54,8 +53,8 @@ export NVTE_ALLOW_NONDETERMINISTIC_ALGO=0
 export NVTE_ALLOW_NONDETERMINISTIC_ALGO__DISABLE_CHECK=1    
 
 
-export TENSOR_DUMP_DIR=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks3/_251103_correctness/logs.v1.tensors
-export TENSOR_DUMP_SUFFIX=d2
+# export TENSOR_DUMP_DIR=/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks3/_251103_correctness/logs.v1.tensors
+# export TENSOR_DUMP_SUFFIX=d2
 
 
 # ------------------------------------
@@ -74,7 +73,7 @@ for sample_config in \
 # "codellama/CodeLlama-34b-hf 131072 48" \
 # "deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 32" \
 for model_config in \
-"deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 1" \
+"deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 16" \
 ; do
 
 
@@ -88,7 +87,7 @@ for model_config in \
 
 # selective_ckpt resend_qkv batch_size num_tokens elongate_factor nnodes
 for config in \
-    "1 1 1 32768 2 4" \
+    "1 1 1 32768 2 1" \
     ; do
 
 
