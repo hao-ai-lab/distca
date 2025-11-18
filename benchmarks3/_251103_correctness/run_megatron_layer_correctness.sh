@@ -18,11 +18,17 @@ export NVTE_ALLOW_NONDETERMINISTIC_ALGO__DISABLE_CHECK=1
 # export TP_SIZE=${TP_SIZE:-8}
 export JOBID=1026987
 export HEAD_NODE_IP=fs-mbz-gpu-180
-export TP_SIZE=2
-
-# Test configuration
+export TP_SIZE=1
 NNODES=2
 NPROC_PER_NODE=8
+
+if [ $NNODES -ge 2 ]; then
+    export NVSHMEM_DEBUG=DEBUG 
+    export NVSHMEM_IB_ENABLE_IBGDA=true
+fi
+
+
+# Test configuration
 WORLD_SIZE=$((NNODES * NPROC_PER_NODE))  # 16 for 2 nodes with 8 GPUs each
 MASTER_PORT=29500
 
@@ -34,7 +40,6 @@ MAX_CP_DEGREE=${MAX_CP_DEGREE:-2}
 HIDDEN_SIZE=${HIDDEN_SIZE:-1024}  # Increased to support more heads with TP=8
 NUM_HEADS=${NUM_HEADS:-16}  # Increased proportionally (16 heads / 8 TP = 2 heads per TP rank)
 NUM_QUERY_HEADS=${NUM_QUERY_HEADS:-16}
-PROFILE=${PROFILE:-false}
 
 echo "====================================="
 echo "Running test_megatron_layer_correctness.py"
@@ -64,11 +69,6 @@ TORCHRUN_CMD="torchrun \
     --hidden-size $HIDDEN_SIZE \
     --num-heads $NUM_HEADS \
     --num-query-heads $NUM_QUERY_HEADS"
-
-# Add profile flag if enabled
-if [ "$PROFILE" = "true" ]; then
-    TORCHRUN_CMD="$TORCHRUN_CMD --profile"
-fi
 
 # Run with srun
 cd /mnt/weka/home/yonghao.zhuang/jd/d2/tests

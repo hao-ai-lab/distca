@@ -27,7 +27,6 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 import torch
 
 from d2.runtime.compute_metadata import from_planner_output, get_attn_metadata
-from d2.runtime.megatron.create_group import get_attn_server_group
 from d2.runtime.megatron.model_patch import get_gpt_layer_with_transformer_engine_spec, get_gpt_config
 from d2.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron.ping_pong.transformer_layer import TransformerLayer as PingPangTransformerLayer
@@ -36,7 +35,6 @@ from test_util import (
     MegatronBaseWorker, ParallelConfig,
     init_worker_torch_distributed, random_shard_info_linear_layout_dp
 )
-from test_shard_info_to_fa2a import simulate_all2all
 
 
 def check_close(actual, expected, test_name: str):
@@ -54,15 +52,20 @@ def check_close(actual, expected, test_name: str):
 class MegatronLayerWorker(MegatronBaseWorker):
     def __init__(self, rank: int, world_size: int):
         super().__init__(rank, world_size)
-        self.layer: Optional[PingPangTransformerLayer] = None
+        self.layer_normal: Optional[PingPangTransformerLayer] = None
+        self.layer_pingpong: Optional[PingPangTransformerLayer] = None
 
     def init_layer(self, config: TransformerConfig, spec: ModuleSpec,
                    seed: int):
+        # Initialize both models with the same seed to ensure identical weights
         torch.manual_seed(seed + mpu.get_tensor_model_parallel_rank())
-        self.layer = build_module(spec, config)
+        self.layer_normal = build_module(spec, config)
+        
+        torch.manual_seed(seed + mpu.get_tensor_model_parallel_rank())
+        self.layer_pingpong = build_module(spec, config)
 
     def forward_normal(self, tensor_input: torch.Tensor, packed_seq_params: PackedSeqParams,
-                       return_grad: bool = False):
+                       return_grad: bool = False, loss_fn=None):
         packed_seq_params = PackedSeqParams(
             qkv_format=packed_seq_params.qkv_format,
             cu_seqlens_q=packed_seq_params.cu_seqlens_q.cuda().to(torch.int32),
@@ -72,56 +75,78 @@ class MegatronLayerWorker(MegatronBaseWorker):
         )
         tensor_input = tensor_input.cuda().detach()
         tensor_input.requires_grad = True
-        self.layer.train()
+        self.layer_normal.train()
 
         if return_grad:
             ctx = torch.enable_grad()
         else:
             ctx = nullcontext()
         with ctx:
-            mlp_output, context, debug = self.layer.forward_orig_impl(
+            mlp_output, context, debug = self.layer_normal.forward_orig_impl(
                 tensor_input, packed_seq_params=packed_seq_params, return_debug=True,
             )
             if return_grad:
-                mlp_output.sum().backward()
+                if loss_fn is not None:
+                    loss = loss_fn(mlp_output)
+                else:
+                    loss = mlp_output.sum()
+                loss.backward()
+            else:
+                loss = None
 
         torch.cuda.synchronize()
         print(self.rank, "normal forward done")
-        return (mlp_output, context, *((tensor_input.grad,) if return_grad else ())), debug
+        if return_grad:
+            return (mlp_output, context, tensor_input.grad, loss), debug
+        else:
+            return (mlp_output, context), debug
 
     def forward_ping_pang_one_stage(
         self, tensor_input: torch.Tensor,
         packed_seq_params: PingPangSingleStepPackedSeqParams,
         return_grad: bool = False,
+        loss_fn=None,
     ):
         packed_seq_params = packed_seq_params.to_device()
         tensor_input = tensor_input.cuda().detach()
         tensor_input.requires_grad = True
 
-        self.layer.train()
+        self.layer_pingpong.train()
 
         if return_grad:
             ctx = torch.enable_grad()
         else:
             ctx = nullcontext()
         with ctx:
-            mlp_output, context, debug_tensors = self.layer.forward_ping_pong_single_sided(
+            mlp_output, context, debug_tensors = self.layer_pingpong.forward_ping_pong_single_sided(
                 tensor_input, packed_seq_params=packed_seq_params,
                 return_debug=True,
             )
             if return_grad:
-                mlp_output.sum().backward()
+                if loss_fn is not None:
+                    loss = loss_fn(mlp_output)
+                else:
+                    loss = mlp_output.sum()
+                loss.backward()
+            else:
+                loss = None
 
         torch.cuda.synchronize()
         print(self.rank, "ping-pong one stage forward done")
-        return (mlp_output, context, *((tensor_input.grad,) if return_grad else ())), debug_tensors
+        if return_grad:
+            return (mlp_output, context, tensor_input.grad, loss), debug_tensors
+        else:
+            return (mlp_output, context), debug_tensors
 
 
 def test_forward(
     seed: int, total_seq_len: int, num_docs: int, max_cp_degree: int,
     worker: MegatronLayerWorker, hidden_size_q: int, hidden_size_k: int,
-    tp_size: int = 1, profile: bool = False,
+    tp_size: int = 1, return_grad: bool = True,
 ):
+    # ========================================
+    # Setup and metadata preparation
+    # ========================================
     torch.manual_seed(seed)
     dtype = torch.float16
     element_size = dtype.itemsize
@@ -148,20 +173,28 @@ def test_forward(
         lse_size, element_size, is_pipeline_tick=False
     )
 
-    # thd layout's hidden size input is "t,1,h"
+    # ========================================
+    # Generate input tensors
+    # ========================================
     torch.manual_seed(seed)
     tensors = torch.randn(
         (as_world_size, total_seq_len, 1, hidden_size_q), dtype=dtype
     )
     tensor_shard = tensors[as_rank]
-    # 1. normal forward. Need to provide the PackedSeqParams
+    
+    # ========================================
+    # Normal forward pass
+    # ========================================
     packed_seq_params = get_attn_metadata(
         doc_lens_per_rank[as_rank], get_packed_seq_params=True
     )
-    normal_forward_out, debug_ref = worker.forward_normal(
+    normal_forward_out, _ = worker.forward_normal(
         tensor_shard, packed_seq_params
     )
 
+    # ========================================
+    # Ping-pong forward pass
+    # ========================================
     ping_pong_params = PingPangSingleStepPackedSeqParams(
         qkv_format="thd",
         qkv_fwd_metadata=qkv_fwd_fa2a_metadata.get_slice(as_rank),
@@ -170,147 +203,83 @@ def test_forward(
         attn_out_bwd_metadata=attn_out_rev_fa2a_metadata.get_slice(as_rank),
         **as_attn_metadata[as_rank],
     )
-    ping_pang_out, debug_out = worker.forward_ping_pang_one_stage(
+    ping_pang_out, _ = worker.forward_ping_pang_one_stage(
         tensor_shard, ping_pong_params
     )
 
-    ref_debug = [None] * as_world_size
-    ans_debug = [None] * as_world_size
-    pingpong_seq_params = [None] * as_world_size
-    as_group = get_attn_server_group()
-        
+    # ========================================
+    # Forward output comparison
+    # ========================================
     check_close(
         normal_forward_out, ping_pang_out,
-        "Initial forward output comparison (normal vs ping-pong)"
+        f"[Rank {as_rank}] Forward output comparison (normal vs ping-pong)"
     )
 
-    torch.distributed.all_gather_object(ref_debug, debug_ref, group=as_group)
-    torch.distributed.all_gather_object(ans_debug, debug_out, group=as_group)
-    torch.distributed.all_gather_object(pingpong_seq_params, ping_pong_params, group=as_group)
-    print("debug tensors gathered.")
+    # ========================================
+    # Backward pass and gradient comparison
+    # ========================================
+    # Define simple loss function
     
-    if as_rank == 0:
-        device = torch.device("cuda", worker.rank)
-        def to_device(o):
-            if isinstance(o, torch.Tensor):
-                return o.to(device)
-            elif isinstance(o, tuple):
-                return tuple(to_device(x) for x in o)
-            elif isinstance(o, list):
-                return [to_device(x) for x in o]
+    loss_fn = lambda x: x.mean()
+    
+    # Set same seed for deterministic dropout/randomness in both backward passes
+    torch.manual_seed(seed + 1000)
+    normal_backward_out, _ = worker.forward_normal(
+        tensor_shard, packed_seq_params, return_grad=return_grad, loss_fn=loss_fn
+    )
+    
+    torch.manual_seed(seed + 1000)
+    ping_pang_backward_out, _ = worker.forward_ping_pang_one_stage(
+        tensor_shard, ping_pong_params, return_grad=return_grad, loss_fn=loss_fn
+    )
+    
+    # Extract outputs: (mlp_output, context, input_grad, loss)
+    _, _, normal_input_grad, normal_loss = normal_backward_out
+    _, _, pp_input_grad, pp_loss = ping_pang_backward_out
+    
+    # Compare loss values
+    check_close(
+        normal_loss, pp_loss,
+        f"[Rank {as_rank}] Loss value comparison (normal vs ping-pong)"
+    )
+    
+    # Compare input gradients
+    check_close(
+        normal_input_grad, pp_input_grad,
+        f"[Rank {as_rank}] Input gradient comparison (normal vs ping-pong)"
+    )
+    
+    # ========================================
+    # Module gradient comparison
+    # ========================================
+    # Compare gradients of key module parameters
+    def get_module_grads(layer):
+        """Extract gradients from key module parameters"""
+        grads = {}
+        # Use main_grad if available (Megatron optimizer), otherwise use grad
+        for name, param in [
+            ('attn_qkv', layer.self_attention.linear_qkv.weight),
+            ('attn_proj', layer.self_attention.linear_proj.weight),
+            ('mlp_fc1', layer.mlp.linear_fc1.weight),
+            ('mlp_fc2', layer.mlp.linear_fc2.weight),
+        ]:
+            if hasattr(param, 'main_grad') and param.main_grad is not None:
+                grads[name] = param.main_grad
             else:
-                return o
-        ref_debug = [to_device(debug_tensor) for debug_tensor in ref_debug]
-        ans_debug = [to_device(debug_tensor) for debug_tensor in ans_debug]
-
-        ans_debug_qkvs_pre_transfer = [ans_debug[0] for ans_debug in ans_debug]
-        ans_debug_qkvs_post_transfer = [ans_debug[1] for ans_debug in ans_debug]
-        ans_debug_core_attn_out = [ans_debug[2] for ans_debug in ans_debug]
-        ans_debug_core_attn_out_post_transfer = [ans_debug[3] for ans_debug in ans_debug]
-        ref_qkvs = [debug_tensor[0] for debug_tensor in ref_debug]
-        ref_attn_outs = [debug_tensor[1] for debug_tensor in ref_debug]
-        
+                grads[name] = param.grad
+        return grads
+    
+    normal_grads = get_module_grads(worker.layer_normal)
+    pp_grads = get_module_grads(worker.layer_pingpong)
+    
+    for param_name, (normal_grad, pp_grad) in zip(
+        normal_grads.keys(), 
+        zip(normal_grads.values(), pp_grads.values())
+    ):
         check_close(
-            ref_qkvs, ans_debug_qkvs_pre_transfer,
-            "Pre-layout-transfer QKV comparison"
+            normal_grad, pp_grad,
+            f"[Rank {as_rank}] {param_name} weight gradient (normal vs ping-pong)"
         )
-        
-        ref_qs = [debug_tensor[0].flatten(start_dim=1) for debug_tensor in ref_qkvs]
-        ref_ks = [debug_tensor[1].flatten(start_dim=1) for debug_tensor in ref_qkvs]
-        ref_vs = [debug_tensor[2].flatten(start_dim=1) for debug_tensor in ref_qkvs]
-        ref_qs_post_comm, ref_ks_post_comm, ref_vs_post_comm = simulate_all2all(
-            ref_qs, ref_ks, ref_vs, qkv_fwd_fa2a_metadata,
-            element_size, hidden_size_q_tp, hidden_size_k_tp,
-            is_from_linear_layout=True,
-        )
-        ref_qs_post_comm = [
-            t.unsqueeze(1) for t in ref_qs_post_comm
-        ]
-        ref_ks_post_comm = [
-            t.unsqueeze(1) for t in ref_ks_post_comm
-        ]
-        ref_vs_post_comm = [
-            t.unsqueeze(1) for t in ref_vs_post_comm
-        ]
-        ref_qkvs_post_comm = [
-            (ref_qs_post_comm[rank], ref_ks_post_comm[rank], ref_vs_post_comm[rank]) for rank in range(as_world_size)
-        ]
-        
-        check_close(
-            ans_debug_qkvs_post_transfer, ref_qkvs_post_comm,
-            "Post-transfer debug QKV comparison"
-        )
-
-        from flash_attn import flash_attn_varlen_func
-        ref_attn_outs_a_layout = []
-        for rank in range(as_world_size):
-            metadata = pingpong_seq_params[rank].to_device()
-            print(ref_qs_post_comm[rank].shape)
-            ref_attn_out = flash_attn_varlen_func(
-                ref_qs_post_comm[rank], ref_ks_post_comm[rank], ref_vs_post_comm[rank],
-                cu_seqlens_q = metadata.cu_seqlens_q,
-                cu_seqlens_k = metadata.cu_seqlens_kv,
-                max_seqlen_q = metadata.max_seqlen_q,
-                max_seqlen_k = metadata.max_seqlen_kv,
-                causal = True,
-                dropout_p = 0.0,
-            )
-            ref_attn_out = ref_attn_out.reshape(ref_attn_out.shape[0], 1, -1)
-            ref_attn_outs_a_layout.append(ref_attn_out)
-        ref_attn_outs_post_comm, _, _ = simulate_all2all(
-            [t.flatten(start_dim=1) for t in ref_attn_outs_a_layout],
-            None, None, attn_out_fwd_fa2a_metadata,
-            element_size, hidden_size_q_tp, None, is_from_linear_layout=False
-        )
-        ref_attn_outs_post_comm = [t.unsqueeze(1) for t in ref_attn_outs_post_comm]
-        
-        check_close(
-            ref_attn_outs, ref_attn_outs_post_comm,
-            "Simulated attn out comparison with expected value"
-        )
-        
-        check_close(
-            ans_debug_core_attn_out, ref_attn_outs_a_layout,
-            "Core attn out comparison"
-        )
-        
-        check_close(
-            ans_debug_core_attn_out_post_transfer, ref_attn_outs,
-            "Post-transfer debug attn out comparison"
-        )
-
-        check_close(
-            normal_forward_out, ping_pang_out,
-            "Final result comparison (normal vs ping-pong)"
-        )
-
-    if profile:
-        for _ in range(3):
-            normal_forward_out, debug_ref = worker.forward_normal(
-                tensor_shard, packed_seq_params, return_grad=True
-            )
-        torch.cuda.synchronize()
-        torch.distributed.barrier()
-        for _ in range(15):
-            normal_forward_out, debug_ref = worker.forward_normal(
-                tensor_shard, packed_seq_params, return_grad=True
-            )
-            torch.cuda.synchronize()
-            torch.distributed.barrier()
-        print("normal forward profiling done")
-        for _ in range(3):
-            ping_pang_out, debug_out = worker.forward_ping_pang_one_stage(
-                tensor_shard, ping_pong_params, return_grad=True
-            )
-        torch.cuda.synchronize()
-        torch.distributed.barrier()
-        for _ in range(20):
-            ping_pang_out, debug_out = worker.forward_ping_pang_one_stage(
-                tensor_shard, ping_pong_params, return_grad=True
-            )
-            torch.cuda.synchronize()
-            torch.distributed.barrier()
-        print("ping-pong one stage forward profiling done")
 
 
 def init_megatron_test(
@@ -371,7 +340,7 @@ def test(args):
     test_forward(
         args.seed, args.num_tokens, args.num_docs, max_cp_degree,
         worker, hidden_size, hidden_size_kv,
-        tp_size, profile=args.profile,
+        tp_size,
     )
 
 
@@ -389,7 +358,7 @@ if __name__ == "__main__":
     parser.add_argument("--tp-size", type=int, default=1)
     parser.add_argument("--num-heads", type=int, default=2)
     parser.add_argument("--num-query-heads", type=int, default=2)
-    parser.add_argument("--profile", action="store_true", default=False,)
+    parser.add_argument("--return-grad", action="store_true", default=False)
     args = parser.parse_args()
     test(args)
 
