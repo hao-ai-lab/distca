@@ -7,6 +7,7 @@ from megatron.core import tensor_parallel
 from megatron.core.models.common.embeddings.rope_utils import (
     apply_rotary_pos_emb,
 )
+from d2.runtime.megatron.d2_rope import apply_rotary_pos_emb_d2
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.transformer_layer import (
@@ -14,7 +15,7 @@ from megatron.core.transformer.transformer_layer import (
     TransformerLayerSubmodules,
 )
 
-from d2.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
+from d2.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams, MLPLayoutPackedSeqParams
 
 
 def log_memory_usage(message: str, comment: str = None):
@@ -107,23 +108,47 @@ class TransformerLayer(MegatronTransformerLayer):
             q_pos_emb, k_pos_emb = rotary_pos_emb
 
             if packed_seq_params is not None:
-                if packed_seq_params.cu_seqlens_q_padded is not None:
-                    cu_seqlens_q = packed_seq_params.cu_seqlens_q_padded
+                if isinstance(packed_seq_params, MLPLayoutPackedSeqParams):
+                    mlp_seq_param = packed_seq_params.mlp_layout_seq_params[0]
+                    if mlp_seq_param.cu_seqlens_q_padded is not None:
+                        cu_seqlens_q = mlp_seq_param.cu_seqlens_q_padded
+                    else:
+                        cu_seqlens_q = mlp_seq_param.cu_seqlens_q
+                    if mlp_seq_param.cu_seqlens_kv_padded is not None:
+                        cu_seqlens_kv = mlp_seq_param.cu_seqlens_kv_padded
+                    else:
+                        cu_seqlens_kv = mlp_seq_param.cu_seqlens_kv
+                    shard_logical_range = packed_seq_params.shard_logical_range[0]
                 else:
-                    cu_seqlens_q = packed_seq_params.cu_seqlens_q
-                if packed_seq_params.cu_seqlens_kv_padded is not None:
-                    cu_seqlens_kv = packed_seq_params.cu_seqlens_kv_padded
-                else:
-                    cu_seqlens_kv = packed_seq_params.cu_seqlens_kv
+                    if packed_seq_params.cu_seqlens_q_padded is not None:
+                        cu_seqlens_q = packed_seq_params.cu_seqlens_q_padded
+                    else:
+                        cu_seqlens_q = packed_seq_params.cu_seqlens_q
+                    if packed_seq_params.cu_seqlens_kv_padded is not None:
+                        cu_seqlens_kv = packed_seq_params.cu_seqlens_kv_padded
+                    else:
+                        cu_seqlens_kv = packed_seq_params.cu_seqlens_kv
+                    shard_logical_range = None
             else:
                 cu_seqlens_q = cu_seqlens_kv = None
+                shard_logical_range = None
 
-            if q_pos_emb is not None:
+            if q_pos_emb is not None and shard_logical_range is not None:
+                query = apply_rotary_pos_emb_d2(
+                    query, q_pos_emb, config=self.config, cu_seqlens=cu_seqlens_q, shard_logical_range=shard_logical_range
+                )
+            elif q_pos_emb is not None:
                 # TODO VIJAY: simplify
                 query = apply_rotary_pos_emb(
                     query, q_pos_emb, config=self.config, cu_seqlens=cu_seqlens_q
                 )
-            if k_pos_emb is not None:
+
+            if k_pos_emb is not None and shard_logical_range is not None:
+                key = apply_rotary_pos_emb_d2(
+                    key, k_pos_emb, config=self.config, cu_seqlens=cu_seqlens_kv, shard_logical_range=shard_logical_range
+                )
+            elif k_pos_emb is not None:
+                # TODO VIJAY: simplify
                 key = apply_rotary_pos_emb(
                     key, k_pos_emb, config=self.config, cu_seqlens=cu_seqlens_kv
                 )

@@ -54,11 +54,24 @@ class PingPangSingleStepPackedSeqParams(PackedSeqParams):
         )
 
 
+# MLP Layout Packed Seq Params used for RoPE.
+@dataclass
+class MLPLayoutPackedSeqParams(PackedSeqParams):
+    mlp_layout_seq_params: List[PackedSeqParams]
+    shard_logical_range: List[torch.Tensor]
+
+    def to_device(self):
+        return MLPLayoutPackedSeqParams(
+            mlp_layout_seq_params=[seq_param.to_device() for seq_param in self.mlp_layout_seq_params],
+            shard_logical_range=[shard_logical_range.to_device() for shard_logical_range in self.shard_logical_range],
+        )
+
+
 @dataclass
 class PingPangPackedSeqParams:
     seq_params: List[PingPangSingleStepPackedSeqParams]
     # The seq params for mlp layout. This is mainly used for the RoPE.
-    mlp_layout_seq_params: List[PackedSeqParams]
+    mlp_layout_seq_params: List[MLPLayoutPackedSeqParams]
     # NOTE: within a TransformerLayer, this will make sure all communications run on the compute stream.
     debug: bool = False
     do_gather: bool = False
