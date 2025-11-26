@@ -11,6 +11,7 @@ Usage:
 bash test_e2e_combined.multi.sh <rzv_endpoint> <n_nodes>
 ```
 """
+import torch.distributed
 
 import time
 start_time__ = time.time()
@@ -328,9 +329,21 @@ class MegatronE2eWorker(MegatronBaseWorker):
                 forward_only=forward_only,
             )
 
+        # Optional distributed barrier before optimizer step
+        if os.getenv("EXPERIMENT_BARRIER_BEFORE_OPTIMIZER_STEP", "0") == "1":
+            if torch.distributed.is_initialized():
+                torch.cuda.synchronize()
+                torch.distributed.barrier()
+                log_memory_usage("barrier_before_optimizer_step")
+        
         with torch.cuda.nvtx.range("optimizer_step"):
-            # torch.cuda.synchronize()
+            # Enhanced optimizer step timing
+            torch.cuda.synchronize()
+            if torch.distributed.is_initialized():
+                torch.distributed.barrier()
+            opt_start_time = time.time()
             log_memory_usage("optimizer_step:(start)")
+            
             if os.getenv("EXPERIMENT_SKIP_OPTIMIZER_STEP", "0") == "1":
                 # when testing numerical correctness, instead of running optimizer step, reset grads.
                 update_successful, grad_norm, num_zeros_in_grad = True, 0.0, 0
@@ -339,8 +352,25 @@ class MegatronE2eWorker(MegatronBaseWorker):
                         param.main_grad.zero_()
             else:
                 update_successful, grad_norm, num_zeros_in_grad = self.optimizer.step()
-            # torch.cuda.synchronize()
+                
+            torch.cuda.synchronize()
+            if torch.distributed.is_initialized():
+                torch.distributed.barrier()
+            opt_end_time = time.time()
+            
+            current_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+            opt_duration_ms = (opt_end_time - opt_start_time) * 1000
+            print(f"🚀 OptimizerStep [Rank {current_rank}]: duration={opt_duration_ms:.3f}ms")
+            print(f"🚀 OptimizerStep [Rank {current_rank}]: grad_norm={grad_norm}")
+            print(f"🚀 OptimizerStep [Rank {current_rank}]: update_successful={update_successful}")
+            
             log_memory_usage("optimizer_step:(end)")
+            if os.getenv("EXPERIMENT_BARRIER_BEFORE_OPTIMIZER_STEP", "0") == "1":
+                if torch.distributed.is_initialized():
+                    torch.cuda.synchronize()
+                    torch.distributed.barrier()
+                    log_memory_usage("barrier_after_optimizer_step")
+
         return losses_reduced, grad_norm
 
     def _build_model_optimizer(self,
@@ -396,6 +426,7 @@ class MegatronE2eWorker(MegatronBaseWorker):
 
         self.train_module = train_module
         self.optimizer = optimizer
+        print(f"🟡 [Rank {self.rank}] optimizer = {optimizer}")
         self.optimizer_scheduler = optimizer_scheduler
         self.hf_config = self.hf_config
         self.optim_config = optim_config
@@ -828,6 +859,50 @@ def test(args):
         sample_name=args.sample_name,
     )
 
+
+
+    
+    # Test out the distributed all gather latency as a simple test.
+    # if False: 
+    if True: 
+        dist_all_gather_func = torch.distributed.all_gather_into_tensor
+        
+        print("🟡 Start testing all gather")
+        # Create a group containing ranks 0, 2, 4, ..., 14
+        odd_ranks = list(range(1, 16, 2))  # [1, 3, 5, 7, 9, 11, 13, 15]
+        even_ranks = list(range(0, 16, 2))  # [0, 2, 4, 6, 8, 10, 12, 14]
+        even_group = torch.distributed.new_group(even_ranks)
+        odd_group = torch.distributed.new_group(odd_ranks)
+        if rank % 2 == 0:
+            group = even_group
+        else:
+            group = odd_group
+        output_size = 125301120
+        input_size = output_size // 8
+        output_tensor = torch.randn(output_size, device="cuda")
+        input_tensor = torch.randn(input_size, device="cuda")
+
+        for i in range(10):
+            torch.distributed.barrier()
+            torch.cuda.synchronize()
+
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+            with torch.cuda.nvtx.range(f"all_gather.{mode}.{i}"):
+                dist_all_gather_func(
+                    output_tensor,
+                    input_tensor,
+                    group=group,
+                    async_op=False,
+                )
+            end_event.record()
+            torch.distributed.barrier()
+            torch.cuda.synchronize()
+            elapsed_time = start_event.elapsed_time(end_event)
+            print(f"🟡 All gather latency: {elapsed_time}ms")
+        
+        # return
 
     sample_times = []
     for sample_id in range(sample_start_idx, max_sample_id):
