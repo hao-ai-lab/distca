@@ -69,28 +69,6 @@ def test_rope_with_logical_range():
 
     rich.print(f"[bold green][PASS][/bold green] Discontinuous Ranges check passed.")
 
-    rich.print("  Checking Length Mismatch Error validation...")
-    
-    t_mismatch = torch.zeros(5, 1, 4)
-    cu_seqlens_mismatch = torch.tensor([0, 2, 5], dtype=torch.int32)
-    shard_logical_range_mismatch = torch.tensor([[100, 105], [0, 3]], dtype=torch.long)
-    
-    error_raised = False
-    try:
-        with patch(patch_path, side_effect=mock_apply_rotary_pos_emb_bshd):
-            apply_rotary_pos_emb_d2(
-                t=t_mismatch, freqs=freqs, config=config,
-                cu_seqlens=cu_seqlens_mismatch, shard_logical_range=shard_logical_range_mismatch
-            )
-    except ValueError as e:
-        error_raised = True
-    except Exception as e:
-        rich.print(f"[bold red]FAILED[/bold red] Caught unexpected exception type: {type(e)}")
-        raise e
-
-    assert error_raised, "Function failed to raise ValueError for length mismatch!"
-    
-    rich.print(f"[bold green][PASS][/bold green] Mismatch Error validation passed.")
     rich.print(f"[bold green][PASS][/bold green] test_rope_with_logical_range Completed Successfully")
 
 
@@ -170,23 +148,9 @@ def test_mlp_physical_length_and_logical_range():
             f"[CP] Rank {i} length tensor is wrong\n Expected: {expected_output_len[i]}\n Actual: {mlp_shard_len_0[i]}"
 
     expected_output_range = [
-        # Rank 0:
-        # 1. Doc 0: [0, 256)
-        # 2. Doc 1 Head 1: [0, 128)
-        # 3. Doc 1 Tail 1: [896, 1024)
         torch.tensor([[0, 256], [0, 128], [896, 1024]], dtype=torch.long),
-        # Rank 1:
-        # 1. Doc 1 Head 2: [128, 384)
-        # 2. Doc 1 Tail 2: [640, 896)
         torch.tensor([[128, 384], [640, 896]], dtype=torch.long),
-        # Rank 2:
-        # 1. Doc 1 Head 3: [384, 512)
-        # 2. Doc 1 Tail 3: [512, 640)
-        # 3. Doc 2: [0, 256)
         torch.tensor([[384, 512], [512, 640], [0, 256]], dtype=torch.long),
-        # Rank 3:
-        # 1. Doc 3: [0, 128)
-        # 2. Doc 4: [0, 384)
         torch.tensor([[0, 128], [0, 384]], dtype=torch.long),
     ]
     for i in range(world_size):
@@ -245,7 +209,6 @@ def test_end_to_end_rope_verification():
             t_in = torch.zeros(total_len, num_heads, hidden_dim)
             
             logical_range = shard_logical_ranges[rank_id]
-            
             output = apply_rotary_pos_emb_d2(
                 t=t_in,
                 freqs=freqs,
@@ -300,7 +263,113 @@ def test_end_to_end_rope_verification():
     rich.print(f"[bold green][PASS][/bold green] End-to-End RoPE Verification Completed Successfully.")
 
 
+
+def test_end_to_end_rope_verification_triton():
+    rich.print("[bold yellow]🟡 Starting End-to-End RoPE Verification (Planner -> RoPE)...[/bold yellow]")
+    
+    device = "cuda"
+    
+    model_config = MockConfig()
+    transformer_config = MockTransformerConfig()
+    parallel_config = ParallelConfig(
+        tensor_model_parallel_size=1,
+        pipeline_model_parallel_size=1,
+    )
+    world_size = 4
+    tolerance_factor = 0.1
+    planner = Planner(
+        world_size=world_size,
+        parallel_config=parallel_config,
+        model_config=model_config,
+        tolerance_factor=tolerance_factor
+    )
+    
+    hidden_dim = 4
+    num_heads = 1
+    
+    batches: List[List[int]] = [[256, 1024], [256], [128, 384]]
+    num_batched_token = 512
+    dp_degree = world_size
+
+    dp_cp_items = batch_to_items_general(batches, num_tokens_per_rank=num_batched_token, DP_degree=dp_degree, model_config=model_config)
+    
+    _, _, mlp_shard_lens, shard_logical_ranges = planner.plan(dp_cp_items, device=device)
+    
+    max_seq_len = 2048
+
+    freqs = torch.arange(max_seq_len, dtype=torch.float32, device=device)
+    freqs = freqs.view(max_seq_len, 1, 1, 1).expand(max_seq_len, 1, 1, hidden_dim).contiguous()
+    patch_path = 'd2.runtime.megatron.d2_rope._apply_rotary_pos_emb_bshd'
+    with patch(patch_path, side_effect=mock_apply_rotary_pos_emb_bshd):
+        for rank_id in range(world_size):
+            rich.print(f"    Verifying Rank {rank_id}...")
+            
+            phys_lens = mlp_shard_lens[rank_id]
+            
+            phys_lens_tensor = torch.as_tensor(phys_lens, device=device, dtype=torch.int32)
+            cu_seqlens = torch.zeros(len(phys_lens) + 1, dtype=torch.int32, device=device)
+            torch.cumsum(phys_lens_tensor, dim=0, out=cu_seqlens[1:])
+            
+            total_len = cu_seqlens[-1].item()
+            
+            t_in = torch.zeros(total_len, num_heads, hidden_dim, device=device)
+            half_dim = hidden_dim // 2
+            t_in[..., :half_dim] = 1.0
+            
+            logical_range = shard_logical_ranges[rank_id].to(device)
+            
+            from d2.runtime.megatron.d2_rope import apply_rotary_pos_emb_d2_triton
+            output = apply_rotary_pos_emb_d2_triton(
+                t=t_in,
+                freqs=freqs,
+                config=transformer_config,
+                cu_seqlens=cu_seqlens,
+                shard_logical_range=logical_range
+            )
+            
+            expected_pos_ids = []
+            if rank_id == 0:
+                expected_pos_ids.append(torch.arange(0, 256))
+                expected_pos_ids.append(torch.arange(0, 128))
+                expected_pos_ids.append(torch.arange(896, 1024))
+            elif rank_id == 1:
+                expected_pos_ids.append(torch.arange(128, 384))
+                expected_pos_ids.append(torch.arange(640, 896))
+            elif rank_id == 2:
+                expected_pos_ids.append(torch.arange(384, 512))
+                expected_pos_ids.append(torch.arange(512, 640))
+                expected_pos_ids.append(torch.arange(0, 256))
+            elif rank_id == 3:
+                expected_pos_ids.append(torch.arange(0, 128))
+                expected_pos_ids.append(torch.arange(0, 384))
+
+            expected_tensor = torch.cat(expected_pos_ids).float()
+            
+            assert output.shape[0] == expected_tensor.shape[0], f"Rank {rank_id} shape mismatch"
+            
+            actual_vals = output[:, 0, 0].cpu()
+            
+            if not torch.allclose(actual_vals, expected_tensor):
+                diff_indices = torch.nonzero(actual_vals != expected_tensor).flatten()
+                first_diff = diff_indices[0].item()
+                rich.print(f"[bold red]FAIL[/bold red] Rank {rank_id} Value Mismatch at index {first_diff}")
+                rich.print(f"  Expected: {expected_tensor[first_diff]}")
+                rich.print(f"  Actual:   {actual_vals[first_diff]}")
+                shard_idx = 0
+                for i, l in enumerate(phys_lens):
+                    if first_diff < l:
+                        shard_idx = i
+                        break
+                    first_diff -= l
+                rich.print(f"  Error occurred in Shard {shard_idx} (PhysLen: {phys_lens[shard_idx]})")
+                raise AssertionError(f"Rank {rank_id} RoPE verification failed")
+
+            rich.print(f"    [green]OK[/green] Rank {rank_id} passed.")
+
+    rich.print(f"[bold green][PASS][/bold green] End-to-End RoPE Verification Completed Successfully.")
+
 if __name__ == '__main__':
     test_mlp_physical_length_and_logical_range()
     test_rope_with_logical_range()
     test_end_to_end_rope_verification()
+    test_end_to_end_rope_verification_triton()

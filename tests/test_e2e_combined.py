@@ -566,7 +566,7 @@ def get_next_batch(dp_size) -> Iterable[List[List[int]]]:
 
 # ========== D2 Specific Functions ==========
 
-# from transformer_engine.pytorch.attention.dot_product_attention.backends import get_attention_duration
+from transformer_engine.pytorch.attention.dot_product_attention.backends import get_attention_duration
 import traceback
 try:
     import wlbllm
