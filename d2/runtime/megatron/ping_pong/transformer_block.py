@@ -1,7 +1,7 @@
 from contextlib import contextmanager, nullcontext
 import functools
 import os
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Sequence, Union
 import types
 
 import torch
@@ -16,7 +16,7 @@ from megatron.core.utils import WrappedTensor, make_viewless_tensor
 
 from d2.runtime.attn_kernels.ops import DispatcherWrapper
 from d2.runtime.megatron.ops.fused_comm_attn import dummy_backward
-from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams
+from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 from d2.runtime.megatron.ping_pong.tick_ops import (
     forward_core_attn, layout_mlp_to_attn, layout_attn_to_mlp, log_memory_usage, tick_nonca_compute, tick_nonca_compute_cuda_graph,
     tick_sync
@@ -38,6 +38,12 @@ class _debug_monkey_patch:
         TransformerLayer.forward = self.backup_forward
 
 
+def pad_to_size(tensor: Tensor, new_size: Sequence[int], fill_value: Union[int, float] = 0) -> Tensor:
+    new_tensor = tensor.new_full(new_size, fill_value)
+    new_tensor[tuple(slice(s) for s in tensor.shape)] = tensor
+    return new_tensor
+
+
 class PingPongTransformerBlockInterface(MegatronTransformerBlock):
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Interface class should not be instantiated.")
@@ -50,17 +56,21 @@ class PingPongTransformerBlockInterface(MegatronTransformerBlock):
         self.use_cuda_graph: bool = True  # FIXME: ugly hardcode here
         self.tick_nonca_compute = tick_nonca_compute_cuda_graph if self.use_cuda_graph else tick_nonca_compute
     
-    def init_layer_cuda_graphs(self):
+    def init_layer_cuda_graphs(self, seq_len: int, max_num_seq: int, max_cp_degree: int):
+        self.dims_for_cuda_graph = seq_len, max_num_seq, max_cp_degree
         prev_layer = None
         for layer in self.layers:
             layer: TransformerLayer
-            layer.init_pre_attn_cuda_graph(prev_layer, seq_len=1024,  # FIXME: ugly hardcode here
+            layer.init_pre_attn_cuda_graph(prev_layer,
+                                           seq_len=seq_len,
+                                           max_num_seq=max_num_seq,
+                                           max_cp_degree=max_cp_degree,
                                            device=layer.self_attention.linear_qkv.weight.device,
                                            dtype=layer.self_attention.linear_qkv.weight.dtype)
             prev_layer = layer
         
         # This is the last layer
-        layer.init_post_attn_cuda_graph(seq_len=1024,  # FIXME: ugly hardcode here
+        layer.init_post_attn_cuda_graph(seq_len=seq_len,
                                         device=layer.self_attention.linear_qkv.weight.device,
                                         dtype=layer.self_attention.linear_qkv.weight.dtype)
 
@@ -71,6 +81,40 @@ class PingPongTransformerBlockInterface(MegatronTransformerBlock):
         if os.getenv("D2_SHOULD_USE_SAME_STREAM_FOR_COMM_AND_COMPUTE", "0") == "1":
             self.comm_stream = torch.cuda.current_stream(device=device)
         DispatcherWrapper.comm_stream = self.comm_stream
+
+    def update_packed_seq_params_for_cuda_graphs(
+        self,
+        packed_seq_params: PingPangSingleStepPackedSeqParams,
+    ):
+        seq_len, max_num_seq, max_cp_degree = self.dims_for_cuda_graph
+        packed_seq_params.qkv_fwd_metadata.send_memcpy_metadata = tuple(
+            pad_to_size(t, s, -1) for t, s in zip(
+                packed_seq_params.qkv_fwd_metadata.send_memcpy_metadata,
+                [(max_num_seq,), (max_cp_degree, max_num_seq), (max_cp_degree, max_num_seq)]
+            )
+        )
+        packed_seq_params.qkv_fwd_metadata.kv_replica_mask = pad_to_size(
+            packed_seq_params.qkv_fwd_metadata.kv_replica_mask,
+            (max_num_seq, max_cp_degree),
+        )
+        for seq_len in packed_seq_params.qkv_fwd_metadata.seq_lens:
+            seq_len.send_seqlens = pad_to_size(seq_len.send_seqlens, (max_num_seq,))
+
+        # packed_seq_params.qkv_bwd_metadata.recv_memcpy_metadata = tuple(
+        #     pad_to_size(t, s, -1) for t, s in zip(
+        #         packed_seq_params.qkv_bwd_metadata.recv_memcpy_metadata,
+        #         [(max_num_seq,), (max_cp_degree, max_num_seq), (max_cp_degree, max_num_seq)],
+        #     )
+        # )
+        # packed_seq_params.qkv_bwd_metadata.kv_replica_mask = pad_to_size(
+        #     packed_seq_params.qkv_bwd_metadata.kv_replica_mask,
+        #     (max_num_seq, max_cp_degree),
+        # )
+        # for seq_len in packed_seq_params.qkv_bwd_metadata.seq_lens:
+        #     seq_len.recv_seqlens = pad_to_size(seq_len.recv_seqlens, (max_num_seq,))
+        # packed_seq_params.qkv_bwd_metadata.tensor_shape[1].recv_shape = (
+        #     max_cp_degree, *packed_seq_params.qkv_bwd_metadata.tensor_shape[1].recv_shape[1:]
+        # )
 
     def ping_pong_forward(
         self,
@@ -116,6 +160,9 @@ class PingPongTransformerBlockInterface(MegatronTransformerBlock):
 
         packed_seq_params_0 = packed_seq_params.seq_params[0]
         packed_seq_params_1 = packed_seq_params.seq_params[1]
+        if self.use_cuda_graph:
+            self.update_packed_seq_params_for_cuda_graphs(packed_seq_params_0)
+            self.update_packed_seq_params_for_cuda_graphs(packed_seq_params_1)
         setattr(packed_seq_params_0, "stream", self.comm_stream)
         setattr(packed_seq_params_1, "stream", self.comm_stream)
         setattr(packed_seq_params_0, "dispatcher_id", 0)
@@ -318,6 +365,8 @@ def add_ping_pong_forward(block: MegatronTransformerBlock) -> PingPongTransforme
         PingPongTransformerBlockInterface.forward, block)
     block.init_layer_cuda_graphs = types.MethodType(
         PingPongTransformerBlockInterface.init_layer_cuda_graphs, block)
+    block.update_packed_seq_params_for_cuda_graphs = types.MethodType(
+        PingPongTransformerBlockInterface.update_packed_seq_params_for_cuda_graphs, block)
 
     return block
 

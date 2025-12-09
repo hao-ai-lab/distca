@@ -65,6 +65,16 @@ def forward_pre_core_attn_comm(layer: TransformerLayer, args: Dict[str, Any]):
     return args
 
 
+def forward_pre_core_attn_comm_cuda_graph(layer: TransformerLayer, args: Dict[str, Any]):
+    log_memory_usage(f"(L{layer.layer_number}) forward_pre_core_attn:(before pre mlp to attn)")
+    signal = layer._pre_mlp_to_attn_no_forward_for_cuda_graph(
+        args["query"], args["key"], args["value"], args["packed_seq_params"],
+    )
+    log_memory_usage(f"(L{layer.layer_number}) forward_pre_core_attn:(after pre mlp to attn)")
+    args["signal"] = signal
+    return args
+
+
 def layout_mlp_to_attn(layer: TransformerLayer, args: Dict[str, Any]):
     log_memory_usage(f"(L{layer.layer_number}) layout_mlp_to_attn:(start)")
     bwd_resend_qkv = args["packed_seq_params"].bwd_packed_seq_params is not None
@@ -192,7 +202,7 @@ def forward_post_then_pre_core_attn_cuda_graph(layer: TransformerLayer, args: Di
         args["rotary_pos_emb"],
         args["rotary_pos_cos"],
         args["rotary_pos_sin"],
-        args["mlp_packed_seq_params"],
+        args["packed_seq_params"],
         args["sequence_len_offset"],
     )
     log_memory_usage(f"(L{layer.layer_number}) forward_post_then_pre_core_attn:(after non core attn)")
@@ -201,7 +211,7 @@ def forward_post_then_pre_core_attn_cuda_graph(layer: TransformerLayer, args: Di
     args["value"] = value
     args["residual"] = residual
     args["attn_mask_type"] = attn_mask_type
-    forward_pre_core_attn_comm(layer, args)
+    forward_pre_core_attn_comm_cuda_graph(layer, args)
     log_memory_usage(f"(L{layer.layer_number}) forward_pre_then_pre_core_attn:(return)")
     return args
 
@@ -215,7 +225,7 @@ def forward_pre_core_attn_cuda_graph(layer: TransformerLayer, args: Dict[str, An
         args["rotary_pos_emb"],
         args["rotary_pos_cos"],
         args["rotary_pos_sin"],
-        args["mlp_packed_seq_params"],
+        args["packed_seq_params"],
         args["sequence_len_offset"],
     )
     log_memory_usage(f"(L{layer.layer_number}) forward_pre_core_attn:(after pre core attn)")
@@ -225,7 +235,7 @@ def forward_pre_core_attn_cuda_graph(layer: TransformerLayer, args: Dict[str, An
     args["value"] = value
     args["residual"] = residual
     args["attn_mask_type"] = attn_mask_type
-    forward_pre_core_attn_comm(layer, args)
+    forward_pre_core_attn_comm_cuda_graph(layer, args)
     log_memory_usage(f"(L{layer.layer_number}) forward_pre_core_attn:(return)")
     return args
 
