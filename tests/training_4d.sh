@@ -127,15 +127,15 @@ export TORCH_DIST_INIT_RETRY_TIMEOUT=30
 # ---------------------------
 # Setup paths
 # ---------------------------
-export CUDA_DIR=/mnt/sharefs/software/DeepEP/cuda-12-6
-export NCCL_HOME=/usr
-export NCCL_LIB=/usr/lib/x86_64-linux-gnu
-export NVSHMEM_DIR=/mnt/weka/home/yonghao.zhuang/opt/nvshmem
-export NVSHMEM_PREFIX=/mnt/weka/home/yonghao.zhuang/opt/nvshmem
-export OPENMPI_DIR=/mnt/weka/home/yonghao.zhuang/opt/openmpi
+# export CUDA_DIR=/mnt/sharefs/software/DeepEP/cuda-12-6
+# export NCCL_HOME=/usr
+# export NCCL_LIB=/usr/lib/x86_64-linux-gnu
+# export NVSHMEM_DIR=/mnt/weka/home/yonghao.zhuang/opt/nvshmem
+# export NVSHMEM_PREFIX=/mnt/weka/home/yonghao.zhuang/opt/nvshmem
+# export OPENMPI_DIR=/mnt/weka/home/yonghao.zhuang/opt/openmpi
 
-export LD_LIBRARY_PATH="${NVSHMEM_DIR}/lib:${CUDA_DIR}/lib64:${OPENMPI_DIR}/lib:${NCCL_LIB}/:$LD_LIBRARY_PATH"
-export PATH="${NVSHMEM_DIR}/bin:${OPENMPI_DIR}/bin:${CUDA_DIR}/bin:$PATH"
+# export LD_LIBRARY_PATH="${NVSHMEM_DIR}/lib:${CUDA_DIR}/lib64:${OPENMPI_DIR}/lib:${NCCL_LIB}/:$LD_LIBRARY_PATH"
+# export PATH="${NVSHMEM_DIR}/bin:${OPENMPI_DIR}/bin:${CUDA_DIR}/bin:$PATH"
 
 export NVTE_NVTX_ENABLED=1
 export NSYS_NVTX_PROFILER_REGISTER_ONLY=0 

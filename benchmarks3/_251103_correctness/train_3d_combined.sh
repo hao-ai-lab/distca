@@ -1,8 +1,8 @@
 
 
-#            1043888   lowprio interact yonghao.  R       0:01      8 fs-mbz-gpu-[517-518,543,565,600,640,773,782]
-export JOBID=1043888
-export HEAD_NODE_IP=fs-mbz-gpu-517
+
+export JOBID=1131245
+export HEAD_NODE_IP=fs-mbz-gpu-440
 # export NNODES=4
 export WANDB_API_KEY="02575b6c73e438f9885daa7cf691a45939d26a71"
 export ENABLE_WANDB=1
@@ -11,18 +11,17 @@ export WANDB_RUN_NAME="allgather.debug.v1"
 export ALLOW_ALL_RANKS_LOSS=1
 
 
-
-export NCCL_DEBUG=INFO 
-export NCCL_DEBUG_SUBSYS=INIT,COLL,NET
-export TORCH_DISTRIBUTED_DEBUG=DETAIL
-export NCCL_ALGO=Ring
-export NCCL_PROTO=LL128
-export NCCL_MIN_NCHANNELS=16
-export NCCL_MAX_NCHANNELS=16
+# export NCCL_DEBUG=INFO 
+# export NCCL_DEBUG_SUBSYS=INIT,COLL,NET
+# export TORCH_DISTRIBUTED_DEBUG=DETAIL
+# export NCCL_ALGO=Ring
+# export NCCL_PROTO=LL128
+# export NCCL_MIN_NCHANNELS=16
+# export NCCL_MAX_NCHANNELS=16
 
 
 TS=$(TZ=America/Los_Angeles date +%m%d_%H%M%S)_PST
-export OUTPUT_DIR_PREFIX="/mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks3/_251103_correctness/logs.v2"
+export OUTPUT_DIR_PREFIX="/mnt/weka/home/hao.zhang/jd/d2/benchmarks3/_251103_correctness/logs.v2"
 
 export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=1
 export EXPERIMENT_LOG_MEMORY_USAGE=1
@@ -84,16 +83,16 @@ batch_size="8"
 num_tokens="131072"
 # num_tokens="65536"
 elongate_factor="2"
-export NNODES=8
+export NNODES=2
 nnodes=$NNODES
 export NPROC_PER_NODE=8
 export TP_SIZE=8
-export CP_SIZE=8
+export CP_SIZE=2
 # 10,353,901,556 theoretical upper bound
 # export MAX_SAMPLE_ID=100000000
 # export MAX_SAMPLE_ID=1000
 # export MAX_SAMPLE_ID=100
-export MAX_SAMPLE_ID=3
+export MAX_SAMPLE_ID=2
 export MAX_TOTAL_TOKENS=100000000 # 1 million tokens global budget for data loader
 # export MAX_TOTAL_TOKENS=50000000 # 50 million tokens global budget for data loader
 # export MAX_TOTAL_TOKENS=100000000 # 100 million tokens global budget for data loader
@@ -121,10 +120,11 @@ export OUTPUT_DIR_SUFFIX_ADDON="-tol${tolerance_factor}"
 eid="d2-cp1-n${NNODES}-b${BATCH_SIZE}-t${NUM_TOKENS}-tol${tolerance_factor}"
 echo "🟡 Running d2 with TP_SIZE=$TP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR, MIN_TOLERANCE_FACTOR=$MIN_TOLERANCE_FACTOR"
 
-bash /mnt/weka/home/yonghao.zhuang/jd/d2/tests/test_e2e_combined.salloc.sh
+bash test_e2e_combined.salloc.sh
 
 echo "🟡 Finished running d2 with NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR, MIN_TOLERANCE_FACTOR=$MIN_TOLERANCE_FACTOR. Not guaranteed to be successful."
 echo "\a"
 
-# MODE=d2 bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks3/_251103_correctness/train_3d_combined.sh;
-# MODE=wlbllm bash /mnt/weka/home/yonghao.zhuang/jd/d2/benchmarks3/_251103_correctness/train_3d_combined.sh;
+# MODE=d2 bash /mnt/weka/home/hao.zhang/jd/d2/benchmarks3/_251103_correctness/train_3d_combined.sh;
+# MODE=wlbllm bash /mnt/weka/home/hao.zhang/jd/d2/benchmarks3/_251103_correctness/train_3d_combined.sh;
+# MODE=d2 bash /mnt/weka/home/hao.zhang/jd/d2/benchmarks3/_251103_correctness/train_3d_combined.sh; MODE=wlbllm bash /mnt/weka/home/hao.zhang/jd/d2/benchmarks3/_251103_correctness/train_3d_combined.sh;
