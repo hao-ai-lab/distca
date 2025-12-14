@@ -13,6 +13,7 @@ from megatron.core.transformer.transformer_layer import (
     TransformerLayer as MegatronTransformerLayer,
     TransformerLayerSubmodules,
 )
+from megatron.core import parallel_state
 
 from d2.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
 
@@ -42,11 +43,17 @@ class TransformerLayer(MegatronTransformerLayer):
         self.post_attn_cuda_graph = None
 
     def init_pre_attn_cuda_graph(self, prev_layer: "Optional[TransformerLayer]", seq_len: int, device: torch.device, dtype: torch.dtype):
+        # TODO: May need to also check `self.config.sequence_parallel_size`. If not, just assume SP == TP
+        # use_sp = self.config.sequence_parallel
+        tp = parallel_state.get_tensor_model_parallel_world_size()
         if prev_layer is None:
             static_input = torch.zeros((seq_len, 1, self.config.hidden_size), device=device, dtype=dtype, requires_grad=True)
             self.pre_attn_cuda_graph = torch.cuda.make_graphed_callables(self.__pre_attn_cuda_graph, (static_input,))
         else:
-            static_core_attn_out = torch.zeros((seq_len, 1, prev_layer.self_attention.query_projection_size), device=device, dtype=dtype, requires_grad=True)
+            hidden_size_tp = self.config.hidden_size // tp
+            # prev_layer.self_attention.query_projection_size // tp
+            static_core_attn_out = torch.zeros((seq_len * tp, 1, hidden_size_tp), device=device, dtype=dtype, requires_grad=True)
+            # static_residual = torch.zeros((seq_len // tp, 1, self.config.hidden_size), device=device, dtype=dtype, requires_grad=True)
             static_residual = torch.zeros((seq_len, 1, self.config.hidden_size), device=device, dtype=dtype, requires_grad=True)
             def post_then_pre_core_attn_cuda_graph(core_attn_out: Tensor, residual: Tensor):
                 hidden_states = prev_layer._post_attn_cuda_graph(core_attn_out, residual)
@@ -54,7 +61,10 @@ class TransformerLayer(MegatronTransformerLayer):
             self.pre_attn_cuda_graph = torch.cuda.make_graphed_callables(post_then_pre_core_attn_cuda_graph, (static_core_attn_out, static_residual))
     
     def init_post_attn_cuda_graph(self, seq_len: int, device: torch.device, dtype: torch.dtype):
-        static_core_attn_out = torch.zeros((seq_len, 1, self.self_attention.query_projection_size), device=device, dtype=dtype, requires_grad=True)
+        tp = parallel_state.get_tensor_model_parallel_world_size()
+        hidden_size_tp = self.config.hidden_size // tp
+        # prev_layer.self_attention.query_projection_size // tp
+        static_core_attn_out = torch.zeros((seq_len * tp, 1, hidden_size_tp), device=device, dtype=dtype, requires_grad=True)
         static_residual = torch.zeros((seq_len, 1, self.config.hidden_size), device=device, dtype=dtype, requires_grad=True)
         self.post_attn_cuda_graph = torch.cuda.make_graphed_callables(self._post_attn_cuda_graph, (static_core_attn_out, static_residual))
 
@@ -261,7 +271,6 @@ class TransformerLayer(MegatronTransformerLayer):
         # q, k, v
         log_memory_usage(f"(L{self.layer_number}) _forward_pre_core_attn:(before qkv)")
         query, key, value = self.self_attention.get_query_key_value_tensors(input_layernorm_output, None)
-        # print(f"🟡 query: {query.shape} (query.dtype: {query.dtype}), key: {key.shape} (key.dtype: {key.dtype}), value: {value.shape} (value.dtype: {value.dtype})")
 
         #### Some code in core_attention. This is because we don't want the pos embedding
         # being handled in the attention layout (the pos id will be hard to handle)

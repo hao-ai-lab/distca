@@ -304,7 +304,12 @@ def test(args):
     worker.init(model_path, seed=seed)
 
     # torch.distributed.breakpoint()
-    worker.train_module[0].module.module.decoder.init_layer_cuda_graphs()  # FIXME: hardcode for now, where to put?
+    # FIXME: hardcode for now, where to put?
+    print("init cuda graphs")
+    worker.train_module[0].module.module.decoder.init_layer_cuda_graphs()
+    print("init cuda graphs done")
+    # return
+    
     # set again to potentially adapt to the ray launch case.
     set_random_seed(seed, set_megatron=False)
 
