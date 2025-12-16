@@ -52,6 +52,13 @@ def _log_tensor_shapes(layer: "TransformerLayer", where: str, **named_values: An
         _emit(k, v)
 
 
+def _log_cuda_graph_init(layer: "TransformerLayer", where: str, msg: str) -> None:
+    """Debug helper for cuda-graph init prints (guarded by env var)."""
+    if os.getenv("D2_LOG_CUDAGRAPH_INIT", "0") != "1":
+        return
+    print(f"---- {where}: L{layer.layer_number} {msg}", flush=True)
+
+
 class TransformerLayer(MegatronTransformerLayer):
     """Base transformer layer that splits the forward 3 steps: core attention, pre- and post- core attention."""
     def __init__(
@@ -76,14 +83,18 @@ class TransformerLayer(MegatronTransformerLayer):
         # use_sp = self.config.sequence_parallel
         tp = parallel_state.get_tensor_model_parallel_world_size()
         hidden_size_tp = self.config.hidden_size // tp
-        print(f"---- init_pre_attn_cuda_graph: {self.layer_number=}, {tp=}, {self.config.hidden_size=}, {hidden_size_tp=}, {tp=}", flush=True)
+        _log_cuda_graph_init(
+            self,
+            "init_pre_attn_cuda_graph",
+            f"tp={tp} hidden_size={self.config.hidden_size} hidden_size_tp={hidden_size_tp} seq_len={seq_len}",
+        )
 
         if prev_layer is None:
             # static_input = torch.zeros((seq_len, 1, self.config.hidden_size), device=device, dtype=dtype, requires_grad=True)
             static_input = torch.zeros((seq_len // tp, 1, hidden_size_tp * tp), device=device, dtype=dtype, requires_grad=True)
-            print(f"---- init_pre_attn_cuda_graph: {self.layer_number=}, {static_input.shape=}", flush=True)
+            _log_cuda_graph_init(self, "init_pre_attn_cuda_graph", f"prev_layer=None static_input.shape={tuple(static_input.shape)}")
             self.pre_attn_cuda_graph = torch.cuda.make_graphed_callables(self.__pre_attn_cuda_graph, (static_input,))
-            print(f"---- init_pre_attn_cuda_graph: {self.layer_number=}, {self.pre_attn_cuda_graph=}", flush=True)
+            _log_cuda_graph_init(self, "init_pre_attn_cuda_graph", f"created pre_attn_cuda_graph={self.pre_attn_cuda_graph!r}")
             return
         
         # prev_layer.self_attention.query_projection_size // tp
@@ -95,9 +106,13 @@ class TransformerLayer(MegatronTransformerLayer):
         def post_then_pre_core_attn_cuda_graph(core_attn_out: Tensor, residual: Tensor):
             hidden_states = prev_layer._post_attn_cuda_graph(core_attn_out, residual)
             return self.__pre_attn_cuda_graph(hidden_states)
-        print(f"---- init_pre_attn_cuda_graph: {self.layer_number=}, {static_core_attn_out.shape=}, {static_residual.shape=}", flush=True)
+        _log_cuda_graph_init(
+            self,
+            "init_pre_attn_cuda_graph",
+            f"prev_layer!=None static_core_attn_out.shape={tuple(static_core_attn_out.shape)} static_residual.shape={tuple(static_residual.shape)}",
+        )
         self.pre_attn_cuda_graph = torch.cuda.make_graphed_callables(post_then_pre_core_attn_cuda_graph, (static_core_attn_out, static_residual))
-        print(f"---- init_pre_attn_cuda_graph: {self.layer_number=}, {self.pre_attn_cuda_graph=}", flush=True)
+        _log_cuda_graph_init(self, "init_pre_attn_cuda_graph", f"created pre_attn_cuda_graph={self.pre_attn_cuda_graph!r}")
         return
     
     def init_post_attn_cuda_graph(self, seq_len: int, device: torch.device, dtype: torch.dtype):
@@ -108,9 +123,14 @@ class TransformerLayer(MegatronTransformerLayer):
         static_core_attn_out = torch.zeros((seq_len, 1, hidden_size_tp), device=device, dtype=dtype, requires_grad=True)
         # static_residual = torch.zeros((seq_len, 1, self.config.hidden_size), device=device, dtype=dtype, requires_grad=True)
         static_residual = torch.zeros((seq_len // tp, 1, hidden_size_tp * tp), device=device, dtype=dtype, requires_grad=True)
-        print(f"---- init_post_attn_cuda_graph: {self.layer_number=}, {static_core_attn_out.shape=}, {static_residual.shape=}", flush=True)
+        _log_cuda_graph_init(
+            self,
+            "init_post_attn_cuda_graph",
+            f"tp={tp} hidden_size={self.config.hidden_size} hidden_size_tp={hidden_size_tp} "
+            f"static_core_attn_out.shape={tuple(static_core_attn_out.shape)} static_residual.shape={tuple(static_residual.shape)}",
+        )
         self.post_attn_cuda_graph = torch.cuda.make_graphed_callables(self._post_attn_cuda_graph, (static_core_attn_out, static_residual))
-        print(f"---- init_post_attn_cuda_graph: {self.layer_number=}, {self.post_attn_cuda_graph=}", flush=True)
+        _log_cuda_graph_init(self, "init_post_attn_cuda_graph", f"created post_attn_cuda_graph={self.post_attn_cuda_graph!r}")
 
     def _forward_pre_attn_cuda_graph(
         self,
