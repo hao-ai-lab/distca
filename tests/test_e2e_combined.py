@@ -19,7 +19,8 @@ import psutil, os
 rank = int(os.environ.get("RANK", os.environ.get("SLURM_PROCID","0")))
 local = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID","0")))
 p = psutil.Process(os.getpid())
-p.cpu_affinity([local * 16, local * 16 + 1])  # pin to core based on local rank
+N_CORE_PER_RANK = 16
+p.cpu_affinity(list(range(local * N_CORE_PER_RANK, local * N_CORE_PER_RANK + N_CORE_PER_RANK)))  # pin to core based on local rank
 print(f"[{rank}] allowed CPUs:", p.cpu_affinity())
 
 # ----------------
@@ -567,7 +568,7 @@ def get_next_batch(dp_size) -> Iterable[List[List[int]]]:
 
 # ========== D2 Specific Functions ==========
 
-
+# from transformer_engine.pytorch.attention.dot_product_attention.backends import get_attention_duration
 import traceback
 try:
     import wlbllm
@@ -621,6 +622,8 @@ def test(args):
     output_dir = args.output_dir
     dtype = torch.bfloat16
     element_size = dtype.itemsize
+
+    
 
     # Set forward function mode based on test mode
     normal_forward_fn = (mode in ["baseline", "wlbllm"])
@@ -759,6 +762,13 @@ def test(args):
     hidden_size_q_tp = hidden_size_q // tp_size
     hidden_size_k_tp = hidden_size_kv // tp_size
 
+    dp_size = as_world_size
+    num_batched_token_per_as_rank = total_seq_len * batch_size // dp_size
+    os.environ["D2_SEQ_LEN"] = str(num_batched_token_per_as_rank)
+    print(f"🟡 [Rank {as_rank}] {dp_size=}, {num_batched_token_per_as_rank=}, {os.environ['D2_SEQ_LEN']=}")
+
+    worker.train_module[0].module.module.decoder.init_layer_cuda_graphs()  # FIXME: hardcode for now, where to put?
+    
     # TODO(Refactor): Properly refactor this into a function and we call it multiple times
 
     setup_global_batch(
@@ -1356,7 +1366,9 @@ def test(args):
         if sample_id == 0:
             log_memory_usage("warmup start")
             write_status_log(f"Warmup start")
-            with log_memory_usage_context():
+            from contextlib import nullcontext
+            # with log_memory_usage_context():
+            with nullcontext():
                 # Warmup
                 warmup_times = 5
                 try:
