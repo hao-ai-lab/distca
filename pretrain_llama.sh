@@ -1,7 +1,7 @@
 #! /bin/bash
 
 #SBATCH --job-name=distca-llama
-#SBATCH --nodes=4
+#SBATCH --nodes=2
 #SBATCH --output=logs/slurm/stdout.%j.log
 #SBATCH --error=logs/slurm/stderr.%j.log
 #SBATCH --ntasks-per-node=1
@@ -27,13 +27,12 @@ NUM_LAYERS=${NUM_LAYERS:-32}
 TP_SIZE=${TP_SIZE:-$GPUS_PER_NODE}   # Tensor Parallelism size, defaults to GPUs per node
 TP_SIZE=${TP_SIZE:-8}
 PP_SIZE=${PP_SIZE:-1}                # Pipeline Parallelism size
-CP_SIZE=${CP_SIZE:-1}                # Only useful in WLBLLM (D2 will have DPCP anyways)
+CP_SIZE=${CP_SIZE:-2}                # Only useful in WLBLLM (D2 will have DPCP anyways)
 NUM_MICROBATCH=${NUM_MICROBATCH:-${PP_SIZE}}            # Number of microbatches per pipeline stage, has to be >= PP_SIZE - 1
 
 # Experiment settings
 MODE=${MODE:-d2}               # Experiment mode (baseline, dynamic, etc.)
 BATCH_SIZE=${BATCH_SIZE:-1}          # Batch size for training
-# NUM_TOKENS=${NUM_TOKENS:-131072}     # Number of tokens to process
 NUM_TOKENS=${NUM_TOKENS:-16384}     # Number of tokens to process
 MAX_SAMPLE_ID=${MAX_SAMPLE_ID:-3}   # Maximum sample ID
 # SAMPLE_EXPR=${SAMPLE_EXPR:-""}   # Sample expression
@@ -50,15 +49,15 @@ PROFILE_MEMORY_PATH=${PROFILE_MEMORY_PATH:"${OUTPUT_DIR}/"}
 
 JOBID=${JOBID:-${SLURM_JOB_ID}}
 if [ -z "$JOBID" ]; then
-  echo -e "\033[31mJOBID is not set. Must set JOBID environment variable.\033[0m"
+  echo -e "\033[31mJOBID is not set. Must set JOBID environment variable, or if you're in a slurm environment the SLURM_JOB_ID should be set.\033[0m"
   exit 1
 fi
 
-# Check if job is still running
-if ! squeue -j "$JOBID" &>/dev/null; then
-  echo -e "\033[31mError: Job $JOBID is no longer running in SLURM queue\033[0m"
-  exit 1
-fi
+# # Check if job is still running
+# if ! squeue -j "$JOBID" &>/dev/null; then
+#   echo -e "\033[31mError: Job $JOBID is no longer running in SLURM queue\033[0m"
+#   exit 1
+# fi
 
 NNODES=${NNODES:-$SLURM_NNODES}
 if [ -z "$NNODES" ]; then
@@ -66,6 +65,25 @@ if [ -z "$NNODES" ]; then
 fi
 echo -e "\033[33mRecognized JOBID=$JOBID, NNODES=$NNODES\033[0m"
 sleep 1
+
+# -----------------------------
+# Debugging Flags
+# -----------------------------
+export ENABLE_NSYS=0
+export EXPERIMENT_LOG_MEMORY_USAGE=0
+export EXPERIMENT_SKIP_FA2A_OP=0 # (DebugOnly: Ensure not stuck at fast a2a op)
+export EXPERIMENT_SKIP_OPTIMIZER_STEP=1
+export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2
+export SHOULD_ADD_DEBUG_CASES=0
+
+export MAX_SAMPLE_ID=5
+export EXPERIMENT_0TH_SAMPLE_WARMUP_TIMES=1
+export EXPERIMENT_WARMUP_TIMES=0
+export EXPERIMENT_REPEAT_TIMES=1
+
+export EXPERIMENT_FA2A_SPLIT_SENDRECV=1
+export EXPERIMENT_SHOULD_LOG_MEMORY_DURING_WARMUP=1
+export EXPERIMENT_ADD_SELECTIVE_CKPT=1
 
 
 # ------------------------------------------------------
@@ -113,20 +131,18 @@ fi
 # ---------------------------
 
 ENABLE_NSYS=${ENABLE_NSYS:-0}
-
+EXPERIMENT_ENABLE_CUDA_GRAPHS=${EXPERIMENT_ENABLE_CUDA_GRAPHS:-0}
 # ---------------------------
 # Setup distributed args
 # ---------------------------
 
 nodes=( $(scontrol show hostnames $(scontrol show job $JOBID | awk -F= '/NodeList=fs/ {print $2}') ) )
-echo nodes "${nodes[@]}"
-# export head_node=${nodes[0]}
+echo Found nodes "${nodes[@]}"
+export head_node=${nodes[0]}
 export head_node_ip=${HEAD_NODE_IP:-$head_node}
 export head_node=${head_node:-$head_node_ip}
-# port=$(shuf -i 29000-30000 -n 1)
 port=29500
 echo head_node_ip=$head_node_ip port=$port
-# RZV_ID=$(shuf -i 9000-300000 -n 1)
 RZV_BACKEND=c10d
 RZV_ENDPOINT=$head_node_ip:$port
 echo RZV_ENDPOINT=$RZV_ENDPOINT

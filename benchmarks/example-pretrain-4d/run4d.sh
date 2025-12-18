@@ -49,7 +49,8 @@ model_config="deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 8"
 param_configs_cases=(
 # 8B 128k
 #    n bs mb t     mode  cp  pp  tp  comment 
-    "1 1 4 65536     d2   1  2  4  'd2 subopt-mem'  " 
+    # "1 1 4 65536     d2   1  2  4  'd2 subopt-mem'  " 
+    "2 1 4 65536     d2   1  2  8  'd2 subopt-mem'  " 
     # "2 1 4 65536     d2   1  2  8  'd2 subopt-mem'  " 
     # "2 1 4 65536 wlbllm   1  2  8  'wlbllm subopt-mem'  "
 
