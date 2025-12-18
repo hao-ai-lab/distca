@@ -21,7 +21,7 @@ from functools import partial
 import os
 import time
 import json
-from d2.utils.global_batch_provider import setup_global_batch, get_next_batch
+from d2.utils.training_utils import setup_global_batch
 
 import megatron.core.parallel_state as mpu
 from megatron.core import tensor_parallel
@@ -41,6 +41,7 @@ from d2.utils.worker import MegatronE2eWorker as BaseMegatronE2eWorker, set_rand
 from d2.utils.megatron_test_utils import (
     gptmodel_forward, make_batch_generator, unwrap_model,
 )
+from d2.utils.wandb_driver import WandbDriver
 import d2.mem
 from contextlib import nullcontext
 
@@ -552,7 +553,7 @@ def test(args):
     world_size = args.num_nodes * args.num_gpus_per_node
     assert world_size % (tp_size * pp_size) == 0
     _dp_size = world_size // (tp_size * pp_size)
-    assert dpcp_size == _dp_size, f"dpcp_size: {dpcp_size} != _dp_size: {_dp_size}"
+    assert dpcp_size == _dp_size, f"dpcp_size: {dpcp_size} != _dp_size: {_dp_size}. Check your tp_size, pp_size, and num_nodes settings."
 
     assert num_microbatch >= pp_size, f"num_microbatch need bigger than pp_size. Current num_microbatch: {num_microbatch}, pp size: {pp_size}"
 
@@ -567,6 +568,13 @@ def test(args):
 
     max_sample_id = args.max_sample_id
     model_path = args.model_path
+
+    # Wandb configuration (support both CLI args and env vars)
+    enable_wandb = args.enable_wandb or os.environ.get("ENABLE_WANDB", "0") == "1"
+    wandb_project = args.wandb_project or os.environ.get("WANDB_PROJECT", "d2-training")
+    wandb_run_name = args.wandb_run_name or os.environ.get("WANDB_RUN_NAME", None)
+    allow_all_ranks_loss = args.allow_all_ranks_loss or os.environ.get("ALLOW_ALL_RANKS_LOSS", "0") == "1"
+    print(f"🟡 allow_all_ranks_loss = {allow_all_ranks_loss}")
 
     should_log_memory_during_warmup = (
         os.environ.get("EXPERIMENT_SHOULD_LOG_MEMORY_DURING_WARMUP", "1") == "1"
@@ -583,22 +591,6 @@ def test(args):
             mb=num_microbatch,
             batch_size=num_batches,
         )
-    setup_global_batch(
-        total_seq_len=num_tokens,
-        up_sample_factor=args.up_sample_factor,
-        elongate_factor=args.elongate_factor,
-        filter_threshold=args.filter_threshold,
-        filter_ratio=args.filter_ratio,
-        should_add_debug_cases=args.should_add_debug_cases,
-        change_long_doc_ratio=args.change_long_doc_ratio,
-        sample_name=args.sample_name,
-        balance_ping_pong_batch_size=balance_ping_pong_batch_size,
-    )
-    # for _ in range(20):
-    #     print(f"🟡 get_next_batch: {get_next_batch(int(num_microbatch * num_batches * 2))}")
-    # exit(0)
-    
-
     # Use local cache to avoid HuggingFace rate limiting
     try:
         # First try with local_files_only to use cached version
@@ -643,6 +635,23 @@ def test(args):
     worker.init(model_path, seed=seed)
     log_memory_usage("after worker.init", force=True)
     rank = torch.distributed.get_rank()
+
+    # Initialize global batch *after* worker.init so we can pass tokenizer for real datasets.
+    # if rank == 0:
+    setup_global_batch(
+        total_seq_len=num_tokens,
+        up_sample_factor=args.up_sample_factor,
+        elongate_factor=args.elongate_factor,
+        filter_threshold=args.filter_threshold,
+        filter_ratio=args.filter_ratio,
+        should_add_debug_cases=args.should_add_debug_cases,
+        change_long_doc_ratio=args.change_long_doc_ratio,
+        sample_name=args.sample_name,
+        # balance_ping_pong_batch_size=balance_ping_pong_batch_size,
+        tokenizer=getattr(worker, "tokenizer", None),
+        max_total_tokens=getattr(args, "max_total_tokens", None),
+    )
+    torch.distributed.barrier()
     
     # set again to potentially adapt to the ray launch case.
     set_random_seed(seed, set_megatron=False)
@@ -650,6 +659,32 @@ def test(args):
     as_world_size = worker.as_world_size
     as_rank = worker.as_rank
     rank = torch.distributed.get_rank()
+
+    # Initialize wandb driver
+    wandb_driver = WandbDriver()
+    wandb_driver.initialize(
+        enable_wandb=enable_wandb,
+        rank=rank,
+        project=wandb_project,
+        run_name=wandb_run_name,
+        allow_all_ranks=allow_all_ranks_loss,
+        config={
+            "num_nodes": num_nodes,
+            "num_gpus_per_node": args.num_gpus_per_node,
+            "world_size": world_size,
+            "tp_size": tp_size,
+            "pp_size": pp_size,
+            "cp_size": dpcp_size,
+            "num_tokens": num_tokens,
+            "num_batches": num_batches,
+            "num_microbatch": num_microbatch,
+            "num_layers": num_layers,
+            "model_path": model_path,
+            "seed": seed,
+            "sample_name": args.sample_name,
+            "use_planner": bool(args.use_planner),
+        },
+    )
 
     # Check rank correctness
     dp_rank = mpu.get_data_parallel_rank()
@@ -667,7 +702,12 @@ def test(args):
     print(f"🟡 [Rank {as_rank}] {dp_size=}, {num_batched_token_per_as_rank=}, {os.environ['D2_SEQ_LEN']=}")
 
     # FIXME: hardcode to initialize CUDA Graph for now.
-    worker.train_module[0].module.module.decoder.init_layer_cuda_graphs()
+    should_enable_cuda_graphs = os.environ.get("EXPERIMENT_ENABLE_CUDA_GRAPHS", "1") == "1"
+    if should_enable_cuda_graphs:
+        print(f"🟡 [Rank {rank}] CUDA Graphs are enabled. Initializing CUDA Graphs.")
+        worker.train_module[0].module.module.decoder.init_layer_cuda_graphs()
+    else:
+        print(f"🟡 [Rank {rank}] CUDA Graphs are disabled. Not initializing CUDA Graphs.")
 
 
     # for _ in range(20):
@@ -820,6 +860,7 @@ def test(args):
                     duration_ms = (end_time - start_time) * 1000
                     durations.append(duration_ms)
                     losses.append(loss_value)
+                    print(f"🟡 [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms (loss={loss_reduced})")
                     if loss_value is None:
                         print(f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms (loss=N/A)")
                     else:
@@ -827,14 +868,32 @@ def test(args):
             time.sleep(1)
             
         final_durations_ms.append(duration_ms)
-        final_losses.append(losses[-1] if losses else None)
+        final_loss_value = losses[-1] if losses else None
+        final_losses.append(final_loss_value)
+
+        # Console printing / wandb logging (per-sample, not per-repeat)
+        wandb_driver.print_loss(
+            sample_id=sample_idx,
+            loss=final_loss_value,
+            rank=rank,
+            allow_all_ranks=allow_all_ranks_loss,
+        )
+        wandb_driver.log(
+            sample_id=sample_idx,
+            duration_ms=float(duration_ms),
+            iteration_time_ms=float(duration_ms),
+            loss=final_loss_value,
+            rank=rank,
+            n_repeats=n_repeats,
+            n_warmup=n_warmup,
+        )
         if rank == 0:
             with open(benchmark_log_path, "a") as f:
                 f.write(json.dumps({
                     "sample_id": sample_idx,
                     "duration_ms": duration_ms,
                     "duration_list": durations,
-                    "loss": losses[-1] if losses else None,
+                    "loss": final_loss_value,
                     "loss_list": losses,
                     "seq_lens": seq_lens,
                 }) + "\n")
@@ -886,6 +945,9 @@ def test(args):
             with open(benchmark_final_path, "w") as f:
                 json.dump(benchmark_data, f, indent=2)
 
+    # Finish wandb run if enabled
+    wandb_driver.finish(rank=rank)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -906,8 +968,26 @@ if __name__ == "__main__":
     parser.add_argument("--elongate-factor", type=int, default=1)
     parser.add_argument("--filter-threshold", type=int, default=65536)
     parser.add_argument("--filter-ratio", type=float, default=0.50)
-    parser.add_argument("--sample-name", type=str, default="wlbllm")
+    parser.add_argument(
+        "--sample-name",
+        type=str,
+        default="wlbllm",
+        help=(
+            "Name of the sample/dataset to use. Synthetic: wlbllm/prolong. "
+            "Real datasets (require tokenizer): bookcorpus, wikitext, openwebtext, c4."
+        ),
+        choices=["wlbllm", "prolong", "bookcorpus", "wikitext", "openwebtext", "c4"],
+    )
     parser.add_argument("--change-long-doc-ratio", type=float, default=0.0)
+    parser.add_argument(
+        "--max-total-tokens",
+        type=int,
+        default=None,
+        help=(
+            "Optional global token budget for real datasets. If set, tokenization stops "
+            "after producing this many tokens from the underlying dataset."
+        ),
+    )
 
     parser.add_argument("--model-path", type=str, default="./models/codellama/CodeLlama-34b-hf")
     parser.add_argument("--num-layers", type=int, default=8)
@@ -915,6 +995,12 @@ if __name__ == "__main__":
     parser.add_argument("--should-add-debug-cases", action="store_true")
 
     parser.add_argument("--output-dir", type=str, default="./logs/")
+
+    # Wandb logging options
+    parser.add_argument("--enable-wandb", action="store_true", help="Enable Weights & Biases logging (or set ENABLE_WANDB=1)")
+    parser.add_argument("--wandb-project", type=str, default="d2-training", help="Wandb project name (or set WANDB_PROJECT env var)")
+    parser.add_argument("--wandb-run-name", type=str, default=None, help="Wandb run name (or set WANDB_RUN_NAME env var). Set WANDB_API_KEY for authentication.")
+    parser.add_argument("--allow-all-ranks-loss", action="store_true", help="Allow all ranks to output loss values (or set ALLOW_ALL_RANKS_LOSS=1)")
 
     args = parser.parse_args()
     print("args: ", args)
