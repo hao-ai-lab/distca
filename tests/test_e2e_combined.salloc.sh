@@ -103,8 +103,6 @@ fi
 echo -e "\033[33mRecognized JOBID=$JOBID, NNODES=$NNODES\033[0m"
 sleep 1
 
-# cmd="MODE=$MODE MODEL_PATH=$MODEL_PATH BATCH_SIZE=$BATCH_SIZE NUM_TOKENS=$NUM_TOKENS MAX_SAMPLE_ID=$MAX_SAMPLE_ID TP_SIZE=$TP_SIZE CP_SIZE=$CP_SIZE NUM_LAYERS=$NUM_LAYERS sbatch --nodes $NNODES test_e2e_combined.slurm.sh"
-
 
 # ------------------------------------------------------
 # Setup loggings and artifact directories

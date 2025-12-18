@@ -28,14 +28,29 @@ export EXPERIMENT_ADD_SELECTIVE_CKPT=1
 
 
 model_config="deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 8"
+
+
+# Example configs running for formal benchmarking
+# param_configs_cases=(
+# # 8B 128k
+# #    n bs mb t       mode  cp  pp  tp  comment 
+#     "16 1 4 131072    d2   8  2  8  'd2 subopt-mem'  " 
+#     "16 1 4 131072    d2   4  4  8  'd2 subopt-mem'  " 
+#     "16 1 4 131072 wlbllm  4  4  8  'wlbllm subopt-mem'  "
+#     "16 1 4 131072 wlbllm  8  2  8  'wlbllm subopt-mem'  "  
+#     "16 2 2 131072 wlbllm  4  2  8  'wlbllm subopt-mem'  "  
+
+# )
+# for config in "${param_configs_cases[@]}"; do
+#     cases+=("$model_config $config")
+# done
+
+# Example configs running for debugging
 param_configs_cases=(
 # 8B 128k
-#    n bs mb t       mode  cp  pp  tp  comment 
-    "16 1 4 131072    d2   8  2  8  'd2 subopt-mem'  " 
-    "16 1 4 131072    d2   4  4  8  'd2 subopt-mem'  " 
-    "16 1 4 131072 wlbllm  4  4  8  'wlbllm subopt-mem'  "
-    "16 1 4 131072 wlbllm  8  2  8  'wlbllm subopt-mem'  "  
-    "16 2 2 131072 wlbllm  4  2  8  'wlbllm subopt-mem'  "  
+#    n bs mb t     mode  cp  pp  tp  comment 
+    "2 1 4 65536     d2   1  2  8  'd2 subopt-mem'  " 
+    "2 1 4 65536 wlbllm   1  2  8  'wlbllm subopt-mem'  "
 
 )
 for config in "${param_configs_cases[@]}"; do
