@@ -16,12 +16,20 @@ export NCCL_INCLUDE_DIR=$NCCL_HOME/include
 export NCCL_LIBRARY_DIR=$NCCL_LIB
 
 # -- Setup NVSHMEM
-export NVSHMEM_PREFIX=$HOME/jd/opt/nvshmem
+# Common NVSHMEM installations might be found in:
+# - /usr/local/nvshmem        (typical for system-wide install)
+# - $CONDA_PREFIX/lib/python3.12/site-packages/nvidia/nvshmem/ (conda package path)
+# Example: modify as needed based on your installation
+export NVSHMEM_PREFIX=/usr/local/nvshmem
 export NVSHMEM_DIR=$NVSHMEM_PREFIX
 export NVSHMEM_INCLUDE=$NVSHMEM_PREFIX/include
 
 # -- Setup OPENMPI
-export OPENMPI_DIR=$HOME/jd/opt/openmpi
+# Common OPENMPI installations might be found in:
+# - /usr/local/openmpi        (typical for system-wide install)
+# - $CONDA_PREFIX/lib/python3.12/site-packages/openmpi/ (conda package path)
+# Example: modify as needed based on your installation
+export OPENMPI_DIR=/usr/local/openmpi
 export OPENMPI_INCLUDE=$OPENMPI_DIR/include
 export OPENMPI_LIBRARY_DIR=$OPENMPI_DIR/lib
 
