@@ -39,4 +39,4 @@ set +x
 
 
 
-# salloc -N 32 -G 256 --ntasks-per-node=1 --cpus-per-task=96 --mem=1440G --time=12:00:00 --exclusive --partition=lowprio --qos=lowprio --job-name=d2-interact --exclude=fs-mbz-gpu-684,fs-mbz-gpu-697,fs-mbz-gpu-286,fs-mbz-gpu-877,fs-mbz-gpu-757,fs-mbz-gpu-806,fs-mbz-gpu-377,fs-mbz-gpu-906,fs-mbz-gpu-168,fs-mbz-gpu-708,fs-mbz-gpu-868,fs-mbz-gpu-223,fs-mbz-gpu-954,fs-mbz-gpu-707,fs-mbz-gpu-805
+# salloc -N 32 -G 256 --ntasks-per-node=1 --cpus-per-task=96 --mem=1440G --time=12:00:00 --exclusive --partition=lowprio --qos=lowprio --job-name=distca-interact --exclude=fs-mbz-gpu-684,fs-mbz-gpu-697,fs-mbz-gpu-286,fs-mbz-gpu-877,fs-mbz-gpu-757,fs-mbz-gpu-806,fs-mbz-gpu-377,fs-mbz-gpu-906,fs-mbz-gpu-168,fs-mbz-gpu-708,fs-mbz-gpu-868,fs-mbz-gpu-223,fs-mbz-gpu-954,fs-mbz-gpu-707,fs-mbz-gpu-805

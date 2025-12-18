@@ -34,8 +34,8 @@ model_config="deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 8"
 # param_configs_cases=(
 # # 8B 128k
 # #    n bs mb t       mode  cp  pp  tp  comment 
-#     "16 1 4 131072    d2   8  2  8  'd2 subopt-mem'  " 
-#     "16 1 4 131072    d2   4  4  8  'd2 subopt-mem'  " 
+#     "16 1 4 131072    distca   8  2  8  'distca subopt-mem'  " 
+#     "16 1 4 131072    distca   4  4  8  'distca subopt-mem'  " 
 #     "16 1 4 131072 wlbllm  4  4  8  'wlbllm subopt-mem'  "
 #     "16 1 4 131072 wlbllm  8  2  8  'wlbllm subopt-mem'  "  
 #     "16 2 2 131072 wlbllm  4  2  8  'wlbllm subopt-mem'  "  
@@ -49,7 +49,7 @@ model_config="deepseek-ai/DeepSeek-R1-Distill-Llama-8B 64000 8"
 param_configs_cases=(
 # 8B 128k
 #    n bs mb t     mode  cp  pp  tp  comment 
-    "2 1 4 65536     d2   1  2  8  'd2 subopt-mem'  " 
+    "2 1 4 65536     distca   1  2  8  'distca subopt-mem'  " 
     "2 1 4 65536 wlbllm   1  2  8  'wlbllm subopt-mem'  "
 
 )
@@ -69,7 +69,7 @@ set -e
 # -------------------------------
 
 wlbllm_cases=()
-d2_cases=()
+distca_cases=()
 echo "🟡 All cases:"
 printf "%-50s  %10s  %6s  %10s  %14s  %10s  %6s  %7s  %7s  %7s\n" \
     "model_path" "attn_linear_breakpoint" "num_layers" "nnodes" "batch_size" "microbatch_size" "num_tokens" "mode" "cp_size" "pp_size" "tp_size" "comment"
@@ -80,14 +80,14 @@ for case in "${cases[@]}"; do
         printf "%-50s  %10s  %6s  %10s  %14s  %10s  %6s  %7s  %7s  %7s\n" \
             "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size" "$comment"
     fi
-    if [ "$mode" == "d2" ]; then
-        d2_cases+=("$case")
+    if [ "$mode" == "distca" ]; then
+        distca_cases+=("$case")
         printf "%-50s  %10s  %6s  %10s  %14s  %10s  %6s  %7s  %7s  %7s\n" \
             "$model_path" "$attn_linear_breakpoint" "$num_layers" "$nnodes" "$batch_size" "$microbatch_size" "$num_tokens" "$mode" "$cp_size" "$pp_size" "$tp_size" "$comment"
     fi
 done
 echo "🟡 Total wlbllm cases: ${#wlbllm_cases[@]}"
-echo "🟡 Total d2 cases: ${#d2_cases[@]}"
+echo "🟡 Total distca cases: ${#distca_cases[@]}"
 echo ""
 
 
@@ -137,7 +137,7 @@ for config in "${cases[@]}"; do
     export OUTPUT_DIR_SUFFIX_ADDON="-${MODEL_PATH_normalized}"
     
     
-    if [ $MODE == "d2" ]; then
+    if [ $MODE == "distca" ]; then
         bash test_megatron_e2e_pipeline_with_cp.sh
     fi
 

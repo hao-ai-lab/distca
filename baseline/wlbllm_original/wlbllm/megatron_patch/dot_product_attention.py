@@ -516,7 +516,7 @@ def forward(
             # debug_print(inspect.getsource(self.flash_attention.forward))
             
             nvtx_range_push("te.DotProductAttention.flash_attention.forward")
-            # Goes into d2/baseline/wlbllm_original/wlbllm/megatron_patch/backends.py
+            # Goes into distca/baseline/wlbllm_original/wlbllm/megatron_patch/backends.py
             ret = self.flash_attention(
                 query_layer,
                 key_layer,

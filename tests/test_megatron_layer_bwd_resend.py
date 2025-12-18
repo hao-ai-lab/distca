@@ -7,10 +7,10 @@ torchrun --nnodes 1 --nproc_per_node 2 test_megatron_layer_bwd_resend.py \
 from megatron.core.packed_seq_params import PackedSeqParams
 import torch
 
-from d2.runtime.compute_metadata import (
+from distca.runtime.compute_metadata import (
     from_planner_output, backward_from_planner_output, get_attn_metadata
 )
-from d2.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
+from distca.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
 
 from test_megatron_layer import MegatronLayerWorker, init_megatron_test
 from test_shard_info_to_fa2a import simulate_all2all

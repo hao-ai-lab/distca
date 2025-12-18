@@ -1,6 +1,6 @@
 import torch
 
-from d2.runtime.attn_kernels.ops import _ops
+from distca.runtime.attn_kernels.ops import _ops
 
 def test_one_case(
         num_token: int, hidden_size: int, num_seq_raw: int, max_num_copies: int,

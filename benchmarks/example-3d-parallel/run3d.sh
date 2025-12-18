@@ -35,7 +35,7 @@ export EXPERIMENT_D2_BALANCE_PING_PONG=0
 export ENABLE_NSYS=0
 export MAX_SAMPLE_ID=5
 
-# Run one d2 + one wlbllm-cpMax to justify the result.
+# Run one distca + one wlbllm-cpMax to justify the result.
 for sample_config in \
 "wlbllm 0.0" \
 ; do
@@ -70,11 +70,11 @@ for config in \
     
     CP_SIZE=$NNODES
     DP_SIZE=$((NNODES / CP_SIZE))
-    export MODE=d2 CP_SIZE=$CP_SIZE
+    export MODE=distca CP_SIZE=$CP_SIZE
     export OUTPUT_DIR_SUFFIX_ADDON=""
-    echo "🟡 Running d2 with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR"
+    echo "🟡 Running distca with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR"
     bash test_e2e_combined.salloc.sh
-    echo "🟡 Finished running d2 with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
+    echo "🟡 Finished running distca with CP_SIZE=$CP_SIZE, DP_SIZE=$DP_SIZE, NNODES=$NNODES, JOBID=$JOBID, BATCH_SIZE=$BATCH_SIZE, NUM_TOKENS=$NUM_TOKENS, ELONGATE_FACTOR=$ELONGATE_FACTOR. Not guaranteed to be successful."
 
 done
 done

@@ -4,7 +4,7 @@ import random
 from rich.console import Console
 from rich.table import Table
 
-from d2.planner.planner import Item
+from distca.planner.planner import Item
 
 console = Console()
 

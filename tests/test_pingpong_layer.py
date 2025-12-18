@@ -28,9 +28,9 @@ import os
 from megatron.core.packed_seq_params import PackedSeqParams
 import torch
 
-from d2.runtime.attn_kernels.ops import DispatcherWrapper
-from d2.runtime.compute_metadata import from_planner_output, get_attn_metadata
-from d2.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
+from distca.runtime.attn_kernels.ops import DispatcherWrapper
+from distca.runtime.compute_metadata import from_planner_output, get_attn_metadata
+from distca.runtime.megatron.packed_seq_params import PingPangPackedSeqParams, PingPangSingleStepPackedSeqParams
 
 from test_util import random_shard_info_linear_layout_dp
 from test_megatron_layer import MegatronLayerWorker, init_megatron_test
@@ -107,7 +107,7 @@ def create_one_batch(
     return planner_output, fa2a_metadata, as_attn_metadata, doc_lens_per_rank
 
 
-# TODO(yonghao): move this to planner / d2/utils.py because it's not only used for test.
+# TODO(yonghao): move this to planner / distca/utils.py because it's not only used for test.
 def get_single_step_packed_seq_params(
     fa2a_metadata, attn_metadata, rank: int, resend_qkv: bool=False
 ):

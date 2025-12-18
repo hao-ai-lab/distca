@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from test_util import ParallelConfig
-from d2.planner.planner import batch_to_items_general, Planner
-from d2.runtime.megatron.d2_rope import apply_rotary_pos_emb_d2
+from distca.planner.planner import batch_to_items_general, Planner
+from distca.runtime.megatron.distca_rope import apply_rotary_pos_emb_distca
 
 
 @dataclass
@@ -40,10 +40,10 @@ def test_rope_with_logical_range():
         [0, 3]
     ], dtype=torch.long)
     
-    patch_path = 'd2.runtime.megatron.d2_rope._apply_rotary_pos_emb_bshd'
+    patch_path = 'distca.runtime.megatron.distca_rope._apply_rotary_pos_emb_bshd'
     
     with patch(patch_path, side_effect=mock_apply_rotary_pos_emb_bshd):
-        output = apply_rotary_pos_emb_d2(
+        output = apply_rotary_pos_emb_distca(
             t=t,
             freqs=freqs,
             config=config,
@@ -196,7 +196,7 @@ def test_end_to_end_rope_verification():
     max_seq_len = 2048
     freqs = torch.arange(max_seq_len, dtype=torch.float32).view(max_seq_len, 1, 1, 1).expand(max_seq_len, 1, 1, hidden_dim)
 
-    patch_path = 'd2.runtime.megatron.d2_rope._apply_rotary_pos_emb_bshd'
+    patch_path = 'distca.runtime.megatron.distca_rope._apply_rotary_pos_emb_bshd'
     with patch(patch_path, side_effect=mock_apply_rotary_pos_emb_bshd):
         for rank_id in range(world_size):
             rich.print(f"    Verifying Rank {rank_id}...")
@@ -209,7 +209,7 @@ def test_end_to_end_rope_verification():
             t_in = torch.zeros(total_len, num_heads, hidden_dim)
             
             logical_range = shard_logical_ranges[rank_id]
-            output = apply_rotary_pos_emb_d2(
+            output = apply_rotary_pos_emb_distca(
                 t=t_in,
                 freqs=freqs,
                 config=transformer_config,
@@ -294,7 +294,7 @@ def test_end_to_end_rope_verification_triton():
     dp_cp_items = batch_to_items_general(batches, num_tokens_per_rank=num_batched_token, DP_degree=dp_degree, model_config=model_config)
     
     _, _, mlp_shard_lens, shard_logical_ranges = planner.plan(dp_cp_items, device=device)
-    from d2.runtime.megatron.d2_rope import precompute_rope_final_indices
+    from distca.runtime.megatron.distca_rope import precompute_rope_final_indices
     print(f"mlp_shard_lens: {mlp_shard_lens}")
     print(f"shard_logical_ranges: {shard_logical_ranges}")
 
@@ -303,7 +303,7 @@ def test_end_to_end_rope_verification_triton():
 
     freqs = torch.arange(max_seq_len, dtype=torch.float32, device=device)
     freqs = freqs.view(max_seq_len, 1, 1, 1).expand(max_seq_len, 1, 1, hidden_dim).contiguous()
-    patch_path = 'd2.runtime.megatron.d2_rope._apply_rotary_pos_emb_bshd'
+    patch_path = 'distca.runtime.megatron.distca_rope._apply_rotary_pos_emb_bshd'
     with patch(patch_path, side_effect=mock_apply_rotary_pos_emb_bshd):
         for rank_id in range(world_size):
             rich.print(f"    Verifying Rank {rank_id}...")
@@ -326,8 +326,8 @@ def test_end_to_end_rope_verification_triton():
 
             final_indice = precompute_rope_final_indices(cu_seqlens, shard_logical_range, device='cpu').to(device)
 
-            from d2.runtime.megatron.d2_rope import apply_rotary_pos_emb_d2_triton
-            output = apply_rotary_pos_emb_d2_triton(
+            from distca.runtime.megatron.distca_rope import apply_rotary_pos_emb_distca_triton
+            output = apply_rotary_pos_emb_distca_triton(
                 t=t_in,
                 freqs=freqs,
                 config=transformer_config,

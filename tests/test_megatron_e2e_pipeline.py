@@ -3,7 +3,7 @@ Debug example:
 NVTE_ALLOW_NONDETERMINISTIC_ALGO=0 torchrun --nnodes 1 --nproc_per_node 2 test_megatron_e2e_pipeline.py --num-gpus-per-node 2 --pp-size 2 --num-microbatch 2
 """
 
-from d2.utils.traceback import enable_clickable_excepthook, enable_trace_calls
+from distca.utils.traceback import enable_clickable_excepthook, enable_trace_calls
 enable_clickable_excepthook()
 
 import argparse
@@ -17,9 +17,9 @@ from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
 import torch
 from transformers import AutoConfig
 
-from d2.runtime.compute_metadata import get_attn_metadata
-from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams
-from d2.runtime.megatron.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
+from distca.runtime.compute_metadata import get_attn_metadata
+from distca.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams
+from distca.runtime.megatron.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
 
 from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispatch_pipeline_tick
 from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
@@ -110,7 +110,7 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # if mpu.get_pipeline_model_parallel_world_size() > 1:
 
         torch.cuda.synchronize()
-        from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
+        from distca.runtime.attn_kernels.ops import nvshmem_barrier_all
         nvshmem_barrier_all()
         if with_dummy:
             losses_reduced = forward_backward_func(

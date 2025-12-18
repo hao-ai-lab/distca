@@ -28,24 +28,24 @@ from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
 import torch
 from transformers import AutoConfig
 
-from d2.runtime.compute_metadata import get_attn_metadata
-from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams, MLPLayoutPackedSeqParams
-from d2.runtime.megatron.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
-from d2.planner.planner import cp_list_to_mlp_list
+from distca.runtime.compute_metadata import get_attn_metadata
+from distca.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams, MLPLayoutPackedSeqParams
+from distca.runtime.megatron.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
+from distca.planner.planner import cp_list_to_mlp_list
 
 from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispatch_pipeline_tick
 from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
 from megatron_test_utils import (
     gptmodel_forward, make_batch_generator, unwrap_model,
 )
-import d2.mem
+import distca.mem
 from contextlib import nullcontext
 
 
 # --------------------------------
 # Better traceback formatting
 # --------------------------------
-from d2.utils.traceback import enable_clickable_excepthook, enable_trace_calls
+from distca.utils.traceback import enable_clickable_excepthook, enable_trace_calls
 enable_clickable_excepthook()
 
 
@@ -149,11 +149,11 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # if mpu.get_pipeline_model_parallel_world_size() > 1:
 
         torch.cuda.synchronize()
-        from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
+        from distca.runtime.attn_kernels.ops import nvshmem_barrier_all
         nvshmem_barrier_all()
 
-        # from d2.utils.traceback import TraceFunctions
-        # tracer = TraceFunctions("d2/d2/runtime/")
+        # from distca.utils.traceback import TraceFunctions
+        # tracer = TraceFunctions("distca/distca/runtime/")
         # with tracer:
         if with_dummy:
             losses_reduced = forward_backward_func(
@@ -380,9 +380,9 @@ def time_me(msg):
     print(f"⚪ [Rank {rank}] finish {msg}, duration: {duration_ms} ms")
 
 
-import d2.mem
+import distca.mem
 def log_memory_usage(message: str, force:bool = False):
-    d2.mem.log_memory_usage(message, force=force)
+    distca.mem.log_memory_usage(message, force=force)
 
 
 def test(args):
@@ -402,7 +402,7 @@ def test(args):
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
     benchmark_log_path = os.path.join(output_dir, "benchmark.raw.jsonl")
-    benchmark_log_path__d2 = os.path.join(output_dir, "benchmark.raw.d2.jsonl")
+    benchmark_log_path__distca = os.path.join(output_dir, "benchmark.raw.distca.jsonl")
     benchmark_log_path__baseline = os.path.join(output_dir, "benchmark.raw.baseline.jsonl")
     benchmark_log_path__baseline_with_dummy = os.path.join(output_dir, "benchmark.raw.baseline_with_dummy.jsonl")
     benchmark_final_path = os.path.join(output_dir, "benchmark.json")
@@ -418,8 +418,8 @@ def test(args):
         json.dump(args_dict, f, indent=2)
 
     memory_usage_dir = os.path.join(output_dir, "memory_usage")
-    d2.mem.set_memory_usage_log_file(memory_usage_dir)
-    d2.mem.enable_memory_usage_logging(memory_usage_dir)
+    distca.mem.set_memory_usage_log_file(memory_usage_dir)
+    distca.mem.enable_memory_usage_logging(memory_usage_dir)
 
     log_memory_usage("enter test", force=True)
 
@@ -548,7 +548,7 @@ def test(args):
 
     # for _ in range(20):
     #     print(f"🟡 get_next_batch: {get_next_batch(num_batches * 2)}")    
-    final_durations_ms = [] # only for d2
+    final_durations_ms = [] # only for distca
     for sample_idx in range(max_sample_id):
         os.environ["__PRG__INTERNAL__EXPERIMENT_SAMPLE_ID"] = str(sample_idx)
         # this total_seq_len is token per rank.
@@ -652,7 +652,7 @@ def test(args):
 
         should_run_baseline_with_dummy = False
         should_run_baseline = False
-        should_run_d2 = True
+        should_run_distca = True
 
         n_warmup = 1
         try:
@@ -678,7 +678,7 @@ def test(args):
 
                 mem_ctx = nullcontext()
                 if _ < n_warmup and should_log_memory_during_warmup:
-                    mem_ctx = d2.mem.log_memory_usage_context()
+                    mem_ctx = distca.mem.log_memory_usage_context()
                     pass
 
                 print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start baseline dummy {_}")
@@ -713,7 +713,7 @@ def test(args):
             for _ in range(n_repeats + n_warmup):
                 mem_ctx = nullcontext()
                 if _ < n_warmup and should_log_memory_during_warmup:
-                    mem_ctx = d2.mem.log_memory_usage_context()
+                    mem_ctx = distca.mem.log_memory_usage_context()
                     pass
 
                 print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start baseline {_}")
@@ -743,18 +743,18 @@ def test(args):
 
         
         
-        if should_run_d2:
-            print(f"Prepare to run d2 with total runs: {n_repeats = } + {n_warmup = } = {n_repeats + n_warmup = }")
+        if should_run_distca:
+            print(f"Prepare to run distca with total runs: {n_repeats = } + {n_warmup = } = {n_repeats + n_warmup = }")
             durations = []
             for _ in range(n_repeats + n_warmup):
                 mem_ctx = nullcontext()
                 if _ < n_warmup and should_log_memory_during_warmup:
-                    mem_ctx = d2.mem.log_memory_usage_context()
+                    mem_ctx = distca.mem.log_memory_usage_context()
                     pass
 
                 config_name = f"n{num_nodes}t{num_tokens}b{num_batches}mb{num_microbatch}-cp{dpcp_size}pp{pp_size}tp{tp_size}"
                 print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start pingpong dummy {_}")
-                with torch.cuda.nvtx.range(f"d2({config_name})[sample={sample_idx}][repeat={_}]"):
+                with torch.cuda.nvtx.range(f"distca({config_name})[sample={sample_idx}][repeat={_}]"):
                     with mem_ctx:
                         torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
                         
@@ -795,7 +795,7 @@ def test(args):
 
     benchmark_final_path = os.path.join(output_dir, "benchmark.json")
     config = dict(
-        mode="d2", 
+        mode="distca", 
         nodes=args.num_nodes,
         num_gpus_per_node=args.num_gpus_per_node,
         tp_size=tp_size, dp_size=1, cp_size=dpcp_size, 

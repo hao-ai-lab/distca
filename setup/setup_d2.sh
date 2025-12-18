@@ -1,12 +1,12 @@
 
 
-# conda create -n d2 python=3.12 -y
+# conda create -n distca python=3.12 -y
 
 # # Install pytorch
 # pip install torch torchvision torchaudio
 
-# Install d2
-cd d2
+# Install distca
+cd distca
 pip install -e .
 # source setup/envvars-login.sh # or set the envvars
 cd ..
@@ -36,8 +36,8 @@ pip install flash-attn
 # cd ..
 
 
-# Install d2/csrc
-cd d2/csrc
+# Install distca/csrc
+cd distca/csrc
 rm -rf build
 cmake -B build -S . -G Ninja 
 cmake --build build

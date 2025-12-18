@@ -26,8 +26,8 @@ importlib.reload(test_megatron_e2e_pipeline_with_cp)
 from test_megatron_e2e_pipeline_with_cp import create_pp_microbatches
 
 
-import d2.runtime.attn_kernels.ops
-DispatcherWrapper = d2.runtime.attn_kernels.ops.DispatcherWrapper
+import distca.runtime.attn_kernels.ops
+DispatcherWrapper = distca.runtime.attn_kernels.ops.DispatcherWrapper
 
 class MockDispatcher:
     def __init__(self):

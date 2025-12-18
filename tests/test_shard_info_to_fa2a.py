@@ -5,8 +5,8 @@ import time
 
 import torch
 
-from d2.runtime.compute_metadata import from_planner_output, backward_from_planner_output
-from d2.runtime.metadata import AlltoAllMetadata
+from distca.runtime.compute_metadata import from_planner_output, backward_from_planner_output
+from distca.runtime.metadata import AlltoAllMetadata
 
 from test_util import create_random_shard_info
 from test_fa2a_metadata import (

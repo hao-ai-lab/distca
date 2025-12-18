@@ -43,9 +43,9 @@ from megatron.core.pipeline_parallel.schedules import get_forward_backward_func
 import torch
 from transformers import AutoConfig
 
-from d2.runtime.compute_metadata import get_attn_metadata
-from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams
-from d2.runtime.megatron.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
+from distca.runtime.compute_metadata import get_attn_metadata
+from distca.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams
+from distca.runtime.megatron.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
 
 from test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispatch_pipeline_tick
 from test_megatron_e2e import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
@@ -55,7 +55,7 @@ from megatron_test_utils import (
 )
 from typing import Optional
 
-import d2.planner.wlb_planner
+import distca.planner.wlb_planner
 import wlbllm
 import wlbllm.utils
 import wlbllm.registry
@@ -65,8 +65,8 @@ import wlbllm.megatron_patch.backends
 import wlbllm.megatron_patch.pp_schedules
 from dataclasses import dataclass
 
-from d2.utils.traceback import enable_clickable_excepthook, clickable_excepthook
-from d2.mem import set_memory_usage_log_file, log_memory_usage, log_memory_usage_context, enable_memory_usage_logging
+from distca.utils.traceback import enable_clickable_excepthook, clickable_excepthook
+from distca.mem import set_memory_usage_log_file, log_memory_usage, log_memory_usage_context, enable_memory_usage_logging
 
 enable_clickable_excepthook()
 
@@ -201,7 +201,7 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # if mpu.get_pipeline_model_parallel_world_size() > 1:
 
         torch.cuda.synchronize()
-        from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
+        from distca.runtime.attn_kernels.ops import nvshmem_barrier_all
         nvshmem_barrier_all()
         if with_dummy:
             raise NotImplementedError("Dummy backward is not implemented for WLBLLM")
@@ -218,7 +218,7 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # print(f"🟡 orig_fwd_backward_func: {orig_fwd_backward_func}")
         # print(f"🟡 orig_fwd_backward_func location: {orig_fwd_backward_func.__module__}.{orig_fwd_backward_func.__name__}")
 
-        # from d2.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving
+        # from distca.runtime.megatron_patch.forward_backward_func import forward_backward_pipelining_without_interleaving
         # losses_reduced = forward_backward_pipelining_without_interleaving(
         losses_reduced = orig_fwd_backward_func(
             forward_step_func=forward_step,
@@ -514,7 +514,7 @@ def test(args):
             print(f"🟡 unbalanced_micro_batches: {unbalanced_micro_batches}")
             my_batch_ranks = list(range(dp_rank, dp_size * num_microbatch, dp_size))
             print(f"🟡 my_batch_ranks: {my_batch_ranks}")
-            balanced_seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
+            balanced_seq_lens, new_batch = distca.planner.wlb_planner.balance_data_for_wlbllm(
                 dp_size * num_microbatch, my_batch_ranks, total_seq_len, batch_size, 
                 unbalanced_micro_batches, 
                 ENABLE_BALANCED_FLOS_NO_DEFER=ENABLE_BALANCED_FLOS_NO_DEFER,

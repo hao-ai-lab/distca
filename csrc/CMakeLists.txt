@@ -89,6 +89,6 @@ target_link_libraries(as_comm PUBLIC
     nvshmem::nvshmem_device
 )
 set_target_properties(as_comm PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../d2/runtime/attn_kernels
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../distca/runtime/attn_kernels
     CUDA_SEPARABLE_COMPILATION ON
 )

@@ -28,7 +28,7 @@ torch.cuda.set_device(device)
 print(f"[Rank {rank}] init_torch_distributed done")
 
 # worker.init_nvshmem(buffer_size, local_rank=local_rank)
-from d2.runtime.attn_kernels.ops import (
+from distca.runtime.attn_kernels.ops import (
     nvshmem_get_unique_id, nvshmem_alloc_empty_unique_id, DispatcherWrapper
 )
 print(f"[Rank {rank}] ====== init_nvshmem ======")

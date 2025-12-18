@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 # TODO(yonghao): compile csrc parts when setting up.
 
 setup(
-    name="d2",
+    name="distca",
     version="0.1",
     packages=find_packages(),  # Automatically find all packages with __init__.py
     install_requires=[

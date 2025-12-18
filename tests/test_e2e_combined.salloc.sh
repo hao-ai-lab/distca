@@ -1,6 +1,6 @@
 #! /bin/bash
 
-#SBATCH --job-name=d2-e2e
+#SBATCH --job-name=distca-e2e
 #SBATCH --nodes=4
 #SBATCH --output=logs/slurm/stdout.%j.log
 #SBATCH --error=logs/slurm/stderr.%j.log
@@ -47,7 +47,7 @@ PP_SIZE=${PP_SIZE:-1}                # Pipeline Parallelism size
 CP_SIZE=${CP_SIZE:-1}                # Only useful in WLBLLM (D2 will have DPCP anyways)
 
 # Experiment settings
-MODE=${MODE:-d2}               # Experiment mode (baseline, dynamic, etc.)
+MODE=${MODE:-distca}               # Experiment mode (baseline, dynamic, etc.)
 BATCH_SIZE=${BATCH_SIZE:-1}          # Batch size for training
 NUM_TOKENS=${NUM_TOKENS:-65536}     # Number of tokens to process
 MAX_SAMPLE_ID=${MAX_SAMPLE_ID:-3}   # Maximum sample ID
@@ -90,7 +90,7 @@ sleep 1
 TS=$(TZ=America/Los_Angeles date +%Y%m%d_%H%M%S)
 
 # TOOD: Fix this hardcode output dir.
-OUTPUT_DIR_PREFIX=${OUTPUT_DIR_PREFIX:-"$HOME/jd/d2/tests/logs"}
+OUTPUT_DIR_PREFIX=${OUTPUT_DIR_PREFIX:-"$HOME/jd/distca/tests/logs"}
 OUTPUT_DIR_SUFFIX=${OUTPUT_DIR_SUFFIX:-"$TS.job$SLURM_JOB_NAME-${JOBID}.${MODE}-cp${CP_SIZE}-n${NNODES}-b${BATCH_SIZE}-t${NUM_TOKENS}"}
 OUTPUT_DIR_SUFFIX_ADDON=${OUTPUT_DIR_SUFFIX_ADDON:-""}
 OUTPUT_DIR="$OUTPUT_DIR_PREFIX/$OUTPUT_DIR_SUFFIX$OUTPUT_DIR_SUFFIX_ADDON"
@@ -113,7 +113,7 @@ mkdir -p "$LOG_DIR"
 # Env and Sanity Check
 # ---------------------------
 
-# conda activate jd-d2
+# conda activate jd-distca
 
 echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 nvidia-smi --query-gpu=index,name --format=csv
