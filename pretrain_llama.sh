@@ -31,7 +31,7 @@ CP_SIZE=${CP_SIZE:-2}                # Only useful in WLBLLM (D2 will have DPCP 
 NUM_MICROBATCH=${NUM_MICROBATCH:-${PP_SIZE}}            # Number of microbatches per pipeline stage, has to be >= PP_SIZE - 1
 
 # Experiment settings
-MODE=${MODE:-d2}               # Experiment mode (baseline, dynamic, etc.)
+MODE=${MODE:-distca}               # Experiment mode (baseline, dynamic, etc.)
 BATCH_SIZE=${BATCH_SIZE:-1}          # Batch size for training
 NUM_TOKENS=${NUM_TOKENS:-16384}     # Number of tokens to process
 MAX_SAMPLE_ID=${MAX_SAMPLE_ID:-3}   # Maximum sample ID

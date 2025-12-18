@@ -1,9 +1,9 @@
 import torch
 
-from d2.runtime.attn_kernels.ops import (
+from distca.runtime.attn_kernels.ops import (
     a2a_memcpy_non_cp, a2a_memcpy_cp
 )
-from d2.runtime.compute_metadata import from_planner_output
+from distca.runtime.compute_metadata import from_planner_output
 
 from test_util import create_random_shard_info
 from test_fa2a_metadata import (

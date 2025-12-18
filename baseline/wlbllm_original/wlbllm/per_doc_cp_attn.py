@@ -50,8 +50,8 @@ def debug_print(*args, **kwargs):
 fake_lse = None
 
 def log_memory_usage(message: str):
-    import d2.mem
-    d2.mem.log_memory_usage(message)
+    import distca.mem
+    distca.mem.log_memory_usage(message)
 
 class PerDocumentCPAttention(torch.autograd.Function):
     """

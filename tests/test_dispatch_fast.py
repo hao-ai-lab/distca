@@ -11,16 +11,16 @@ torchrun --nnodes 1 --nproc_per_node 2 test_dispatch_fast.py \
 """
 import torch
 
-from d2.runtime.attn_kernels.ops import (
+from distca.runtime.attn_kernels.ops import (
     nvshmem_barrier_all
 )
 # TODO: test fast_a2a_attn_out and its metadata by sending q_attn_layout back to q_mlp_layout via attn_out metadata.
-from d2.runtime.attn_kernels.dispatch import (
+from distca.runtime.attn_kernels.dispatch import (
     pre_a2a_qkv, post_a2a_qkv
 )
-from d2.runtime.attn_kernels.ops import fast_a2a
-from d2.runtime.compute_metadata import from_planner_output
-from d2.runtime.metadata import AlltoAllMetadata
+from distca.runtime.attn_kernels.ops import fast_a2a
+from distca.runtime.compute_metadata import from_planner_output
+from distca.runtime.metadata import AlltoAllMetadata
 
 from test_util import (
     BaseWorker, init_worker_torch_distributed,

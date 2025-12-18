@@ -20,8 +20,8 @@ We use the following environment in our setup and testing:
 ### Step 1: Setup a conda environment:
 ```bash
 # Create a conda environment
-conda create -n d2 python=3.12 -y
-conda activate d2
+conda create -n distca python=3.12 -y
+conda activate distca
 
 # Install pytorch
 pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
@@ -35,12 +35,12 @@ cp env.template.sh env.sh
 source env.sh
 ```
 
-### Step 3: Install DistCA (`d2`) + dependencies
+### Step 3: Install DistCA (`distca`) + dependencies
 
 The commands below assume you are at the **repo root** (i.e. the directory containing `setup.py`, `pretrain_llama.py`, `env.sh`, etc.). 
 
 DistCA has the following external dependencies to install:
-- `d2`
+- `distca`
 - `TransformerEngine`
 - `Apex`
 - `FlashAttention`
@@ -55,7 +55,7 @@ Here, we provide a script to install all dependencies locally. For `TransformerE
 source env.sh
 ```
 
-#### 3.1 Install `d2`
+#### 3.1 Install `distca`
 
 ```bash
 pip install -e .
@@ -152,12 +152,12 @@ print(flash_attn.__version__)
 # >>> 2.7.4+cu128torch2.7
 ```
 
-#### 3.6 Build `d2` CUDA extensions (required)
+#### 3.6 Build `distca` CUDA extensions (required)
 
 DistCA builds a simple all2all communication library on top of NVSHMEM to support efficient dispatch of attention tasks. 
 
 
-The following command builds `libas_comm.so` into `d2/runtime/attn_kernels/` (the Python code loads it via `torch.ops.load_library(...)`).
+The following command builds `libas_comm.so` into `distca/runtime/attn_kernels/` (the Python code loads it via `torch.ops.load_library(...)`).
 
 ```bash
 # If you don't already have them:
@@ -171,9 +171,9 @@ cd ..
 
 To check if the CUDA extensions are built correctly, you can run the following command:
 ```python
-import d2.runtime.attn_kernels.ops as ops
+import distca.runtime.attn_kernels.ops as ops
 print(ops.__file__)
-# >>> /path/to/d2/runtime/attn_kernels/libas_comm.so
+# >>> /path/to/distca/runtime/attn_kernels/libas_comm.so
 print(ops.nvshmem_init)
 ```
 

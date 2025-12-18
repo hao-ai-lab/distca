@@ -4,10 +4,10 @@ torchrun \
   --nproc_per_node=8 \
   --rdzv_backend=c10d \
   --rdzv_endpoint=fs-mbz-gpu-012:29800 \
-  --rdzv_id=megatron_d2_unique_id \
+  --rdzv_id=megatron_distca_unique_id \
   --max_restarts=0 \
   test_e2e_combined.py \
-    --mode d2 \
+    --mode distca \
     --replan-iter 1 \
     --num-nodes 4 \
     --num-gpus-per-node 8 \

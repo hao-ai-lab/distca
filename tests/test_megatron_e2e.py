@@ -19,8 +19,8 @@ from omegaconf import OmegaConf
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
-from d2.runtime.compute_metadata import get_attn_metadata
-from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
+from distca.runtime.compute_metadata import get_attn_metadata
+from distca.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
 
 from test_util import MegatronBaseWorker, ParallelConfig, init_worker_torch_distributed, set_random_seed
 from test_pingpong_layer import create_one_batch, get_single_step_packed_seq_params

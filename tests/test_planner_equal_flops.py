@@ -1,4 +1,4 @@
-from d2.planner.equal_flops import plan_relocation, batch_to_items
+from distca.planner.equal_flops import plan_relocation, batch_to_items
 import rich
 
 K = 1024

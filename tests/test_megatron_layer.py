@@ -26,11 +26,11 @@ from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
 import torch
 
-from d2.runtime.compute_metadata import from_planner_output, get_attn_metadata
-from d2.runtime.megatron.create_group import get_attn_server_group
-from d2.runtime.megatron.model_patch import get_gpt_layer_with_transformer_engine_spec, get_gpt_config
-from d2.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
-from d2.runtime.megatron.ping_pong.transformer_layer import TransformerLayer as PingPangTransformerLayer
+from distca.runtime.compute_metadata import from_planner_output, get_attn_metadata
+from distca.runtime.megatron.create_group import get_attn_server_group
+from distca.runtime.megatron.model_patch import get_gpt_layer_with_transformer_engine_spec, get_gpt_config
+from distca.runtime.megatron.packed_seq_params import PingPangSingleStepPackedSeqParams
+from distca.runtime.megatron.ping_pong.transformer_layer import TransformerLayer as PingPangTransformerLayer
 
 from test_util import (
     MegatronBaseWorker, ParallelConfig,

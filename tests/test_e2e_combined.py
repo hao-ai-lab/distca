@@ -35,8 +35,8 @@ print(f"CPUS={aff} MEMS={mems}")
 # Main Imports
 # ----------------
 from torch.profiler import profile, record_function, ProfilerActivity
-import d2.planner.wlb_planner
-import d2.mem
+import distca.planner.wlb_planner
+import distca.mem
 import math
 import argparse
 import os
@@ -59,11 +59,11 @@ from omegaconf import OmegaConf
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
-from d2.runtime.attn_kernels.ops import DispatcherWrapper
-from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams, MLPLayoutPackedSeqParams
-from d2.runtime.compute_metadata import get_attn_metadata
-from d2.runtime.megatron.ops.stream_sync_fn import TickSync
-from d2.runtime.megatron.d2_rope import precompute_rope_final_indices
+from distca.runtime.attn_kernels.ops import DispatcherWrapper
+from distca.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams, MLPLayoutPackedSeqParams
+from distca.runtime.compute_metadata import get_attn_metadata
+from distca.runtime.megatron.ops.stream_sync_fn import TickSync
+from distca.runtime.megatron.distca_rope import precompute_rope_final_indices
 
 from test_util import MegatronBaseWorker, ParallelConfig, init_worker_torch_distributed, set_random_seed
 from test_pingpong_layer import get_single_step_packed_seq_params
@@ -73,21 +73,21 @@ from megatron_test_utils import (
     make_batch_generator, print_model_size, update_model_config, unwrap_model,
 )
 
-from d2.planner.planner import (
+from distca.planner.planner import (
     batch_to_items_general,
     Planner,
     Item,
 )
 
 
-from d2.utils.traceback import enable_clickable_excepthook, enable_trace_calls
+from distca.utils.traceback import enable_clickable_excepthook, enable_trace_calls
 enable_clickable_excepthook()
 
 
 def timeout_handler(signum, frame):
     raise TimeoutError("forward_backward_batch operation timed out after 5 minutes")
 
-# from d2.utils.torch_profiler import ProfilerCtx
+# from distca.utils.torch_profiler import ProfilerCtx
 
 
 def debug_print(*args, **kwargs):
@@ -114,7 +114,7 @@ def set_random_seed(seed, set_megatron: bool=True):
 
 
 def log_memory_usage(message: str, force:bool = False):
-    d2.mem.log_memory_usage(message, force=force)
+    distca.mem.log_memory_usage(message, force=force)
 
 @contextmanager
 def log_memory_usage_context():
@@ -481,7 +481,7 @@ def init_wlbllm_e2e_test(
 
 
 from typing import Iterable, List, Optional
-from d2.simulator.optimizers.samples import sample_wlbllm_docs_upsample, batch_documents, sample_prolong_docs
+from distca.simulator.optimizers.samples import sample_wlbllm_docs_upsample, batch_documents, sample_prolong_docs
 
 ITERATION_ID = 0
 GLOBAL_BATCH: Optional[Iterable[List[int]]] = None
@@ -583,7 +583,7 @@ except ImportError as e:
     print(f"🟡 ImportError: {e}")
     print("""⚠️ WLBLLM is not installed. This only affects if you're testing WLBLLM tests. To install:
 
-    cd d2/baseline/wlbllm_original
+    cd distca/baseline/wlbllm_original
     pip install -e .
     """)
     exit(1)
@@ -642,7 +642,7 @@ def test(args):
     
     # Setup tick operations timing collection
     if os.getenv("UNIFIED_RECORD_TICK_TIMES", "0") == "1":
-        from d2.runtime.megatron.ping_pong.tick_ops import setup_tick_timing
+        from distca.runtime.megatron.ping_pong.tick_ops import setup_tick_timing
         setup_tick_timing()
         print(f"🟡 Unified tick operations timing collection setup. This may impact the performance, but recording the tick operations timing.")
     
@@ -685,7 +685,7 @@ def test(args):
     if mode == "wlbllm":
         # assert cp_degree * tp_size == world_size, f"WLBLLM world size ({world_size}) = num_nodes ({args.num_nodes}) * num_gpus_per_node ({args.num_gpus_per_node}) must be divisible by cp_degree ({cp_degree}) * tp_size ({tp_size})"
         print(f"🟡 Running WLBLLM config: cp_degree={cp_degree}, tp_size={tp_size}, world_size={world_size}")
-    elif mode == "d2":
+    elif mode == "distca":
         print(f"🟡 Running D2 config: tp_size={tp_size}, world_size={world_size}")
     else:
         pass
@@ -791,7 +791,7 @@ def test(args):
         if os.getenv("UNIFIED_RECORD_A2A_TIMES", "0") == "1":
             set_unified_current_a2a_sample_id(sample_id)
         if os.getenv("UNIFIED_RECORD_TICK_TIMES", "0") == "1":
-            from d2.runtime.megatron.ping_pong.tick_ops import set_current_tick_sample_id
+            from distca.runtime.megatron.ping_pong.tick_ops import set_current_tick_sample_id
             set_current_tick_sample_id(sample_id)
         if mode == "baseline":
             try:
@@ -854,7 +854,7 @@ def test(args):
 
             
             alpha_factor = args.alpha_factor # at max tolerate 2x memory imbalance. This number can go infinite...
-            seq_lens, new_batch = d2.planner.wlb_planner.balance_data_for_wlbllm(
+            seq_lens, new_batch = distca.planner.wlb_planner.balance_data_for_wlbllm(
                 dp_size, dp_rank, total_seq_len, batch_size, _seq_lens, 
                 ENABLE_BALANCED_FLOS_NO_DEFER=True,
                 model_config=hf_config, # TODO: (Refactor) This is a hack to pass the model config to the WLBLLM planner.
@@ -902,7 +902,7 @@ def test(args):
             local_context_length = sum(doc_lens) // cp_size
             context_length = local_context_length * cp_size
 
-            # cp_group = d2.runtime.megatron_patch.create_group.get_attn_server_group()
+            # cp_group = distca.runtime.megatron_patch.create_group.get_attn_server_group()
             # debug_print(f"cp_size", cp_size)
             debug_print(f"local_context_length", local_context_length)
             debug_print(f"context_length", context_length)
@@ -990,7 +990,7 @@ def test(args):
                 wlbllm.registry.init_attention_timing_for_sample(sample_id)
 
         
-        elif mode == "d2":
+        elif mode == "distca":
             # D2 will get 2 batch each time, one for ping, the other for pong.
             # Suppose we have 
             #   as_world_size = 4
@@ -1038,8 +1038,8 @@ def test(args):
                 
             rich.print(f"🟡 [Rank {rank}] _seq_lens = {_seq_lens}")
 
-            should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
-            if should_d2_balance_ping_pong:
+            should_distca_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
+            if should_distca_balance_ping_pong:
                 print(f"🟢 [Rank {rank}] Balancing ping pong")
                 seq_lens_0, seq_lens_1 = balance_ping_pong(_seq_lens)
             else:
@@ -1545,8 +1545,8 @@ def test(args):
                 allocated_cur, 
                 allocated_peak, 
                 total_alloc
-            ) = d2.mem.get_torch_cuda_memory_usage(device)
-            pynvml_gpu_memory_usage = d2.mem.get_pynvml_gpu_memory_usage(device)
+            ) = distca.mem.get_torch_cuda_memory_usage(device)
+            pynvml_gpu_memory_usage = distca.mem.get_pynvml_gpu_memory_usage(device)
             rich.print(f"Ⓜ️Ⓜ️ [Sample ID=({sample_id})] Memory usage: allocated_cur: {(allocated_cur/1024):.2f} GB, allocated_peak: {(allocated_peak/1024):.2f} GB, total_alloc: {(total_alloc/1024):.2f} GB, pynvml_gpu_memory_usage: {(pynvml_gpu_memory_usage/1024):.2f} GB")
             
 
@@ -1656,7 +1656,7 @@ def test(args):
         # Log tick operations timing data for this iteration if enabled
         if os.getenv("UNIFIED_RECORD_TICK_TIMES", "0") == "1":
             # Synchronize and collect timing data from CUDA events
-            from d2.runtime.megatron.ping_pong.tick_ops import sync_and_collect_tick_timing, get_tick_times
+            from distca.runtime.megatron.ping_pong.tick_ops import sync_and_collect_tick_timing, get_tick_times
             sync_and_collect_tick_timing()
             
             timing_data = get_tick_times().get(sample_id, {
@@ -1837,7 +1837,7 @@ def test(args):
     # Save tick operations timing data if enabled
     if os.getenv("UNIFIED_RECORD_TICK_TIMES", "0") == "1":
         # Final synchronization to collect any remaining timing data
-        from d2.runtime.megatron.ping_pong.tick_ops import sync_and_collect_tick_timing, get_tick_times
+        from distca.runtime.megatron.ping_pong.tick_ops import sync_and_collect_tick_timing, get_tick_times
         sync_and_collect_tick_timing()
         
         if rank == 0:
@@ -1921,7 +1921,7 @@ def save_memory_usage_to_file(memory_usage_dir: str):
     os.makedirs(memory_usage_dir, exist_ok=True)
     
     rank = torch.distributed.get_rank()
-    memory_usage: list[dict] = d2.mem.get_memory_usage()
+    memory_usage: list[dict] = distca.mem.get_memory_usage()
     memory_usage_output_file = os.path.join(memory_usage_dir, f"mem.rank{rank}.jsonl")
     with open(memory_usage_output_file, 'w') as f:
         for memory_usage_item in memory_usage:
@@ -1936,7 +1936,7 @@ def enable_memory_usage_logging(memory_usage_dir: str):
     memory_usage_log_file = os.path.join(memory_usage_dir, f"mem.rank{rank}.log.jsonl")
     with open(memory_usage_log_file, 'w') as f:
         pass
-    d2.mem.set_memory_usage_log_file(memory_usage_log_file)
+    distca.mem.set_memory_usage_log_file(memory_usage_log_file)
     pass
 
 # Unified Attention Timing Collection (works for both WLBLLM and D2)
@@ -2048,7 +2048,7 @@ _pending_a2a_events = []  # List of (sample_id, operation, start_event, end_even
 
 def setup_unified_a2a_timing_patch():
     """Setup monkey patching for unified all-to-all timing collection."""
-    from d2.runtime.attn_kernels.ops import _ops_fast_a2a_wrapper, DispatcherWrapper
+    from distca.runtime.attn_kernels.ops import _ops_fast_a2a_wrapper, DispatcherWrapper
     
     # Store original function
     original_wrapper = _ops_fast_a2a_wrapper
@@ -2080,7 +2080,7 @@ def setup_unified_a2a_timing_patch():
         return result
     
     # Apply monkey patch
-    import d2.runtime.attn_kernels.ops as ops_module
+    import distca.runtime.attn_kernels.ops as ops_module
     ops_module._ops_fast_a2a_wrapper = timed_wrapper
     
     print("🟢 Unified all-to-all timing patch applied successfully")
@@ -2098,7 +2098,7 @@ def sync_and_collect_a2a_timing():
         return {}
     
     # Get the communication stream and synchronize
-    from d2.runtime.attn_kernels.ops import DispatcherWrapper
+    from distca.runtime.attn_kernels.ops import DispatcherWrapper
     comm_stream = DispatcherWrapper.comm_stream
     if comm_stream is not None:
         comm_stream.synchronize()
@@ -2134,8 +2134,8 @@ def clear_unified_a2a_times():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=str, choices=["baseline", "d2", "wlbllm"], default="baseline", 
-                        help="Test mode: 'baseline' for simple batch generation, 'd2' for balanced flops planning, 'wlbllm' for wlbllm")
+    parser.add_argument("--mode", type=str, choices=["baseline", "distca", "wlbllm"], default="baseline", 
+                        help="Test mode: 'baseline' for simple batch generation, 'distca' for balanced flops planning, 'wlbllm' for wlbllm")
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-tokens", type=int, default=1024)
     parser.add_argument("--cp-degree", type=int, default=2)

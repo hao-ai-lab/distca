@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from test_util import ParallelConfig
 
-from d2.planner.planner import (Item, Planner, batch_to_items_general,
+from distca.planner.planner import (Item, Planner, batch_to_items_general,
                                 batch_to_items_with_dummy, cp_list_to_mlp_list,
                                 get_flops)
 

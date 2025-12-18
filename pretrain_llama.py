@@ -21,7 +21,7 @@ from functools import partial
 import os
 import time
 import json
-from d2.utils.training_utils import setup_global_batch
+from distca.utils.training_utils import setup_global_batch
 
 import megatron.core.parallel_state as mpu
 from megatron.core import tensor_parallel
@@ -31,25 +31,25 @@ from megatron.core.tensor_parallel.cross_entropy import vocab_parallel_cross_ent
 import torch
 from transformers import AutoConfig
 
-from d2.runtime.compute_metadata import get_attn_metadata
-from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams, MLPLayoutPackedSeqParams
-from d2.runtime.megatron.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
-from d2.planner.planner import cp_list_to_mlp_list
+from distca.runtime.compute_metadata import get_attn_metadata
+from distca.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangSingleStepPackedSeqParams, PingPangPackedSeqParams, MLPLayoutPackedSeqParams
+from distca.runtime.megatron.forward_backward_func import forward_backward_pipelining_without_interleaving as forward_backward_func
+from distca.planner.planner import cp_list_to_mlp_list
 
-from d2.utils.test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispatch_pipeline_tick
-from d2.utils.worker import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
-from d2.utils.megatron_test_utils import (
+from distca.utils.test_util import ParallelConfig, init_worker_torch_distributed, create_qkv_dispatch_pipeline_tick
+from distca.utils.worker import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
+from distca.utils.megatron_test_utils import (
     gptmodel_forward, make_batch_generator, unwrap_model,
 )
-from d2.utils.wandb_driver import WandbDriver
-import d2.mem
+from distca.utils.wandb_driver import WandbDriver
+import distca.mem
 from contextlib import nullcontext
 
 
 # --------------------------------
 # Better traceback formatting
 # --------------------------------
-from d2.utils.traceback import enable_clickable_excepthook, enable_trace_calls
+from distca.utils.traceback import enable_clickable_excepthook, enable_trace_calls
 enable_clickable_excepthook()
 
 
@@ -66,7 +66,7 @@ print(f"[{rank}] allowed CPUs:", p.cpu_affinity())
 # ----------------
 # Taskset confirm
 # ----------------
-import d2.utils.check_cpu_binding as check_cpu_binding
+import distca.utils.check_cpu_binding as check_cpu_binding
 aff, mems = check_cpu_binding.check_cpu_binding()
 print(f"CPUS={aff} MEMS={mems}")
 
@@ -273,11 +273,11 @@ class MegatronE2eWorker(BaseMegatronE2eWorker):
         # if mpu.get_pipeline_model_parallel_world_size() > 1:
 
         torch.cuda.synchronize()
-        from d2.runtime.attn_kernels.ops import nvshmem_barrier_all
+        from distca.runtime.attn_kernels.ops import nvshmem_barrier_all
         nvshmem_barrier_all()
 
-        # from d2.utils.traceback import TraceFunctions
-        # tracer = TraceFunctions("d2/d2/runtime/")
+        # from distca.utils.traceback import TraceFunctions
+        # tracer = TraceFunctions("distca/distca/runtime/")
         # with tracer:
         if with_dummy:
             losses_reduced = forward_backward_func(
@@ -504,9 +504,9 @@ def time_me(msg):
     print(f"⚪ [Rank {rank}] finish {msg}, duration: {duration_ms} ms")
 
 
-import d2.mem
+import distca.mem
 def log_memory_usage(message: str, force:bool = False):
-    d2.mem.log_memory_usage(message, force=force)
+    distca.mem.log_memory_usage(message, force=force)
 
 
 def test(args):
@@ -526,7 +526,7 @@ def test(args):
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
     benchmark_log_path = os.path.join(output_dir, "benchmark.raw.jsonl")
-    benchmark_log_path__d2 = os.path.join(output_dir, "benchmark.raw.d2.jsonl")
+    benchmark_log_path__distca = os.path.join(output_dir, "benchmark.raw.distca.jsonl")
     benchmark_log_path__baseline = os.path.join(output_dir, "benchmark.raw.baseline.jsonl")
     benchmark_log_path__baseline_with_dummy = os.path.join(output_dir, "benchmark.raw.baseline_with_dummy.jsonl")
     benchmark_final_path = os.path.join(output_dir, "benchmark.json")
@@ -542,8 +542,8 @@ def test(args):
         json.dump(args_dict, f, indent=2)
 
     memory_usage_dir = os.path.join(output_dir, "memory_usage")
-    d2.mem.set_memory_usage_log_file(memory_usage_dir)
-    d2.mem.enable_memory_usage_logging(memory_usage_dir)
+    distca.mem.set_memory_usage_log_file(memory_usage_dir)
+    distca.mem.enable_memory_usage_logging(memory_usage_dir)
 
     log_memory_usage("enter test", force=True)
 
@@ -571,7 +571,7 @@ def test(args):
 
     # Wandb configuration (support both CLI args and env vars)
     enable_wandb = args.enable_wandb or os.environ.get("ENABLE_WANDB", "0") == "1"
-    wandb_project = args.wandb_project or os.environ.get("WANDB_PROJECT", "d2-training")
+    wandb_project = args.wandb_project or os.environ.get("WANDB_PROJECT", "distca-training")
     wandb_run_name = args.wandb_run_name or os.environ.get("WANDB_RUN_NAME", None)
     allow_all_ranks_loss = args.allow_all_ranks_loss or os.environ.get("ALLOW_ALL_RANKS_LOSS", "0") == "1"
     print(f"🟡 allow_all_ranks_loss = {allow_all_ranks_loss}")
@@ -712,8 +712,8 @@ def test(args):
 
     # for _ in range(20):
     #     print(f"🟡 get_next_batch: {get_next_batch(num_batches * 2)}")    
-    final_durations_ms = [] # only for d2
-    final_losses = [] # only for d2
+    final_durations_ms = [] # only for distca
+    final_losses = [] # only for distca
     for sample_idx in range(max_sample_id):
         os.environ["__PRG__INTERNAL__EXPERIMENT_SAMPLE_ID"] = str(sample_idx)
         # this total_seq_len is token per rank.
@@ -818,7 +818,7 @@ def test(args):
 
         should_run_baseline_with_dummy = False
         should_run_baseline = False
-        should_run_d2 = True
+        should_run_distca = True
 
         n_warmup = 1
         try:
@@ -835,18 +835,18 @@ def test(args):
         except:
             pass
         
-        print(f"Prepare to run d2 with total runs: {n_repeats = } + {n_warmup = } = {n_repeats + n_warmup = }")
+        print(f"Prepare to run distca with total runs: {n_repeats = } + {n_warmup = } = {n_repeats + n_warmup = }")
         durations = []
         losses = []
         for _ in range(n_repeats + n_warmup):
             mem_ctx = nullcontext()
             if _ < n_warmup and should_log_memory_during_warmup:
-                mem_ctx = d2.mem.log_memory_usage_context()
+                mem_ctx = distca.mem.log_memory_usage_context()
                 pass
 
             config_name = f"n{num_nodes}t{num_tokens}b{num_batches}mb{num_microbatch}-cp{dpcp_size}pp{pp_size}tp{tp_size}"
             print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start pingpong dummy {_}")
-            with torch.cuda.nvtx.range(f"d2({config_name})[sample={sample_idx}][repeat={_}]"):
+            with torch.cuda.nvtx.range(f"distca({config_name})[sample={sample_idx}][repeat={_}]"):
                 with mem_ctx:
                     torch.cuda.synchronize(); torch.distributed.barrier(); start_time = time.time()
                     loss_reduced, grad_sample = worker.forward_backward_batch(
@@ -906,7 +906,7 @@ def test(args):
 
     benchmark_final_path = os.path.join(output_dir, "benchmark.json")
     config = dict(
-        mode="d2", 
+        mode="distca", 
         nodes=args.num_nodes,
         num_gpus_per_node=args.num_gpus_per_node,
         tp_size=tp_size, dp_size=1, cp_size=dpcp_size, 
@@ -998,7 +998,7 @@ if __name__ == "__main__":
 
     # Wandb logging options
     parser.add_argument("--enable-wandb", action="store_true", help="Enable Weights & Biases logging (or set ENABLE_WANDB=1)")
-    parser.add_argument("--wandb-project", type=str, default="d2-training", help="Wandb project name (or set WANDB_PROJECT env var)")
+    parser.add_argument("--wandb-project", type=str, default="distca-training", help="Wandb project name (or set WANDB_PROJECT env var)")
     parser.add_argument("--wandb-run-name", type=str, default=None, help="Wandb run name (or set WANDB_RUN_NAME env var). Set WANDB_API_KEY for authentication.")
     parser.add_argument("--allow-all-ranks-loss", action="store_true", help="Allow all ranks to output loss values (or set ALLOW_ALL_RANKS_LOSS=1)")
 

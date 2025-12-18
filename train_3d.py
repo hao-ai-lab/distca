@@ -75,8 +75,8 @@ print(f"CPUS={aff} MEMS={mems}")
 # ----------------
 # Main Imports
 # ----------------
-import d2.planner.wlb_planner
-import d2.mem
+import distca.planner.wlb_planner
+import distca.mem
 import math
 import argparse
 import os
@@ -98,9 +98,9 @@ from omegaconf import OmegaConf
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoProcessor
 
-from d2.runtime.attn_kernels.ops import DispatcherWrapper
-from d2.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
-from d2.runtime.compute_metadata import get_attn_metadata
+from distca.runtime.attn_kernels.ops import DispatcherWrapper
+from distca.runtime.megatron.packed_seq_params import arg_to_cuda, PingPangPackedSeqParams
+from distca.runtime.compute_metadata import get_attn_metadata
 
 from test_util import MegatronBaseWorker, ParallelConfig, init_worker_torch_distributed, set_random_seed
 from test_pingpong_layer import get_single_step_packed_seq_params
@@ -110,14 +110,14 @@ from megatron_test_utils import (
     make_batch_generator, print_model_size, update_model_config, unwrap_model,
 )
 
-from d2.planner.planner import (
+from distca.planner.planner import (
     batch_to_items_general,
     Planner,
     Item,
 )
 
 
-from d2.utils.traceback import enable_clickable_excepthook, enable_trace_calls
+from distca.utils.traceback import enable_clickable_excepthook, enable_trace_calls
 enable_clickable_excepthook()
 
 from wandb_driver import WandbDriver
@@ -126,7 +126,7 @@ from wandb_driver import WandbDriver
 def timeout_handler(signum, frame):
     raise TimeoutError("forward_backward_batch operation timed out after 5 minutes")
 
-# from d2.utils.torch_profiler import ProfilerCtx
+# from distca.utils.torch_profiler import ProfilerCtx
 
 
 def debug_print(*args, **kwargs):
@@ -153,7 +153,7 @@ def set_random_seed(seed, set_megatron: bool=True):
 
 
 def log_memory_usage(message: str, force:bool = False):
-    d2.mem.log_memory_usage(message, force=force)
+    distca.mem.log_memory_usage(message, force=force)
 
 @contextmanager
 def log_memory_usage_context():
@@ -582,7 +582,7 @@ def main(args):
     
     # Wandb configuration (support both CLI args and env vars)
     enable_wandb = args.enable_wandb or os.environ.get("ENABLE_WANDB", "0") == "1"
-    wandb_project = args.wandb_project or os.environ.get("WANDB_PROJECT", "d2-training")
+    wandb_project = args.wandb_project or os.environ.get("WANDB_PROJECT", "distca-training")
     wandb_run_name = args.wandb_run_name or os.environ.get("WANDB_RUN_NAME", None)
     allow_all_ranks_loss = os.environ.get("ALLOW_ALL_RANKS_LOSS", "0") == "1"
     print(f"🟡 allow_all_ranks_loss = {allow_all_ranks_loss}")
@@ -593,7 +593,7 @@ def main(args):
         os.environ["NUM_LAYERS"] = str(num_layers)
 
     mode = args.mode
-    assert mode == "d2", f"Mode {mode} is not supported for D2"
+    assert mode == "distca", f"Mode {mode} is not supported for D2"
     
     dtype = torch.bfloat16
     element_size = dtype.itemsize
@@ -774,8 +774,8 @@ def main(args):
             
         print(f"🟡 [Rank {rank}] _seq_lens = {_seq_lens}")
 
-        should_d2_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
-        if should_d2_balance_ping_pong:
+        should_distca_balance_ping_pong = os.environ.get("EXPERIMENT_D2_BALANCE_PING_PONG", "0") == "1"
+        if should_distca_balance_ping_pong:
             print(f"🟢 [Rank {rank}] Balancing ping pong")
             seq_lens_0, seq_lens_1 = balance_ping_pong(_seq_lens)
         else:
@@ -999,8 +999,8 @@ def main(args):
                 allocated_cur, 
                 allocated_peak, 
                 total_alloc
-            ) = d2.mem.get_torch_cuda_memory_usage(device)
-            pynvml_gpu_memory_usage = d2.mem.get_pynvml_gpu_memory_usage(device)
+            ) = distca.mem.get_torch_cuda_memory_usage(device)
+            pynvml_gpu_memory_usage = distca.mem.get_pynvml_gpu_memory_usage(device)
             print(f"Ⓜ️Ⓜ️ [Sample ID=({sample_id})] Memory usage: allocated_cur: {(allocated_cur/1024):.2f} GB, allocated_peak: {(allocated_peak/1024):.2f} GB, total_alloc: {(total_alloc/1024):.2f} GB, pynvml_gpu_memory_usage: {(pynvml_gpu_memory_usage/1024):.2f} GB")
             
             # Log memory usage to wandb with separate step
@@ -1119,7 +1119,7 @@ def main(args):
     # ------------------------------------------------------------------
     # Save final checkpoint (per-rank sharded weights) if requested
     # ------------------------------------------------------------------
-    ckpt_root = os.environ.get("CKPT_DIR", "/mnt/sharefs/users/yonghao.zhuang/d2-logs/ckpts")
+    ckpt_root = os.environ.get("CKPT_DIR", "/mnt/sharefs/users/yonghao.zhuang/distca-logs/ckpts")
     if ckpt_root:
         try:
             # Each run gets its own subdirectory named after the output_dir basename
@@ -1156,8 +1156,8 @@ def main(args):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", type=str, choices=["d2"], default="d2", 
-                        help="Test mode: currently only supports 'd2' for balanced flops planning")
+    parser.add_argument("--mode", type=str, choices=["distca"], default="distca", 
+                        help="Test mode: currently only supports 'distca' for balanced flops planning")
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument(
         "--val-every-n-steps",
@@ -1200,7 +1200,7 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument("--enable-wandb", action="store_true", help="Enable Weights & Biases logging (or set ENABLE_WANDB=1)")
-    parser.add_argument("--wandb-project", type=str, default="d2-training", help="Wandb project name (or set WANDB_PROJECT env var)")
+    parser.add_argument("--wandb-project", type=str, default="distca-training", help="Wandb project name (or set WANDB_PROJECT env var)")
     parser.add_argument("--wandb-run-name", type=str, default=None, help="Wandb run name (or set WANDB_RUN_NAME env var). Set WANDB_API_KEY for authentication.")
     parser.add_argument("--allow-all-ranks-loss", action="store_true", help="Allow all ranks to output loss values (or set ALLOW_ALL_RANKS_LOSS=1)")
     

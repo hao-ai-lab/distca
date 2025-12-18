@@ -32,7 +32,7 @@ CP_SIZE=${CP_SIZE:-1}                # Only useful in WLBLLM (D2 will have DPCP 
 NUM_MICROBATCH=${NUM_MICROBATCH:-${PP_SIZE}}            # Number of microbatches per pipeline stage, has to be >= PP_SIZE - 1
 
 # Experiment settings
-MODE=${MODE:-d2}               # Experiment mode (baseline, dynamic, etc.)
+MODE=${MODE:-distca}               # Experiment mode (baseline, dynamic, etc.)
 BATCH_SIZE=${BATCH_SIZE:-1}          # Batch size for training
 # NUM_TOKENS=${NUM_TOKENS:-131072}     # Number of tokens to process
 NUM_TOKENS=${NUM_TOKENS:-16384}     # Number of tokens to process
@@ -78,7 +78,7 @@ TS=$(TZ=America/Los_Angeles date +%Y%m%d_%H%M%S)
 SHORT_TS=$(TZ=America/Los_Angeles date +%d_%H%M%S)
 
 # TOOD: Fix this hardcode output dir.
-OUTPUT_DIR_PREFIX=${OUTPUT_DIR_PREFIX:-"$HOME/jd/d2/tests/logs"}
+OUTPUT_DIR_PREFIX=${OUTPUT_DIR_PREFIX:-"$HOME/jd/distca/tests/logs"}
 OUTPUT_DIR_SUFFIX=${OUTPUT_DIR_SUFFIX:-"$SHORT_TS.${MODE}-n${NNODES}-t${NUM_TOKENS}-b${BATCH_SIZE}-mb${NUM_MICROBATCH}-cp${CP_SIZE}tp${TP_SIZE}pp${PP_SIZE}-${MODEL_PATH_normalized}-L${NUM_LAYERS}-${SAMPLE_NAME}_${CHANGE_LONG_DOC_RATIO}"}
 OUTPUT_DIR_SUFFIX_ADDON=${OUTPUT_DIR_SUFFIX_ADDON:-""}
 OUTPUT_DIR="$OUTPUT_DIR_PREFIX/$OUTPUT_DIR_SUFFIX$OUTPUT_DIR_SUFFIX_ADDON"
