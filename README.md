@@ -55,17 +55,26 @@ DistCA treats core-attention (CA, the $\text{softmax}(QK^T)V$ operation) as an i
 
 ## Installation
 
-See the [installation guide](./README.Installation.md) for detailed instructions. *We are still working on providing a one-click installation + deployment script. Stay tuned!*
+See the [installation guide](./README.Installation.md) for detailed instructions.
 
 
 ## Usage
 
 We provide a preliminary slurm script for training a 8B LLaMA model with 128K context length on 2 nodes:
+
+
 ```bash
-bash pretrain_llama.sh
+sbatch pretrain_llama.sh
 ```
 
-For more details, please refer to the [pretrain_llama.sh](./pretrain_llama.sh) and [pretrain_llama.py](./pretrain_llama.py) scripts. *We are still working on the documentation and will improve the usability soon.*
+or using `salloc`: 
+```bash
+salloc -N 2 -G 16 -t 01:00:00 --job-name=distca 
+bash pretrain_llama.sh
+# NNODES=2 TP_SIZE=8 PP_SIZE=2 bash pretrain_llama.sh
+```
+
+For more details, please refer to the [pretrain_llama.sh](./pretrain_llama.sh) and [pretrain_llama.py](./pretrain_llama.py) scripts.
 
 ## Performance tunning
 

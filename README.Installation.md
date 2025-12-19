@@ -186,3 +186,6 @@ cmake --build build
 cd ../../..
 ```
 
+
+### Future Works
+*We are working on providing a one-click installation + deployment scripts. Stay tuned!*
