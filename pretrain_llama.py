@@ -2,14 +2,10 @@ import argparse
 import json
 import megatron.core.parallel_state as mpu
 import os
-import os
 import psutil
-import pytz
-import time
 import time
 import torch
-from contextlib import contextmanager, nullcontext
-from datetime import datetime
+from contextlib import nullcontext
 from functools import partial
 from megatron.core import tensor_parallel
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -38,8 +34,6 @@ from distca.utils.wandb_driver import WandbDriver
 from distca.utils.worker import MegatronE2eWorker as BaseMegatronE2eWorker, set_random_seed
 
 enable_clickable_excepthook()
-
-start_time__ = time.time()
 
 # --------------------------------
 # Core-binding:
@@ -364,14 +358,11 @@ def create_pp_microbatches(
     else:
         print("No planner. Use random batch.")
 
-    start_time = time.time()
     all_original_seq_lens = []
-    loop_start_time = time.time()
     for i in range(num_microbatch + pp_degree - 1):
         # For the last few ticks (drain-out ticks)
         # add a dummy forward microbatch at PP rank 0.
         add_dummy_forward = i >= num_microbatch
-        start_time = time.time()
         print(f"🟡 tick_per_rank_doc_lens: {tick_per_rank_doc_lens}")
         (
             fa_fwd_params, fa_bwd_params,
@@ -393,8 +384,6 @@ def create_pp_microbatches(
         if rank == 1:
             print(f"🟡 fa_fwd_params: {fa_fwd_params}")
         all_original_seq_lens.append(original_tick_per_rank_doc_lens)
-        end_time = time.time()
-        print(f"🟡 create_qkv_dispatch_pipeline_tick duration: {end_time - start_time} seconds")
 
         # For MLP-CP, we need to transfer List[List[int]] from CP layout back to DP, so each rank knows its number of tokens.
         #   Example1 DP case:
@@ -403,7 +392,6 @@ def create_pp_microbatches(
         #   Example2 CP case:
         # tick_per_rank_doc_lens cp list: List[List[int]] = [[8], [8], [8], [8], [256, 768],[512, 10, 502] ]
         # tick_per_rank_doc_lens mlp list: [[8], [8], [8], [8], [256, 128, 128], [256, 256], [512], [10, 502]]
-        start_time = time.time()
         tick_per_rank_doc_lens_after_cp_transfer = cp_list_to_mlp_list(tick_per_rank_doc_lens, as_world_size,
                                                                        num_token_per_rank)
 
@@ -413,11 +401,8 @@ def create_pp_microbatches(
         )
         tensor_doc_lens = torch.tensor(tick_per_rank_doc_lens_after_cp_transfer[as_rank], dtype=torch.int32)
         mlp_packed_seq_params = get_attn_metadata(tensor_doc_lens, get_packed_seq_params=True)
-        end_time = time.time()
-        print(f"🟡 get_attn_metadata duration: {end_time - start_time} seconds")
 
         # Create packed_params. Note that we do not add backward params here.
-        start_time = time.time()
         ping_pang_params = PingPangSingleStepPackedSeqParams(
             qkv_format="thd",
             **fa_fwd_params[as_rank],
@@ -442,16 +427,10 @@ def create_pp_microbatches(
             (qkv_bwd_fa2a_metadata.get_slice(as_rank), attn_out_qkv_bwd_fa2a_metadata.get_slice(as_rank),
              bwd_packed_seq_params)
         )
-        end_time = time.time()
-        print(f"🟡 create_pp_microbatches - append microbatch duration: {end_time - start_time} seconds")
-
-    loop_end_time = time.time()
-    print(f"🟡 create_pp_microbatches - first for loop duration: {loop_end_time - loop_start_time} seconds")
 
     pp_rank = as_rank // dp_size
     dp_rank = as_rank % dp_size
 
-    start_time = time.time()
     # put bwd metadata to the corresponding side
     for i, microbatch in enumerate(microbatches):
         # When mb_i is computed on pp_rank at forward tick t, assume the backward right after this forward is at tick t'.
@@ -468,27 +447,10 @@ def create_pp_microbatches(
         packed_seq_params.qkv_bwd_metadata = qkv_bwd_metadata
         packed_seq_params.attn_out_bwd_metadata = attn_out_bwd_metadata
         packed_seq_params.bwd_packed_seq_params = bwd_packed_seq_params
-    end_time = time.time()
-    print(f"🟡 create_pp_microbatches - second for loop duration: {end_time - start_time} seconds")
     ret = microbatches
     if return_seq_lens:
         ret = (microbatches, all_original_seq_lens)
     return ret
-
-
-@contextmanager
-def time_me(msg):
-    rank = torch.distributed.get_rank()
-    print(f"⚪ [Rank {rank}] start {msg}")
-    torch.cuda.synchronize();
-    torch.distributed.barrier();
-    start_time = time.time()
-    yield
-    torch.cuda.synchronize();
-    torch.distributed.barrier();
-    end_time = time.time()
-    duration_ms = ((end_time - start_time) * 1000)
-    print(f"⚪ [Rank {rank}] finish {msg}, duration: {duration_ms} ms")
 
 
 def log_memory_usage(message: str, force: bool = False):
@@ -511,8 +473,6 @@ def main(args):
 
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
-    benchmark_log_path = os.path.join(output_dir, "benchmark.raw.jsonl")
-    microbatch_log_path = os.path.join(output_dir, "microbatch.log")
     os.environ["EXPERIMENT_OUTPUT_DIR"] = output_dir
 
     config_path = os.path.join(output_dir, "config.json")
@@ -692,10 +652,6 @@ def main(args):
     else:
         print(f"🟡 [Rank {rank}] CUDA Graphs are disabled. Not initializing CUDA Graphs.")
 
-    # for _ in range(20):
-    #     print(f"🟡 get_next_batch: {get_next_batch(num_batches * 2)}")    
-    final_durations_ms = []  # only for distca
-    final_losses = []  # only for distca
     for sample_idx in range(max_sample_id):
         os.environ["__PRG__INTERNAL__EXPERIMENT_SAMPLE_ID"] = str(sample_idx)
         # this total_seq_len is token per rank.
@@ -706,10 +662,6 @@ def main(args):
         #   For each tick, getting `num_batches` number of list from the data loader (GLOBAL_BATCH iterator). 
         #   This is the parameter controlling the number of batches per tick.
         # 
-        start_time = time.time()
-
-        print(
-            f"""create_pp_microbatches(num_microbatch={num_microbatch}, pp_degree={pp_size}, as_rank={as_rank}, as_world_size={as_world_size}, total_seq_len={total_seq_len}, num_seqs={num_seqs}, max_cp_degree={dpcp_size}, hidden_size_q_tp={hidden_size_q_tp}, hidden_size_k_tp={hidden_size_k_tp}, element_size={element_size}, num_head_in_dtype={num_head_in_dtype}, tp_size={tp_size}, dp_size={dpcp_size}, num_token_per_rank={num_token_per_rank}, num_batches={num_batches}, use_planner={args.use_planner}, return_seq_lens=True)""")
         microbatches_0, tick_per_rank_doc_lens_0 = create_pp_microbatches(
             num_microbatch, pp_size, as_rank,
             as_world_size, total_seq_len, num_seqs, dpcp_size,
@@ -718,11 +670,7 @@ def main(args):
             num_token_per_rank, num_batches, args.use_planner,
             return_seq_lens=True,
         )
-        end_time = time.time()
-        duration = (end_time - start_time)
-        print(f"⚪ [Rank {rank}] [sample {sample_idx}] create_pp_microbatches(0): {duration} seconds")
 
-        start_time = time.time()
         microbatches_1, tick_per_rank_doc_lens_1 = create_pp_microbatches(
             num_microbatch, pp_size, as_rank,
             as_world_size, total_seq_len, num_seqs, dpcp_size,
@@ -731,25 +679,10 @@ def main(args):
             num_token_per_rank, num_batches, args.use_planner,
             return_seq_lens=True,
         )
-        end_time = time.time()
-        duration = (end_time - start_time)
-        print(f"⚪ [Rank {rank}] [sample {sample_idx}] create_pp_microbatches(1): {duration} seconds")
-
-        seq_lens = [tick_per_rank_doc_lens_0, tick_per_rank_doc_lens_1]
-        # print(f"🟡 [sample_idx = {sample_idx}] seq_lens is: {seq_lens}")
-
-        loop_start_time = time.time()
         set_random_seed(seed, set_megatron=True)
         microbatches = []
         orig_impl_microbatches = []
         for mb_0, mb_1 in zip(microbatches_0, microbatches_1):
-            # if rank % 8 == 2:
-            # FIXME: Print this to another file, and only rank 0 prints it.
-            if rank == 0:
-                with open(microbatch_log_path, "a") as f:
-                    f.write(f"🟡 [sample_idx = {sample_idx}] mb_0: {mb_0}\n")
-                    f.write(f"🟡 [sample_idx = {sample_idx}] mb_1: {mb_1}\n")
-
             mb_0_psp = mb_0["packed_seq_params"]
             mb_1_psp = mb_1["packed_seq_params"]
             mb_0_mlp_psp = mb_0_psp.mlp_packed_seq_params
@@ -764,15 +697,11 @@ def main(args):
             )
             num_tokens = sum(mb["position_ids"].numel() for mb in [mb_0, mb_1])
             input_ids = torch.randint(10, 1000, (num_tokens,))
-            print(f"🟡 [sample_idx = {sample_idx}] input_ids: {input_ids.shape}")
             mb = {
                 "input_ids": input_ids,
                 "position_ids": torch.concat([mb_0["position_ids"], mb_1["position_ids"]]),
                 "packed_seq_params": ping_pong_params,
             }
-            if rank == 0:
-                with open(microbatch_log_path, "a") as f:
-                    f.write(f"🟡 [sample_idx = {sample_idx}] input_ids: {input_ids.shape}\n")
             microbatches.append(mb)
 
             cu_seqlens_q = torch.concat([
@@ -794,9 +723,6 @@ def main(args):
                 "packed_seq_params": packed_seq_params,
             }
             orig_impl_microbatches.append(orig_mb)
-        loop_end_time = time.time()
-        print(
-            f"⚪ create_pp_microbatches - constructing PingPangPackedSeqParams: {loop_end_time - loop_start_time} seconds")
 
         log_memory_usage("complete microbatches construction", force=True)
 
@@ -805,17 +731,12 @@ def main(args):
         if sample_idx == 0:
             n_warmup = 1
 
-        print(f"Prepare to run distca with total runs: {n_repeats = } + {n_warmup = } = {n_repeats + n_warmup = }")
-        durations = []
-        losses = []
         for _ in range(n_repeats + n_warmup):
             mem_ctx = nullcontext()
             if _ < n_warmup and should_log_memory_during_warmup:
                 mem_ctx = distca.mem.log_memory_usage_context()
-                pass
 
             config_name = f"n{num_nodes}t{num_tokens}b{num_batches}mb{num_microbatch}-cp{dpcp_size}pp{pp_size}tp{tp_size}"
-            print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start pingpong dummy {_}")
             with torch.cuda.nvtx.range(f"distca({config_name})[sample={sample_idx}][repeat={_}]"):
                 with mem_ctx:
                     torch.cuda.synchronize()
@@ -832,25 +753,11 @@ def main(args):
                     torch.distributed.barrier()
                     end_time = time.time()
                     duration_ms = (end_time - start_time) * 1000
-                    durations.append(duration_ms)
-                    losses.append(loss_value)
-                    print(
-                        f"🟡 [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms (loss={loss_reduced})")
-                    if loss_value is None:
-                        loss_value = "N/A"
-                    print(
-                        f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms (loss={loss_value:.6f})"
-                    )
-            pass
 
-        final_durations_ms.append(duration_ms)
-        final_loss_value = losses[-1] if losses else None
-        final_losses.append(final_loss_value)
-
-        # Console printing / wandb logging (per-sample, not per-repeat)
+        # Wandb logging (per-sample, not per-repeat)
         wandb_driver.print_loss(
             sample_id=sample_idx,
-            loss=final_loss_value,
+            loss=loss_value,
             rank=rank,
             allow_all_ranks=allow_all_ranks_loss,
         )
@@ -858,67 +765,11 @@ def main(args):
             sample_id=sample_idx,
             duration_ms=float(duration_ms),
             iteration_time_ms=float(duration_ms),
-            loss=final_loss_value,
+            loss=loss_value,
             rank=rank,
             n_repeats=n_repeats,
             n_warmup=n_warmup,
         )
-        if rank == 0:
-            with open(benchmark_log_path, "a") as f:
-                f.write(json.dumps({
-                    "sample_id": sample_idx,
-                    "duration_ms": duration_ms,
-                    "duration_list": durations,
-                    "loss": final_loss_value,
-                    "loss_list": losses,
-                    "seq_lens": seq_lens,
-                }) + "\n")
-
-    torch.cuda.synchronize()
-    print(f"⚪ [Rank {rank}] [sample {sample_idx}] finish pingpong")
-    print(f"🟡 [Rank {rank}] [sample {sample_idx}] Write benchmark log to {benchmark_log_path}")
-
-    print("=" * 20 + "forward_backward_batch attention server, done")
-
-    benchmark_final_path = os.path.join(output_dir, "benchmark.json")
-    config = dict(
-        mode="distca",
-        nodes=args.num_nodes,
-        num_gpus_per_node=args.num_gpus_per_node,
-        tp_size=tp_size, dp_size=1, cp_size=dpcp_size,
-        num_tokens=num_tokens, model_path=model_path, num_layers=num_layers,
-        max_sample_id=max_sample_id, up_sample_factor=args.up_sample_factor, filter_threshold=args.filter_threshold,
-        filter_ratio=args.filter_ratio,
-        elongate_factor=args.elongate_factor,
-        sample_name=args.sample_name,
-        change_long_doc_ratio=args.change_long_doc_ratio,
-    )
-    if rank == 0:
-        pst = pytz.timezone('US/Pacific')
-        timestamp = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S PST")
-        with open(benchmark_final_path, "w") as f:
-            benchmark_data = {
-                "test_file": __file__,
-                "args": str(args),
-                "timestamp": timestamp,
-                "config": config,
-                "samples": [],
-            }
-
-            for idx in range(len(final_durations_ms)):
-                # samples = new_batch
-                samples = []
-                duration = final_durations_ms[idx]
-                loss = final_losses[idx] if idx < len(final_losses) else None
-                benchmark_data["samples"].append({
-                    "sample_id": idx,
-                    "duration_ms": duration,
-                    "samples": samples,
-                    "loss": float(loss) if loss is not None else None,
-                })
-
-            with open(benchmark_final_path, "w") as f:
-                json.dump(benchmark_data, f, indent=2)
 
     # Finish wandb run if enabled
     wandb_driver.finish(rank=rank)
