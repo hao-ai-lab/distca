@@ -800,10 +800,6 @@ def main(args):
 
         log_memory_usage("complete microbatches construction", force=True)
 
-        should_run_baseline_with_dummy = False
-        should_run_baseline = False
-        should_run_distca = True
-
         n_warmup = 0
         n_repeats = 1
         if sample_idx == 0:
@@ -822,8 +818,8 @@ def main(args):
             print(f"⚪ [Rank {rank}] [sample {sample_idx}] Start pingpong dummy {_}")
             with torch.cuda.nvtx.range(f"distca({config_name})[sample={sample_idx}][repeat={_}]"):
                 with mem_ctx:
-                    torch.cuda.synchronize();
-                    torch.distributed.barrier();
+                    torch.cuda.synchronize()
+                    torch.distributed.barrier()
                     start_time = time.time()
                     loss_reduced, grad_sample = worker.forward_backward_batch(
                         microbatches=microbatches,
