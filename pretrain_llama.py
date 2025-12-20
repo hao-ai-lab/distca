@@ -495,7 +495,7 @@ def log_memory_usage(message: str, force: bool = False):
     distca.mem.log_memory_usage(message, force=force)
 
 
-def test(args):
+def main(args):
     seed = args.seed
     # test scale
     num_nodes = args.num_nodes
@@ -804,20 +804,10 @@ def test(args):
         should_run_baseline = False
         should_run_distca = True
 
-        n_warmup = 1
-        try:
-            if sample_idx == 0:
-                n_warmup = int(os.environ.get("EXPERIMENT_0TH_SAMPLE_WARMUP_TIMES", 1))
-            else:
-                n_warmup = int(os.environ.get("EXPERIMENT_WARMUP_TIMES", 0))
-                pass
-        except:
-            pass
+        n_warmup = 0
         n_repeats = 1
-        try:
-            n_repeats = int(os.environ.get("EXPERIMENT_REPEAT_TIMES", 1))
-        except:
-            pass
+        if sample_idx == 0:
+            n_warmup = 1
 
         print(f"Prepare to run distca with total runs: {n_repeats = } + {n_warmup = } = {n_repeats + n_warmup = }")
         durations = []
@@ -842,8 +832,8 @@ def test(args):
                         with_dummy=True,
                     )
                     loss_value = extract_scalar_loss(loss_reduced)
-                    torch.cuda.synchronize();
-                    torch.distributed.barrier();
+                    torch.cuda.synchronize()
+                    torch.distributed.barrier()
                     end_time = time.time()
                     duration_ms = (end_time - start_time) * 1000
                     durations.append(duration_ms)
@@ -851,12 +841,11 @@ def test(args):
                     print(
                         f"🟡 [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms (loss={loss_reduced})")
                     if loss_value is None:
-                        print(
-                            f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms (loss=N/A)")
-                    else:
-                        print(
-                            f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms (loss={loss_value:.6f})")
-            time.sleep(1)
+                        loss_value = "N/A"
+                    print(
+                        f"⚪ [Rank {rank}] [sample {sample_idx}] pingpong with dummy {_}: {duration_ms} ms (loss={loss_value:.6f})"
+                    )
+            pass
 
         final_durations_ms.append(duration_ms)
         final_loss_value = losses[-1] if losses else None
@@ -999,4 +988,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     print("args: ", args)
-    test(args)
+    main(args)
