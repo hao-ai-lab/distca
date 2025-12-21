@@ -13,77 +13,50 @@
 #SBATCH --partition=lowprio 
 #SBATCH --qos=lowprio
 
+JOBID=$SLURM_JOB_ID
+NNODES=${SLURM_NNODES:-1}
+# TODO: Get the head node IP from the job ID.
+# HEAD_NODE_IP=$(scontrol show hostnames $(scontrol show job $JOBID | awk -F= '/NodeList=fs/ {print $2}') | head -n 1)
+# echo HEAD_NODE_IP=$HEAD_NODE_IP
+
+
 # ------------------------------------------------------
 # Input Variables (what you will set outside)
 # ------------------------------------------------------
 
 # Model configuration
 # MODEL_PATH=${MODEL_PATH:-codellama/CodeLlama-34b-hf}
-MODEL_PATH=${MODEL_PATH:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}
+MODEL_PATH=deepseek-ai/DeepSeek-R1-Distill-Llama-8B
 MODEL_PATH_normalized=$(echo $MODEL_PATH | sed 's/\//_/g')
-NUM_LAYERS=${NUM_LAYERS:-32}
+NUM_LAYERS=32
 
 # Parallelism settings
-TP_SIZE=${TP_SIZE:-$GPUS_PER_NODE}   # Tensor Parallelism size, defaults to GPUs per node
-TP_SIZE=${TP_SIZE:-8}
-PP_SIZE=${PP_SIZE:-1}                # Pipeline Parallelism size
-CP_SIZE=${CP_SIZE:-2}                # Only useful in WLBLLM (D2 will have DPCP anyways)
-NUM_MICROBATCH=${NUM_MICROBATCH:-${PP_SIZE}}            # Number of microbatches per pipeline stage, has to be >= PP_SIZE - 1
+TP_SIZE=8
+PP_SIZE=1                # Pipeline Parallelism size
+CP_SIZE=1                # Only useful in WLBLLM (D2 will have DPCP anyways)
+NUM_MICROBATCH=1
 
 # Experiment settings
-MODE=${MODE:-distca}               # Experiment mode (baseline, dynamic, etc.)
-BATCH_SIZE=${BATCH_SIZE:-1}          # Batch size for training
-NUM_TOKENS=${NUM_TOKENS:-16384}     # Number of tokens to process
-MAX_SAMPLE_ID=${MAX_SAMPLE_ID:-3}   # Maximum sample ID
+MODE=distca               # Experiment mode (baseline, dynamic, etc.)
+BATCH_SIZE=1          # Batch size for training
+NUM_TOKENS=16384     # Number of tokens to process
+MAX_SAMPLE_ID=3   # Maximum sample ID
 # SAMPLE_EXPR=${SAMPLE_EXPR:-""}   # Sample expression
-SAMPLE_NAME=${SAMPLE_NAME:-"wlbllm"}
-CHANGE_LONG_DOC_RATIO=${CHANGE_LONG_DOC_RATIO:-0.0}
+SAMPLE_NAME=wlbllm
+CHANGE_LONG_DOC_RATIO=0.0
 
 # Dataset sampling settings
-UP_SAMPLE_FACTOR=${UP_SAMPLE_FACTOR:-4}
-ELONGATE_FACTOR=${ELONGATE_FACTOR:-1}
-FILTER_THRESHOLD=${FILTER_THRESHOLD:-65536}
-FILTER_RATIO=${FILTER_RATIO:-0.50}
-SHOULD_ADD_DEBUG_CASES=${SHOULD_ADD_DEBUG_CASES:-0}
+UP_SAMPLE_FACTOR=4
+ELONGATE_FACTOR=1
+FILTER_THRESHOLD=65536
+FILTER_RATIO=0.50
+SHOULD_ADD_DEBUG_CASES=0
 PROFILE_MEMORY_PATH=${PROFILE_MEMORY_PATH:"${OUTPUT_DIR}/"}
 
-JOBID=${JOBID:-${SLURM_JOB_ID}}
-if [ -z "$JOBID" ]; then
-  echo -e "\033[31mJOBID is not set. Must set JOBID environment variable, or if you're in a slurm environment the SLURM_JOB_ID should be set.\033[0m"
-  exit 1
-fi
 
-# # Check if job is still running
-# if ! squeue -j "$JOBID" &>/dev/null; then
-#   echo -e "\033[31mError: Job $JOBID is no longer running in SLURM queue\033[0m"
-#   exit 1
-# fi
-
-NNODES=${NNODES:-$SLURM_NNODES}
-if [ -z "$NNODES" ]; then
-    NNODES=$(squeue -j $JOBID -h -o %D)
-fi
-echo -e "\033[33mRecognized JOBID=$JOBID, NNODES=$NNODES\033[0m"
-sleep 1
-
-# -----------------------------
-# Debugging Flags
-# -----------------------------
-export ENABLE_NSYS=0
-export EXPERIMENT_LOG_MEMORY_USAGE=0
-export EXPERIMENT_SKIP_FA2A_OP=0 # (DebugOnly: Ensure not stuck at fast a2a op)
-export EXPERIMENT_SKIP_OPTIMIZER_STEP=1
-export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2
-export SHOULD_ADD_DEBUG_CASES=0
-
-export MAX_SAMPLE_ID=5
-export EXPERIMENT_0TH_SAMPLE_WARMUP_TIMES=1
-export EXPERIMENT_WARMUP_TIMES=0
-export EXPERIMENT_REPEAT_TIMES=1
-
-export EXPERIMENT_FA2A_SPLIT_SENDRECV=1
-export EXPERIMENT_SHOULD_LOG_MEMORY_DURING_WARMUP=1
-export EXPERIMENT_ADD_SELECTIVE_CKPT=1
+# EXPERIMENT_ENABLE_CUDA_GRAPHS=1
+export EXPERIMENT_ENABLE_CUDA_GRAPHS=0
+export EXPERIMENT_DISABLE_ROPE=1
 
 
 # ------------------------------------------------------
@@ -111,9 +84,16 @@ mkdir -p "$LOG_DIR"
 # export NVSHMEM_BOOTSTRAP=mpi
 export NVTE_ALLOW_NONDETERMINISTIC_ALGO=1 # otherwise (if set to 0) attention kernels may get horrible performance
 export NVSHMEM_IB_ENABLE_IBGDA=true
+export MAX_SAMPLE_ID=5
+export ENABLE_NSYS=0
+export EXPERIMENT_LOG_MEMORY_USAGE=0
+export EXPERIMENT_NVSHMEM_BUFFER_SIZE_GB=2
+export EXPERIMENT_ADD_SELECTIVE_CKPT=1
+export EXPERIMENT_ENABLE_CUDA_GRAPHS=0
+
 
 # ---------------------------
-# Setup environment variables
+# Setup Logging
 # ---------------------------
 # Source the `env.sh` file from project root
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -126,25 +106,12 @@ else
   exit 1
 fi
 
-# ---------------------------
-# Setup experiment variables
-# ---------------------------
 
-ENABLE_NSYS=${ENABLE_NSYS:-0}
-EXPERIMENT_ENABLE_CUDA_GRAPHS=${EXPERIMENT_ENABLE_CUDA_GRAPHS:-0}
 # ---------------------------
 # Setup distributed args
 # ---------------------------
-
-nodes=( $(scontrol show hostnames $(scontrol show job $JOBID | awk -F= '/NodeList=fs/ {print $2}') ) )
-echo Found nodes "${nodes[@]}"
-export head_node=${nodes[0]}
-export head_node_ip=${HEAD_NODE_IP:-$head_node}
-export head_node=${head_node:-$head_node_ip}
-port=29500
-echo head_node_ip=$head_node_ip port=$port
 RZV_BACKEND=c10d
-RZV_ENDPOINT=$head_node_ip:$port
+RZV_ENDPOINT=$HEAD_NODE_IP:29500
 echo RZV_ENDPOINT=$RZV_ENDPOINT
 
 # Get GPU count from Slurm's environment variables
@@ -181,18 +148,12 @@ SRUN_BASE=(
   --cpu-bind=cores
   # --gpu-bind=closest
   # --kill-on-bad-exit=1
-  -w "$head_node"
+  -w "$HEAD_NODE_IP"
   --mem=0 # inherit the memory from the salloc
 )
 
-# -vv
-
-
 if [ ${JOBID} -ne 0 ]; then
-  IS_LOCAL_RUN=${IS_LOCAL_RUN:-0}
-  if [ ${IS_LOCAL_RUN} -eq 0 ]; then
-    SRUN_BASE+=(--jobid=${JOBID})
-  fi
+  SRUN_BASE+=(--jobid=${JOBID})
 fi
 
 
