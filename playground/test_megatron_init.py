@@ -987,6 +987,18 @@ from megatron.training.training import get_timers
 from megatron.core.utils import StragglerDetector
 
 stimer = StragglerDetector()
+
+# Token monitoring - import from utils
+from utils.token_monitor import (
+    monitor_batch_tokens,
+    set_token_monitor_config,
+    get_token_monitor_config,
+)
+
+# Configure token monitoring (optional - defaults are sensible)
+# set_token_monitor_config(enabled=True, max_tokens_to_decode=200, max_samples_to_log=2)
+
+
 def forward_step(data_iterator, model: GPTModel):
     """Forward training step.
 
@@ -1004,6 +1016,11 @@ def forward_step(data_iterator, model: GPTModel):
         tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
             data_iterator)
     
+    # Monitor tokens - log decoded text for debugging
+    # Only log on first pipeline stage and TP rank 0 to avoid duplicate logs
+    if tokens is not None and mpu.is_pipeline_first_stage() and mpu.get_tensor_model_parallel_rank() == 0:
+        tokenizer = get_tokenizer()
+        monitor_batch_tokens(tokens, tokenizer, logger=logger)
 
     timers('batch-generator').stop()
 
