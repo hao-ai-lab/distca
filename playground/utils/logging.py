@@ -33,6 +33,7 @@ _rank: Optional[int] = None
 _world_size: Optional[int] = None
 _logger: Optional[logging.Logger] = None
 _original_stdout: Optional[IO] = None
+_original_stderr: Optional[IO] = None
 _rank_log_handle: Optional[IO] = None
 
 
@@ -75,19 +76,19 @@ class LogPaths:
     rank_logs_path: Path
 
 
-class TeeStdout:
-    """Write to both original stdout and a file."""
+class TeeStream:
+    """Write to both an original stream (stdout/stderr) and a file."""
     
-    def __init__(self, file, original_stdout):
+    def __init__(self, file, original_stream):
         self.file = file
-        self.original_stdout = original_stdout
+        self.original_stream = original_stream
     
     def write(self, data):
-        self.original_stdout.write(data)
+        self.original_stream.write(data)
         self.file.write(data)
     
     def flush(self):
-        self.original_stdout.flush()
+        self.original_stream.flush()
         self.file.flush()
 
 
@@ -124,7 +125,7 @@ def setup_log_directories(
     Returns:
         LogPaths dataclass containing all the log paths.
     """
-    global _original_stdout, _rank_log_handle
+    global _original_stdout, _original_stderr, _rank_log_handle
     
     # Check for environment variables from shell script
     env_timestamp = os.environ.get("DISTCA_LOG_TIMESTAMP")
@@ -169,16 +170,19 @@ def setup_log_directories(
     # Wait for rank 0 to finish creating directories
     barrier_fn()
     
-    # Redirect stdout to per-rank log files
+    # Redirect stdout and stderr to per-rank log files
     # Rank 0: tee to both console and file; Other ranks: file only
     _original_stdout = sys.stdout
+    _original_stderr = sys.stderr
     rank_log_file = rank_logs_path / f"rank_{rank}.log"
     _rank_log_handle = open(rank_log_file, 'w', buffering=1)  # line-buffered
     
     if rank == 0:
-        sys.stdout = TeeStdout(_rank_log_handle, _original_stdout)
+        sys.stdout = TeeStream(_rank_log_handle, _original_stdout)
+        sys.stderr = TeeStream(_rank_log_handle, _original_stderr)
     else:
         sys.stdout = _rank_log_handle
+        sys.stderr = _rank_log_handle
     
     # Add file handler to the logger for all ranks
     # This ensures logger.info() etc. go to the rank log file
@@ -207,16 +211,23 @@ def setup_log_directories(
     return paths
 
 
-def restore_stdout():
-    """Restore original stdout and close log file handles."""
-    global _original_stdout, _rank_log_handle
+def restore_streams():
+    """Restore original stdout/stderr and close log file handles."""
+    global _original_stdout, _original_stderr, _rank_log_handle
     
     if _original_stdout is not None:
         sys.stdout = _original_stdout
     
+    if _original_stderr is not None:
+        sys.stderr = _original_stderr
+    
     if _rank_log_handle is not None:
         _rank_log_handle.close()
         _rank_log_handle = None
+
+
+# Keep the old name for backwards compatibility
+restore_stdout = restore_streams
 
 
 # =============================================================================
