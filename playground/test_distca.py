@@ -1,14 +1,27 @@
+"""
+DistCA Test Script
+"""
+
+# ================================
+# Import torch and megatron
+# ================================
 import argparse
 import os
 import logging
-
+import time
+from dataclasses import dataclass
 from datetime import timedelta
+from functools import partial
+from pathlib import Path
+from typing import Optional, Tuple, List, Union
 
 from utils.logging import (
     setup_logging,
     log_tensor_stats,
     log_module,
     time_it,
+    setup_log_directories,
+    redirect_external_loggers,
 )
 from utils.cpu_affinity import set_cpu_affinity
 from utils.hf_config import (
@@ -17,46 +30,28 @@ from utils.hf_config import (
     MegatronModelArgs,
     KNOWN_MODEL_CONFIGS,
 )
-
-
-# --------------------------------
-# Environment Variables
-# --------------------------------
-env_vars = dict(
-    CUDA_DEVICE_MAX_CONNECTIONS=1,
-    # TORCH_NCCL_CONNECT_TIMEOUT=60000,
-    # TORCH_NCCL_ASYNC_ERROR_HANDLING=1,
+from utils.estimate import log_memory_estimate, log_flops_estimate
+from utils.token_monitor import (
+    monitor_batch_tokens,
+    set_token_monitor_config,
 )
-for k, v in env_vars.items():
-    os.environ[k] = str(v)
 
 
-# --------------------------------
-# Logging
-# --------------------------------
-# Fetch rank early for use in formatter
 rank = int(os.environ["RANK"])
 world_size = int(os.environ["WORLD_SIZE"])
 local_rank = int(os.environ["LOCAL_RANK"])
 
-# Initialize logging with rank-aware formatting
-# Only specified ranks will log to console; all ranks get file logging later
 logger = setup_logging(
     rank=rank, world_size=world_size,
     level=logging.DEBUG,
-    console_ranks=list(range(0, world_size, 8)),  # Only rank 0 logs to console
+    console_ranks=[0],
+    # console_ranks=list(range(0, world_size, 8)),  # Only rank 0 logs to console
 )
-
-# --------------------------------
-# Core-binding
-# --------------------------------
-set_cpu_affinity(local_rank, ncpu_per_proc=16, logger=logger)
-
-logger.info(f"Rank: {rank}, World Size: {world_size}, Local Rank: {local_rank}")
-
 
 with time_it("import torch"):
     import torch
+    import torch.cuda.nvtx
+
 with time_it("set device"):
     torch.cuda.set_device(local_rank)
     torch.set_default_device(torch.device("cuda", local_rank))
@@ -69,21 +64,103 @@ with time_it("init_process_group"):
         timeout = timedelta(seconds=60),
     )
 
+import numpy
+
+# import warnings
+# with warnings.catch_warnings():
+#     warnings.filterwarnings(
+#         "ignore",
+#         message=r"Failed to import megatron plugin due to: ImportError\(.*get_tensor_model_parallel_group_if_none.*megatron.core.utils.*\)",
+#         category=UserWarning,
+#         module=r"modelopt\.torch\.utils\.import_utils"
+#     )
+
+
+# ================================
+# Environment Variables
+# ================================
+env_vars = dict(
+    CUDA_DEVICE_MAX_CONNECTIONS=1,
+    # TORCH_NCCL_CONNECT_TIMEOUT=60000,
+    # TORCH_NCCL_ASYNC_ERROR_HANDLING=1,
+)
+for k, v in env_vars.items():
+    os.environ[k] = str(v)
+
+
+# ================================
+# Logging Setup
+# ================================
+# Fetch rank early for use in formatter
+
+# Initialize logging with rank-aware formatting
+# Only specified ranks will log to console; all ranks get file logging later
+
+
+# ================================
+# Core-binding
+# ================================
+set_cpu_affinity(local_rank, ncpu_per_proc=16, logger=logger)
+
+logger.info(f"Rank: {rank}, World Size: {world_size}, Local Rank: {local_rank}")
+
+
+# ================================
+# PyTorch Imports and Device Setup
+# ================================
+
+
+# ================================
+# Megatron Imports
+# ================================
 with time_it("import megatron.core"):
     import megatron.core
 with time_it("import megatron.core.tensor_parallel"):
     from megatron.core import tensor_parallel
 with time_it("import megatron.core.parallel_state"):
     from megatron.core import parallel_state
+    mpu = parallel_state
+
+# Additional Megatron imports (after core is loaded)
+import megatron.core.pipeline_parallel.schedules
+import megatron.core.transformer.transformer_layer
+import megatron.training.training
+from megatron.training.global_vars import get_args, get_wandb_writer
+from megatron.training.arguments import core_transformer_config_from_args
+from megatron.training.yaml_arguments import core_transformer_config_from_yaml
+from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.core.num_microbatches_calculator import get_num_microbatches
+from megatron.training.training import (
+    setup_model_and_optimizer,
+    build_train_valid_test_data_iterators,
+    train,
+    get_timers,
+)
+from megatron.core.enums import ModelType
+from megatron.core.models.gpt import GPTModel
+from megatron.training.tokenizer.tokenizer import MegatronTokenizer
+from megatron.core.datasets.utils import Split
+from megatron.core.datasets.blended_megatron_dataset_builder import BlendedMegatronDatasetBuilder
+from megatron.core.datasets.gpt_dataset import MockGPTDataset, GPTDataset, GPTDatasetConfig
+from megatron.training import get_tokenizer
+from megatron.training.utils import (
+    get_batch_on_this_cp_rank,
+    get_batch_on_this_tp_rank,
+    get_blend_and_blend_per_split,
+)
+from megatron.core.rerun_state_machine import RerunDataIterator, get_rerun_state_machine
+from megatron.core.utils import StragglerDetector
 
 
 
+# ====================================
+# Initialize Megatron Parallel Groups
+# ====================================
+tp = 8; pp = 1; cp = 1;
 
-# Use parallel_state to initialize the model parallel groups
 with time_it("initialize model parallel groups"):
-    tp = 1; pp = 1; cp = 1;
     # tp = min(8, world_size);
-    parallel_state.initialize_model_parallel(
+    mpu.initialize_model_parallel(
         tensor_model_parallel_size=tp, 
         pipeline_model_parallel_size=pp,
         context_parallel_size=cp,
@@ -93,33 +170,62 @@ with time_it("initialize model parallel groups"):
     )
 
     # get the tp,pp,cp,dp,ep rank of this process
-    tp_rank = parallel_state.get_tensor_model_parallel_rank()
-    tp_size = parallel_state.get_tensor_model_parallel_world_size()
-    pp_rank = parallel_state.get_pipeline_model_parallel_rank()
-    pp_size = parallel_state.get_pipeline_model_parallel_world_size()
-    cp_rank = parallel_state.get_context_parallel_rank()
-    cp_size = parallel_state.get_context_parallel_world_size()
-    dp_rank = parallel_state.get_data_parallel_rank()
-    dp_size = parallel_state.get_data_parallel_world_size()
-    ep_rank = parallel_state.get_expert_model_parallel_rank()
-    ep_size = parallel_state.get_expert_model_parallel_world_size()
+    tp_rank = mpu.get_tensor_model_parallel_rank();   tp_size = mpu.get_tensor_model_parallel_world_size()
+    pp_rank = mpu.get_pipeline_model_parallel_rank(); pp_size = mpu.get_pipeline_model_parallel_world_size()
+    cp_rank = mpu.get_context_parallel_rank();        cp_size = mpu.get_context_parallel_world_size()
+    dp_rank = mpu.get_data_parallel_rank();           dp_size = mpu.get_data_parallel_world_size()
+    ep_rank = mpu.get_expert_model_parallel_rank();   ep_size = mpu.get_expert_model_parallel_world_size()
     logger.info(f"TP: {tp_rank} / {tp_size}, PP: {pp_rank} / {pp_size}, CP: {cp_rank} / {cp_size}, DP: {dp_rank} / {dp_size}, EP: {ep_rank} / {ep_size}")
 
-    # Print all of the tp/pp/cp/dp ranks
-    def print_ranks(group):
-        ranks = torch.distributed.get_process_group_ranks(group)
-        return ranks
-    logger.info(f"TP Ranks: {print_ranks(parallel_state.get_tensor_model_parallel_group())}")
-    logger.info(f"PP Ranks: {print_ranks(parallel_state.get_pipeline_model_parallel_group())}")
-    logger.info(f"CP Ranks: {print_ranks(parallel_state.get_context_parallel_group())}")
-    logger.info(f"DP Ranks: {print_ranks(parallel_state.get_data_parallel_group())}")
-    logger.info(f"EP Ranks: {print_ranks(parallel_state.get_expert_model_parallel_group())}")
+    logger.info(f"TP Ranks: {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
+    logger.info(f"PP Ranks: {torch.distributed.get_process_group_ranks(mpu.get_pipeline_model_parallel_group())}")
+    logger.info(f"CP Ranks: {torch.distributed.get_process_group_ranks(mpu.get_context_parallel_group())}")
+    logger.info(f"DP Ranks: {torch.distributed.get_process_group_ranks(mpu.get_data_parallel_group())}")
+    logger.info(f"EP Ranks: {torch.distributed.get_process_group_ranks(mpu.get_expert_model_parallel_group())}")
 
 torch.distributed.barrier()
 logger.info(f"Finish initializing megatron parallel groups.")
 
-from utils.logging import setup_log_directories, redirect_external_loggers
-from pathlib import Path
+
+# ================================
+# Initialize NVSHMEM comm group
+# ================================
+
+# local_rank
+from distca.runtime.attn_kernels.ops import (
+    nvshmem_get_unique_id, 
+    nvshmem_alloc_empty_unique_id,
+    DispatcherWrapper
+)
+from distca.runtime.megatron.create_group import (
+    get_attn_server_group_gloo,
+    get_attn_server_rank, 
+    get_attn_server_group_src_rank,
+    initialize_attention_server_comm
+)
+
+initialize_attention_server_comm()
+as_group = get_attn_server_group_gloo()
+as_world_size = torch.distributed.get_world_size(group=as_group)
+as_rank = get_attn_server_rank()
+as_src_rank = get_attn_server_group_src_rank()
+
+if as_rank == 0:
+    uid = nvshmem_get_unique_id()
+else:
+    uid = nvshmem_alloc_empty_unique_id()
+torch.distributed.broadcast(uid, src=0)
+
+buffer_size = 1 * 1024 ** 3 # 1 GB
+DispatcherWrapper.init(
+    rank, local_rank, world_size, buffer_size, uid
+)
+
+logger.info(f"Successfully initialized NVSHMEM comm group")
+
+# ================================
+# Setup logging directories
+# ================================
 
 log_paths = setup_log_directories(
     rank=rank,
@@ -133,16 +239,17 @@ log_root_dir = log_paths.log_root_dir
 data_cache_path = log_paths.data_cache_path
 ckpt_path = log_paths.ckpt_path
 tensorboard_path = log_paths.tensorboard_path
-
+oom_snapshot_path = log_root_dir / "oom_snapshot"
+oom_snapshot_path.mkdir(parents=True, exist_ok=True)
 data_path = Path(__file__).parent / 'data_process' / 'code_content_document'
 data_path = data_path.resolve().absolute()
 logger.info(f"Data path: {data_path}")
 
 
 
-# --------------------------------
+# ================================
 # Model Configuration from HuggingFace
-# --------------------------------
+# ================================
 # You can either:
 # 1. Use a HuggingFace model name/path to auto-load config
 # 2. Use a known model config key (works offline)
@@ -202,7 +309,6 @@ logger.info(f"Model config: {model_config_dict}")
 designated_args = [
     # Minimal required Megatron arguments to pass validation.
     # Organized to match megatron-args.txt ordering.
-
     "--seed", "42",
 
     ####################
@@ -257,7 +363,9 @@ designated_args = [
     ####################
     # 4. Mixed Precision
     ####################
-    "--bf16",  # REQUIRED for flash attention to work!
+    # "--bf16",  # REQUIRED for flash attention to work!
+    "--fp16",  # REQUIRED for flash attention to work!
+    "--transformer-impl", "transformer_engine",
 
     ####################
     # 5. Parallelism & Distributed Training
@@ -335,9 +443,9 @@ designated_args = [
     ####################
     # Activation Recomputation
     # "--recompute-granularity", "selective",
-    # "--recompute-modules", "mlp",
     "--recompute-granularity", "selective",
-    "--recompute-modules", "core_attn",
+    "--recompute-modules", "core_attn", 
+    # "mlp",
 
     # Cuda Graphs
     # "--enable-cuda-graph", "True",
@@ -354,11 +462,9 @@ designated_args = [
 designated_args = [arg for arg in designated_args if arg is not None]
 
 
-# -----------------------------------------
-# Get the proper config object
-# -----------------------------------------
-from megatron.core.transformer.transformer_config import TransformerConfig
-from dataclasses import dataclass
+# ================================
+# DistCA Configuration
+# ================================
 @dataclass
 class DistCAConfig(TransformerConfig):
     """Configuration object for DistCA."""
@@ -406,11 +512,6 @@ with time_it("initialize megatron"):
 
 checkpointing_context = {}
 
-from megatron.training.global_vars import get_args
-from megatron.training.arguments import core_transformer_config_from_args
-from megatron.training.yaml_arguments import core_transformer_config_from_yaml
-from megatron.core.transformer.transformer_config import TransformerConfig
-
 args = get_args()
 if args.yaml_cfg is not None:
     assert False, "YAML config is not supported yet becuase inside the core_transformer_config_from_yaml, you can only use TransformerConfig. We need to extend the config class to support DistCA configs."
@@ -420,13 +521,9 @@ else:
 assert isinstance(config, TransformerConfig)
 
 
-# -----------------------------------------
+# ================================
 # Report theoretical memory and FLOPS estimates
-# -----------------------------------------
-from megatron.core.num_microbatches_calculator import get_num_microbatches
-from utils.estimate import log_memory_estimate, log_flops_estimate
-
-
+# ================================
 num_microbatches = get_num_microbatches()
 
 # Log memory estimates
@@ -446,7 +543,7 @@ flops_estimate = log_flops_estimate(
     args,
     num_microbatches=num_microbatches,
     micro_batch_size=args.micro_batch_size,
-    dp_world_size=parallel_state.get_data_parallel_world_size(),
+    dp_world_size=mpu.get_data_parallel_world_size(),
     tp=tp,
     pp=pp,
     cp=cp,
@@ -454,23 +551,40 @@ flops_estimate = log_flops_estimate(
 )
 
 
-# -----------------------------------------
+# ================================
 # Set pytorch JIT layer fusion options and warmup JIT functions.
-# -----------------------------------------
+# ================================
 # with time_it("set_jit_fusion_options()"):
 #     # 01:08:00 [Rank 0] INFO set_jit_fusion_options() took 5.3942 seconds
 #     from megatron.training.initialize import set_jit_fusion_options
 #     set_jit_fusion_options()
 
 
-# -----------------------------------------
+def monitor_oom():
+    torch.cuda.memory._record_memory_history(True,
+        # keep 100,000 alloc/free events from before the snapshot
+        trace_alloc_max_entries=100000,
+
+        # record stack information for the trace events
+        trace_alloc_record_context=True)
+
+    def oom_observer(device, alloc, device_alloc, device_free):
+        # snapshot right after an OOM happened
+        print('saving allocated state during OOM')
+        snapshot = torch.cuda.memory._snapshot()
+        snapshot_path = oom_snapshot_path / f"oom_rank-{torch.distributed.get_rank()}.pkl"
+        with open(snapshot_path, 'wb') as f:
+            dump(snapshot, f)
+
+    torch._C._cuda_attach_out_of_memory_observer(oom_observer)
+    return
+
+# ================================
 # Model, optimizer, and learning rate.
-# -----------------------------------------
-from megatron.training.training import setup_model_and_optimizer
-from megatron.core.enums import ModelType
-from typing import Union
-from megatron.core.models.gpt import GPTModel
+# ================================
+from pickle import dump
 def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, 'megatron.legacy.model.GPTModel']:
+    # TODO: Simplified model provider for DistCA.
     """Builds the model.
 
     If you set the use_legacy_models to True, it will return the legacy GPT model and if not the mcore GPT model.
@@ -485,51 +599,17 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, 'mega
     """
     args = get_args()
     use_te = args.transformer_impl == "transformer_engine"
+    assert use_te, "Transformer Engine is required for DistCA."
 
     if args.record_memory_history:
-        torch.cuda.memory._record_memory_history(True,
-            # keep 100,000 alloc/free events from before the snapshot
-            trace_alloc_max_entries=100000,
-
-            # record stack information for the trace events
-            trace_alloc_record_context=True)
-
-        def oom_observer(device, alloc, device_alloc, device_free):
-            # snapshot right after an OOM happened
-            print('saving allocated state during OOM')
-            snapshot = torch.cuda.memory._snapshot()
-            from pickle import dump
-            dump(snapshot, open(f"oom_rank-{torch.distributed.get_rank()}_{args.memory_snapshot_path}", 'wb'))
-
-        torch._C._cuda_attach_out_of_memory_observer(oom_observer)
+        monitor_oom()
     logger.info(f"Building model for rank {torch.distributed.get_rank()}")
 
-
-    if args.num_experts:
-        from megatron.core.models.gpt.gpt_layer_specs import get_gpt_decoder_block_spec
-        # Define the decoder block spec
-        transformer_layer_spec = get_gpt_decoder_block_spec(config, use_transformer_engine=use_te, normalization=args.normalization)
-    elif args.heterogeneous_layers_config_path is not None:
-        from megatron.core.models.gpt.gpt_layer_specs import get_gpt_heterogeneous_layer_spec
-        transformer_layer_spec = get_gpt_heterogeneous_layer_spec(config, use_te)
-    else:
-        # Define the decoder layer spec
-        if use_te:
-            from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
-            transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(
-                args.num_experts, args.moe_grouped_gemm,
-                args.qk_layernorm, args.multi_latent_attention, args.moe_use_legacy_grouped_gemm)
-        else:
-            from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_local_spec
-            transformer_layer_spec = get_gpt_layer_local_spec(
-                args.num_experts, args.moe_grouped_gemm,
-                args.qk_layernorm, args.multi_latent_attention, args.moe_use_legacy_grouped_gemm,
-                normalization=args.normalization)
     
-    mtp_block_spec = None
-    if args.mtp_num_layers is not None:
-        from megatron.core.models.gpt.gpt_layer_specs import get_gpt_mtp_block_spec
-        mtp_block_spec = get_gpt_mtp_block_spec(config, transformer_layer_spec, use_transformer_engine=use_te)
+    from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
+    transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(
+        args.num_experts, args.moe_grouped_gemm,
+        args.qk_layernorm, args.multi_latent_attention, args.moe_use_legacy_grouped_gemm)
 
     model = GPTModel(
         config=config,
@@ -545,7 +625,7 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, 'mega
         rotary_percent=args.rotary_percent,
         rotary_base=args.rotary_base,
         rope_scaling=args.use_rope_scaling,
-        mtp_block_spec=mtp_block_spec,
+        mtp_block_spec=None,
     )
 
     return model
@@ -564,26 +644,10 @@ logger.debug(f"Model: {model}")
 logger.debug(f"Optimizer: {optimizer}")
 logger.debug(f"Learning Rate Scheduler: {opt_param_scheduler}")
 
-# --------------------------------
-# Initialize DataLoader (?)
-# --------------------------------
-import numpy
-from typing import Optional, Tuple, List
-from megatron.training.tokenizer.tokenizer import MegatronTokenizer
-from megatron.core.datasets.utils import Split
-from megatron.training.training import build_train_valid_test_data_iterators
-from megatron.core.datasets.blended_megatron_dataset_builder import BlendedMegatronDatasetBuilder
-from megatron.core.datasets.gpt_dataset import MockGPTDataset, GPTDataset
-from megatron.training import get_tokenizer
-from typing import Optional, Tuple, List
-from megatron.training.utils import (
-    get_batch_on_this_cp_rank,
-    get_batch_on_this_tp_rank,
-    get_blend_and_blend_per_split,
-)
-from megatron.core.datasets.gpt_dataset import GPTDatasetConfig
+# ================================
+# DataLoader Setup
+# ================================
 
-mpu = parallel_state
 
 def is_dataset_built_on_rank():
     return (
@@ -618,124 +682,6 @@ def core_gpt_dataset_config_from_args(args):
     )
 
 
-
-class DistCAMockGPTLowLevelDataset:
-    """The mock GPT low level dataset
-
-    This class is meant to generate tokenized data in the classic "Megatron-LM" GPT style. Notably,
-    we add the end of document token to each element indexed in __getitem__
-
-    Args:
-        tokenizer (MegatronTokenizer): The tokenizer the special token information of which we use
-            to augment the mock data.
-    """
-
-    seed: int = 0
-    """The hard-coded random seed to use to set the NumPy RNG"""
-
-    size: int = 100000
-    """The hard-coded number of samples to generate"""
-
-    max_sequence_length: int = 512
-    """The hard-coded max sequence length to generate"""
-
-    def __init__(self, tokenizer: MegatronTokenizer) -> None:
-        self.tokenizer = tokenizer
-        rng = numpy.random.default_rng(seed=self.seed)
-        self.sequence_lengths = rng.integers(
-            low=1, high=self.max_sequence_length, 
-            size=self.size, dtype=numpy.int32
-        )
-
-    def __len__(self) -> int:
-        return self.size
-
-    def __getitem__(self, idx: int) -> numpy.number:
-        length = self.sequence_lengths[idx]
-        sample = numpy.int64(
-            numpy.concatenate([numpy.arange(length - 1) + 1, [self.tokenizer.eod]])
-        )
-        return sample
-
-    def get(self, idx: int, offset: int = 0, length: Optional[int] = None) -> numpy.ndarray:
-        """This function is an abstraction over __getitem__ with support for slicing
-
-        Args:
-            idx (int): The index into the dataset
-
-            offset (int): The integer token offset in the sequence
-
-            length (Optional[int]): The number of tokens to grab from the sequence
-
-        Returns:
-            numpy.ndarray: The sequence tokens at the index
-        """
-        if length is None:
-            length = self.sequence_lengths[idx] - offset
-        return self[idx][offset : offset + length]
-
-
-class DistCAMockGPTDataset(GPTDataset):
-    """The mock GPT dataset
-
-    Args:
-        indexed_dataset (MockGPTLowLevelDataset): The MockGPTLowLevelDataset around which to build
-            the MockGPTDataset
-
-        dataset_path (Optional[str]): This argument is of no consequence for the MockGPTDataset
-
-        indices (numpy.ndarray): The set of the dataset indices to expose
-
-        num_samples (int): The number of samples to draw from the dataset
-
-        index_split (Split): The indices Split
-
-        config (GPTDatasetConfig): The config
-    """
-
-    def __init__(
-        self,
-        dataset: DistCAMockGPTLowLevelDataset,
-        dataset_path: Optional[str],
-        indices: numpy.ndarray,
-        num_samples: int,
-        index_split: Split,
-        config: GPTDatasetConfig,
-    ) -> None:
-        assert config.mock
-
-        super().__init__(dataset, dataset_path, indices, num_samples, index_split, config)
-
-    @staticmethod
-    def numel_low_level_dataset(low_level_dataset: DistCAMockGPTLowLevelDataset) -> int:
-        """Abstract method implementation
-
-        Args:
-            low_level_dataset (DistCAMockGPTLowLevelDataset): The underlying DistCAMockGPTLowLevelDataset
-
-        Returns:
-            int: The number of unique elements in the underlying DistCAMockGPTLowLevelDataset
-        """
-        return len(low_level_dataset)
-
-    @staticmethod
-    def build_low_level_dataset(
-        dataset_path: Optional[str], config: GPTDatasetConfig
-    ) -> DistCAMockGPTLowLevelDataset:
-        """Abstract method implementation
-
-        Args:
-            dataset_path (Optional[str]): This argument is of no consequence for the
-                DistCAMockGPTLowLevelDataset
-
-            config (GPTDatasetConfig): The config
-
-        Returns:
-            DistCAMockGPTLowLevelDataset: The underlying DistCAMockGPTLowLevelDataset
-        """
-        return DistCAMockGPTLowLevelDataset(config.tokenizer)
-
-
 def train_valid_test_datasets_provider(train_val_test_num_samples):
     """Build the train test and validation datasets.
 
@@ -747,10 +693,7 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
     config = core_gpt_dataset_config_from_args(args)
     logger.info(f"> GPTDatasetConfig: {config}")
 
-    if args.mock_data:
-        dataset_type = DistCAMockGPTDataset
-    else:
-        dataset_type = GPTDataset
+    dataset_type = GPTDataset # TODO: Add DistCAMockGPTDataset and stuff
 
     logger.info("> building train, validation, and test datasets for GPT ...")
 
@@ -770,34 +713,12 @@ train_data_iterator, valid_data_iterator, test_data_iterator \
     = build_train_valid_test_data_iterators(
         train_valid_test_datasets_provider)
 
-
-logger.debug(f"train_data_iterator: {train_data_iterator}")
-logger.debug(f"valid_data_iterator: {valid_data_iterator}")
-logger.debug(f"test_data_iterator: {test_data_iterator}")
-
-if rank == 0:
-    # train_data_iterator: RerunDataIterator
-    from megatron.core.rerun_state_machine import RerunDataIterator
-    # assert isinstance(train_data_iterator, RerunDataIterator)
-    # logger.debug(f"train_data_iterator.iterable: {train_data_iterator.iterable}")
-    # logger.debug(f"train_data_iterator.saved_microbatches: {train_data_iterator.saved_microbatches}")
-
-    # for i, item in enumerate(train_data_iterator.iterable):
-    #     logger.debug(f"train_data_iterator item {i}: {item}")
-    #     if i > 5:
-    #         break
-
 logger.info('done with setup ...')
-
-
-
-# -----------------------------------------
-# Monkey Patch some training functions
-# -----------------------------------------
+# ==========================================================
+# Monkey Patch training functions with NVTX markers
+# ==========================================================
 
 # Patch forward_step and backward_step with nvtx markers
-import torch.cuda.nvtx
-import megatron.core.pipeline_parallel.schedules
 old_forward_step = megatron.core.pipeline_parallel.schedules.forward_step
 old_backward_step = megatron.core.pipeline_parallel.schedules.backward_step
 
@@ -817,7 +738,6 @@ megatron.core.pipeline_parallel.schedules.backward_step = backward_step_with_nvt
 
 
 # Patch the functions in forward_backward_func
-import megatron.core.pipeline_parallel.schedules 
 old_forward_backward_pipelining_with_interleaving = megatron.core.pipeline_parallel.schedules.forward_backward_pipelining_with_interleaving
 old_forward_backward_pipelining_without_interleaving = megatron.core.pipeline_parallel.schedules.forward_backward_pipelining_without_interleaving
 old_forward_backward_no_pipelining = megatron.core.pipeline_parallel.schedules.forward_backward_no_pipelining
@@ -845,7 +765,6 @@ optimizer.step = optimizer_step_with_nvtx
 
 
 # Patch a train_step
-import megatron.training.training
 old_train_step = megatron.training.training.train_step
 def train_step_with_nvtx(*args, **kwargs):
     logger.debug(f"Start train_step")
@@ -855,7 +774,6 @@ megatron.training.training.train_step = train_step_with_nvtx
 
 
 # Patch each layer such that I will know when the forward function gets called
-import megatron.core.transformer.transformer_layer
 old_transformer_layer_forward = megatron.core.transformer.transformer_layer.TransformerLayer.forward
 def transformer_layer_forward_with_nvtx(self, *args, **kwargs):
     # logger.debug(f"Start transformer_layer_forward[{self.layer_number}]")
@@ -868,39 +786,29 @@ megatron.core.transformer.transformer_layer.TransformerLayer.forward = transform
 logger.info(f"model: {model}")
 
 
-# -----------------------------------------
-# Start training
-# -----------------------------------------
-from megatron.training.training import train
+# ================================
+# Training Functions
+# ================================
+stimer = StragglerDetector()
+
+# Configure token monitoring (optional - defaults are sensible)
+set_token_monitor_config(enabled=True, max_tokens_to_decode=200, max_samples_to_log=2)
+
 
 def get_batch(data_iterator):
     """Generate a batch."""
-
     # TODO: this is pretty hacky, find a better way
     if (not mpu.is_pipeline_first_stage()) and (not mpu.is_pipeline_last_stage()):
         return None, None, None, None, None
 
     # get batches based on the TP rank you are on
-    # logger.debug(f"Get batch on this TP rank")
     batch = get_batch_on_this_tp_rank(data_iterator)
-    # logger.debug(f"Finished get batch on this TP rank.")
-    # logger.debug(f"Batch: {batch}")
-
-    # slice batch along sequence dimension for context parallelism
-    # logger.debug(f"Slice batch along sequence dimension for context parallelism")
     batch = get_batch_on_this_cp_rank(batch)
-    # logger.debug(f"Finished slice batch along sequence dimension for context parallelism.")
-    # logger.debug(f"Batch: {batch}")
-
-    # logger.debug(f"Return batch")
     return batch.values()
 
 
 # define spiky loss as a loss that's 10x the max loss observed
 SPIKY_LOSS_FACTOR = 10
-
-from functools import partial
-from megatron.core.rerun_state_machine import get_rerun_state_machine
 
 
 def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
@@ -971,22 +879,6 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
     )
 
 
-from megatron.training.training import get_timers
-from megatron.core.utils import StragglerDetector
-
-stimer = StragglerDetector()
-
-# Token monitoring - import from utils
-from utils.token_monitor import (
-    monitor_batch_tokens,
-    set_token_monitor_config,
-    get_token_monitor_config,
-)
-
-# Configure token monitoring (optional - defaults are sensible)
-set_token_monitor_config(enabled=True, max_tokens_to_decode=200, max_samples_to_log=2)
-
-
 def forward_step(data_iterator, model: GPTModel):
     """Forward training step.
 
@@ -1036,39 +928,13 @@ process_non_loss_data_func = None
 non_loss_data_func = None
 
 
-# %%
-# # Add additional safe guard to ensure everyone is here.
-# # Then do a broadcast and an allreduce to ensure everyone is here.
-# torch.distributed.barrier()
+# ================================
+# Start Training
+# ================================
 
-# logger.info(f"Rank {rank} starting safe guard...")
-# t = torch.tensor([rank], device="cuda")
-# torch.distributed.all_reduce(t)
-# logger.info(f"Allreduced value: {t.item()}")
-
-# logger.info(f"Rank {rank} preparing to broadcast or receive value...")
-# t = torch.tensor([0], device="cuda")
-# if rank == 0:
-#     t.fill_(42)
-# torch.distributed.broadcast(t, src=0)
-# logger.info(f"Rank {rank} received broadcast value: {t.item()}")
-
-# torch.distributed.barrier()
-
-# logger.info(f"Rank {rank} finished safe guard. Now starting training...")
-
-
-memory_estimate = log_memory_estimate(
-    args, 
-    num_microbatches=num_microbatches, 
-    verbose=True, 
-    logger=logger
-)
+memory_estimate = log_memory_estimate(args, num_microbatches=num_microbatches, verbose=True, logger=logger)
 logger.info(f"Memory estimate: {memory_estimate}")
 
-
-# %%
-iteration = 0
 iteration, num_floating_point_operations_so_far = train(
     forward_step,
     model, optimizer, opt_param_scheduler,
@@ -1077,27 +943,19 @@ iteration, num_floating_point_operations_so_far = train(
     non_loss_data_func
 )
 
-
-
-# %%
-# -----------------------------------------
-# Finish training
-# -----------------------------------------
-
-from megatron.training.global_vars import get_wandb_writer
+# ================================
+# Finish Training
+# ================================
 wandb_writer = get_wandb_writer()
 if wandb_writer:
     wandb_writer.finish()
 
 
-
-
-# -----------------------------------------
+# ================================
 # Test Individual components
-# -----------------------------------------
+# ================================
 # from test_vocab import test_vocab
 # test_vocab()
-
 
 logger.info(f"Rank {rank} is exiting")
 torch.distributed.destroy_process_group()

@@ -395,7 +395,7 @@ designated_args = [
     # "--recompute-granularity", "selective",
     # "--recompute-modules", "mlp",
     "--recompute-granularity", "selective",
-    "--recompute-modules", "core_attn",
+    "--recompute-modules", "core_attn", #"mlp",
 
     # Cuda Graphs
     # "--enable-cuda-graph", "True",
